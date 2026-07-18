@@ -1,0 +1,438 @@
+
+package cn.bamgdam.rankboard;
+
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.commands.CommandSourceStack;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Properties;
+
+/** Runtime settings shared by the in-game UI, history loader, and web dashboard. */
+final class RankBoardConfig {
+    private static final String MAIN_FILE = "rankboard.properties";
+    private static final String WEB_FILE = "rankboard-web.properties";
+    private static final List<Option> OPTIONS = List.of(
+            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每秒检查的玩家统计文件数；默认 50，范围 1-1000，修改后下次缓存重载生效。"),
+            option("welcome-enabled", "true", FileKind.MAIN, "进服提示", "是否发送“欢迎来到”提示；默认 true。"),
+            option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
+            option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
+            option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
+            option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
+            option("restore-scoreboard-on-join", "true", FileKind.MAIN, "客户端计分板", "玩家进服时是否恢复上一次选择的计分板；默认 true。"),
+            option("look-up-sneak-menu-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许抬头并按住 Shift 打开排行榜菜单；默认 true。"),
+            option("carousel-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许玩家使用榜单轮播；默认 true。"),
+            option("carousel-interval-seconds", "30", FileKind.MAIN, "客户端计分板", "榜单轮播间隔秒数；默认 30，范围 3-3600。"),
+            option("client-scoreboard-show-zero", "false", FileKind.MAIN, "客户端计分板", "个人侧边栏是否显示当前榜单数值为 0 的玩家；默认 false。"),
+            option("scoreboard-switch-message-enabled", "true", FileKind.MAIN, "客户端计分板", "切换个人榜单后是否发送“已显示……”提示；默认 true。"),
+            option("scoreboard-name-color-enabled", "true", FileKind.MAIN, "客户端计分板", "是否根据玩家当前榜单给名字着色；默认 true。"),
+            option("scoreboard-title-color-enabled", "true", FileKind.MAIN, "客户端计分板", "是否让计分板标题跟随当前榜单颜色；默认 true。"),
+            option("scoreboard-live-update-enabled", "true", FileKind.MAIN, "客户端计分板", "玩家行为改变统计时是否即时刷新对应榜单；默认 true。"),
+            option("scoreboard-live-update-window-seconds", "30", FileKind.MAIN, "客户端计分板", "高频行为统计窗口秒数；默认 30，范围 1-300。"),
+            option("scoreboard-live-update-threshold", "100", FileKind.MAIN, "客户端计分板", "窗口内超过此次数后进入降频；默认 100，范围 1-100000。"),
+            option("scoreboard-live-update-throttle-seconds", "30", FileKind.MAIN, "客户端计分板", "高频榜单的最短刷新间隔秒数；默认 30，范围 1-3600。"),
+            option("foreign-scoreboard-blocking-mode", "ask", FileKind.MAIN, "客户端计分板", "其他模组计分板屏蔽模式；默认 ask 不自动屏蔽并提示 OP 选择，可选 ask、enabled、disabled。"),
+            option("mod-whitelist-enabled", "false", FileKind.MAIN, "玩家筛选", "是否只读取 config/rankboard/rankboard-whitelist.json 中的玩家；默认 false，保留原有服务器白名单逻辑。"),
+            option("help-visibility", "all", FileKind.MAIN, "权限与帮助", "帮助可见范围；默认 all，可选 all、op、hidden。"),
+            option("avatar-cache-enabled", "true", FileKind.MAIN, "玩家头像缓存", "是否缓存进服玩家的皮肤头像；默认 true。"),
+            option("avatar-cache-days", "7", FileKind.MAIN, "玩家头像缓存", "头像缓存有效天数；默认 7，范围 1-365。"),
+            option("host", "0.0.0.0", FileKind.WEB, "网页监听", "网页监听地址；默认 0.0.0.0，表示监听所有 IPv4 地址。"),
+            option("port", "8765", FileKind.WEB, "网页监听", "网页监听端口；默认 8765，范围 1-65535。"),
+            option("web-data-requests-per-second", "1", FileKind.WEB, "请求限流", "同一 IP 对同一数据接口或网页资源每秒最多请求次数；默认 1，范围 1-100。"),
+            option("web-icon-requests-per-minute", "3", FileKind.WEB, "请求限流", "同一 IP 对同一玩家或服务器图标每分钟最多请求次数；默认 3，范围 1-1000。"),
+            option("web-ranking-refresh-interval-seconds", "30", FileKind.WEB, "网页数据", "网页排行榜数据快照刷新间隔秒数；默认 30，范围 1-3600。"),
+            option("server-name", "auto", FileKind.WEB, "网页显示", "网页显示的服务器名称；默认 auto，自动读取服务器 MOTD。"),
+            option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标文件名；只能使用 config/rankboard/ 目录内的文件，默认 server-icon.png。")
+    );
+    private static volatile RankBoardConfig current = defaults();
+    private static volatile Properties mainProperties = defaultsFor(FileKind.MAIN);
+    private static volatile Properties webProperties = defaultsFor(FileKind.WEB);
+
+    final int historyFilesPerSecond;
+    final boolean welcomeEnabled;
+    final boolean joinMenuEnabled;
+    final boolean restoreBoardOnJoin;
+    final boolean lookUpSneakMenuEnabled;
+    final boolean carouselEnabled;
+    final int carouselIntervalSeconds;
+    final boolean clientScoreboardShowZero;
+    final boolean scoreboardSwitchMessageEnabled;
+    final boolean scoreboardNameColorEnabled;
+    final boolean scoreboardTitleColorEnabled;
+    final boolean scoreboardLiveUpdateEnabled;
+    final int scoreboardLiveUpdateWindowSeconds;
+    final int scoreboardLiveUpdateThreshold;
+    final int scoreboardLiveUpdateThrottleSeconds;
+    final ForeignScoreboardPolicy foreignScoreboardPolicy;
+    final boolean modWhitelistEnabled;
+    final boolean joinWebHintEnabled;
+    final boolean avatarCacheEnabled;
+    final int avatarCacheDays;
+    final String welcomeName;
+    final String webPublicAddress;
+    final HelpVisibility helpVisibility;
+
+    private RankBoardConfig(Properties properties) {
+        historyFilesPerSecond = integer(properties, "history-files-per-second", 50, 1, 1000);
+        welcomeEnabled = bool(properties, "welcome-enabled", true);
+        joinMenuEnabled = bool(properties, "join-menu-enabled", true);
+        restoreBoardOnJoin = bool(properties, "restore-scoreboard-on-join", true);
+        lookUpSneakMenuEnabled = bool(properties, "look-up-sneak-menu-enabled", true);
+        carouselEnabled = bool(properties, "carousel-enabled", true);
+        carouselIntervalSeconds = integer(properties, "carousel-interval-seconds", 30, 3, 3600);
+        clientScoreboardShowZero = bool(properties, "client-scoreboard-show-zero", false);
+        scoreboardSwitchMessageEnabled = bool(properties, "scoreboard-switch-message-enabled", true);
+        scoreboardNameColorEnabled = bool(properties, "scoreboard-name-color-enabled", true);
+        scoreboardTitleColorEnabled = bool(properties, "scoreboard-title-color-enabled", true);
+        scoreboardLiveUpdateEnabled = bool(properties, "scoreboard-live-update-enabled", true);
+        scoreboardLiveUpdateWindowSeconds = integer(properties, "scoreboard-live-update-window-seconds", 30, 1, 300);
+        scoreboardLiveUpdateThreshold = integer(properties, "scoreboard-live-update-threshold", 100, 1, 100000);
+        scoreboardLiveUpdateThrottleSeconds = integer(properties, "scoreboard-live-update-throttle-seconds", 30, 1, 3600);
+        foreignScoreboardPolicy = ForeignScoreboardPolicy.parse(properties.getProperty("foreign-scoreboard-blocking-mode", "ask"));
+        modWhitelistEnabled = bool(properties, "mod-whitelist-enabled", false);
+        joinWebHintEnabled = bool(properties, "join-web-hint-enabled", false);
+        avatarCacheEnabled = bool(properties, "avatar-cache-enabled", true);
+        avatarCacheDays = integer(properties, "avatar-cache-days", 7, 1, 365);
+        welcomeName = properties.getProperty("welcome-name", "auto").strip();
+        webPublicAddress = properties.getProperty("web-public-address", "").strip();
+        helpVisibility = HelpVisibility.parse(properties.getProperty("help-visibility", "all"));
+    }
+
+    static synchronized RankBoardConfig load(MinecraftServer server) {
+        try {
+            mainProperties = loadMigratedProperties(server, MAIN_FILE, FileKind.MAIN);
+            current = new RankBoardConfig(mainProperties);
+        } catch (IOException exception) {
+            RankBoardMod.LOGGER.warn("Could not load {}; using defaults", configDirectory(server).resolve(MAIN_FILE), exception);
+            mainProperties = defaultsFor(FileKind.MAIN);
+            current = new RankBoardConfig(mainProperties);
+        }
+        return current;
+    }
+
+    static synchronized Properties loadWeb(MinecraftServer server) throws IOException {
+        webProperties = loadMigratedProperties(server, WEB_FILE, FileKind.WEB);
+        return copyOf(webProperties);
+    }
+
+    static RankBoardConfig get() { return current; }
+
+    static Path configDirectory(MinecraftServer server) {
+        return server.getServerDirectory().resolve("config").resolve("rankboard");
+    }
+
+    static List<String> optionKeys() {
+        return OPTIONS.stream().map(Option::key).toList();
+    }
+
+    static boolean isKnownOption(String key) {
+        return findOption(key) != null;
+    }
+
+    static String value(String key) {
+        Option option = requireOption(key);
+        Properties properties = option.fileKind == FileKind.MAIN ? mainProperties : webProperties;
+        return properties.getProperty(option.key, option.defaultValue);
+    }
+
+    static String description(String key) {
+        return requireOption(key).comment;
+    }
+
+    static boolean isWebOption(String key) {
+        return requireOption(key).fileKind == FileKind.WEB;
+    }
+
+    static synchronized String set(MinecraftServer server, String key, String rawValue) throws IOException {
+        Option option = requireOption(key);
+        String value = normalize(option, rawValue);
+        Properties updated = copyOf(option.fileKind == FileKind.MAIN ? mainProperties : webProperties);
+        updated.setProperty(option.key, value);
+        writeConfig(configDirectory(server).resolve(option.fileKind.fileName), updated, option.fileKind);
+        if (option.fileKind == FileKind.MAIN) {
+            mainProperties = updated;
+            current = new RankBoardConfig(updated);
+        } else {
+            webProperties = updated;
+        }
+        return value;
+    }
+
+    boolean helpVisible(CommandSourceStack source) {
+        return switch (helpVisibility) {
+            case ALL -> true;
+            case OP -> CommandPermissionCompat.has(source, 2);
+            case HIDDEN -> false;
+        };
+    }
+
+    String displayName(MinecraftServer server) {
+        if (!welcomeName.isEmpty() && !welcomeName.equalsIgnoreCase("auto")) return welcomeName;
+        if (!server.isDedicatedServer()) return server.getWorldData().getLevelName();
+        Path propertiesPath = server.getServerDirectory().resolve("server.properties");
+        Properties serverProperties = new Properties();
+        try (Reader reader = Files.newBufferedReader(propertiesPath, StandardCharsets.UTF_8)) {
+            serverProperties.load(reader);
+            String motd = serverProperties.getProperty("motd", "Minecraft Server")
+                    .replaceAll("(?i)§[0-9A-FK-ORX]", "")
+                    .replace("\\n", " ").strip();
+            return motd.isEmpty() ? "Minecraft Server" : motd;
+        } catch (IOException exception) {
+            return server.getWorldData().getLevelName();
+        }
+    }
+
+    String webAddress(MinecraftServer server) {
+        if (!webPublicAddress.isEmpty()) return webPublicAddress;
+        Properties web = webProperties;
+        String host = web.getProperty("host", "").strip();
+        if (host.isEmpty() || host.equals("0.0.0.0") || host.equals("::")) host = server.getLocalIp();
+        if (host == null || host.isBlank()) host = "服务器地址";
+        return host + ":" + web.getProperty("port", "8765").strip();
+    }
+
+    private static Properties loadMigratedProperties(MinecraftServer server, String fileName,
+                                                       FileKind fileKind) throws IOException {
+        Path directory = configDirectory(server);
+        Path target = directory.resolve(fileName);
+        Path legacy = server.getServerDirectory().resolve(fileName);
+        Properties properties = new Properties();
+        if (Files.isRegularFile(target)) loadInto(target, properties, false);
+        if (Files.isRegularFile(legacy)) loadInto(legacy, properties, true);
+        for (Option option : OPTIONS) {
+            if (option.fileKind == fileKind) properties.putIfAbsent(option.key, option.defaultValue);
+        }
+        writeConfig(target, properties, fileKind);
+        if (Files.isRegularFile(legacy)) {
+            Files.delete(legacy);
+            RankBoardMod.LOGGER.info("Migrated legacy RankBoard config {} to {}", legacy, target);
+        }
+        return properties;
+    }
+
+    private static void loadInto(Path path, Properties target, boolean onlyMissing) throws IOException {
+        Properties loaded = new Properties();
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            loaded.load(reader);
+        }
+        for (Map.Entry<Object, Object> entry : loaded.entrySet()) {
+            if (!onlyMissing || !target.containsKey(entry.getKey())) target.put(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private static void writeConfig(Path path, Properties properties, FileKind fileKind) throws IOException {
+        Files.createDirectories(path.getParent());
+        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+        try {
+            try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                writer.write(fileKind == FileKind.MAIN
+                        ? "# RankBoard 主配置（Minecraft 1.21.1）\n"
+                        : "# RankBoard 网页配置（Minecraft 1.21.1）\n");
+                writer.write("# 可手动编辑，也可由 OP 使用 /leaderboard config set <配置项> <值> 修改。\n");
+                writer.write("# 修改前请阅读每项说明；布尔值使用 true 或 false。\n");
+                String previousSection = null;
+                for (Option option : OPTIONS) {
+                    if (option.fileKind != fileKind) continue;
+                    if (!option.section.equals(previousSection)) {
+                        writer.write("\n# --- " + option.section + " ---\n");
+                        previousSection = option.section;
+                    }
+                    writer.write("# " + option.comment + "\n");
+                    writer.write(escape(option.key, true) + "="
+                            + escape(properties.getProperty(option.key, option.defaultValue), false) + "\n");
+                }
+                List<String> unknown = new ArrayList<>();
+                for (String key : properties.stringPropertyNames()) {
+                    Option option = findOption(key);
+                    if (option == null || option.fileKind != fileKind) unknown.add(key);
+                }
+                if (!unknown.isEmpty()) {
+                    unknown.sort(String::compareTo);
+                    writer.write("\n# --- 从旧配置保留的未知配置项 ---\n");
+                    writer.write("# RankBoard 当前版本不会主动使用这些配置项。\n");
+                    for (String key : unknown) {
+                        writer.write(escape(key, true) + "=" + escape(properties.getProperty(key, ""), false) + "\n");
+                    }
+                }
+            }
+            try {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static String normalize(Option option, String rawValue) {
+        String value = rawValue.strip();
+        return switch (option.key) {
+            case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
+            case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);
+            case "avatar-cache-days" -> normalizedInteger(value, 1, 365);
+            case "port" -> normalizedInteger(value, 1, 65535);
+            case "web-data-requests-per-second" -> normalizedInteger(value, 1, 100);
+            case "web-icon-requests-per-minute" -> normalizedInteger(value, 1, 1000);
+            case "scoreboard-live-update-window-seconds" -> normalizedInteger(value, 1, 300);
+            case "scoreboard-live-update-threshold" -> normalizedInteger(value, 1, 100000);
+            case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);
+            case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled",
+                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled",
+                    "client-scoreboard-show-zero", "scoreboard-switch-message-enabled",
+                    "scoreboard-name-color-enabled", "scoreboard-title-color-enabled",
+                    "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled" -> normalizedBoolean(value);
+            case "help-visibility" -> switch (value.toLowerCase(Locale.ROOT)) {
+                case "all" -> "all";
+                case "op", "ops" -> "op";
+                case "hidden", "off", "none" -> "hidden";
+                default -> throw new IllegalArgumentException("可用值：all、op、hidden");
+            };
+            case "foreign-scoreboard-blocking-mode" -> switch (value.toLowerCase(Locale.ROOT)) {
+                case "ask" -> "ask";
+                case "enabled", "enable", "on", "true" -> "enabled";
+                case "disabled", "disable", "off", "false" -> "disabled";
+                default -> throw new IllegalArgumentException("可用值：ask、enabled、disabled");
+            };
+            case "host", "website-icon" -> {
+                if (value.isEmpty()) throw new IllegalArgumentException(option.key + " 不能为空");
+                yield value;
+            }
+            case "welcome-name", "server-name" -> value.isEmpty() ? "auto" : value;
+            case "web-public-address" -> value.equalsIgnoreCase("auto") ? "" : value;
+            default -> value;
+        };
+    }
+
+    private static String normalizedBoolean(String value) {
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "true", "on", "yes", "1" -> "true";
+            case "false", "off", "no", "0" -> "false";
+            default -> throw new IllegalArgumentException("布尔配置仅支持 true/false（也可使用 on/off）");
+        };
+    }
+
+    private static String normalizedInteger(String value, int minimum, int maximum) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < minimum || parsed > maximum) throw new NumberFormatException();
+            return Integer.toString(parsed);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("数值范围必须为 " + minimum + "-" + maximum);
+        }
+    }
+
+    private static String escape(String value, boolean key) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            switch (character) {
+                case '\\' -> escaped.append("\\\\");
+                case '\n' -> escaped.append("\\n");
+                case '\r' -> escaped.append("\\r");
+                case '\t' -> escaped.append("\\t");
+                case '=', ':' -> {
+                    if (key) escaped.append('\\');
+                    escaped.append(character);
+                }
+                case '#', '!' -> {
+                    if (key || index == 0) escaped.append('\\');
+                    escaped.append(character);
+                }
+                case ' ' -> {
+                    if (index == 0 || key) escaped.append('\\');
+                    escaped.append(character);
+                }
+                default -> escaped.append(character);
+            }
+        }
+        return escaped.toString();
+    }
+
+    private static Properties defaultsFor(FileKind fileKind) {
+        Properties defaults = new Properties();
+        for (Option option : OPTIONS) {
+            if (option.fileKind == fileKind) defaults.setProperty(option.key, option.defaultValue);
+        }
+        return defaults;
+    }
+
+    private static Properties copyOf(Properties original) {
+        Properties copy = new Properties();
+        copy.putAll(original);
+        return copy;
+    }
+
+    private static RankBoardConfig defaults() { return new RankBoardConfig(defaultsFor(FileKind.MAIN)); }
+
+    private static Option option(String key, String defaultValue, FileKind fileKind, String section, String comment) {
+        return new Option(key, defaultValue, fileKind, section, comment);
+    }
+
+    private static Option requireOption(String key) {
+        Option option = findOption(key);
+        if (option == null) throw new IllegalArgumentException("未知配置项：" + key);
+        return option;
+    }
+
+    private static Option findOption(String key) {
+        for (Option option : OPTIONS) if (option.key.equals(key)) return option;
+        return null;
+    }
+
+    private static boolean bool(Properties properties, String key, boolean fallback) {
+        return Boolean.parseBoolean(properties.getProperty(key, Boolean.toString(fallback)));
+    }
+
+    private static int integer(Properties properties, String key, int fallback, int minimum, int maximum) {
+        try {
+            return Math.max(minimum, Math.min(maximum,
+                    Integer.parseInt(properties.getProperty(key, Integer.toString(fallback)))));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private enum FileKind {
+        MAIN(MAIN_FILE), WEB(WEB_FILE);
+        final String fileName;
+        FileKind(String fileName) { this.fileName = fileName; }
+    }
+
+    private record Option(String key, String defaultValue, FileKind fileKind, String section, String comment) { }
+
+    enum HelpVisibility {
+        ALL, OP, HIDDEN;
+
+        static HelpVisibility parse(String value) {
+            return switch (value.strip().toLowerCase(Locale.ROOT)) {
+                case "op", "ops" -> OP;
+                case "hidden", "off", "none" -> HIDDEN;
+                default -> ALL;
+            };
+        }
+    }
+
+    enum ForeignScoreboardPolicy {
+        ASK, ENABLED, DISABLED;
+
+        static ForeignScoreboardPolicy parse(String value) {
+            return switch (value.strip().toLowerCase(Locale.ROOT)) {
+                case "enabled", "enable", "on", "true" -> ENABLED;
+                case "disabled", "disable", "off", "false" -> DISABLED;
+                default -> ASK;
+            };
+        }
+    }
+}

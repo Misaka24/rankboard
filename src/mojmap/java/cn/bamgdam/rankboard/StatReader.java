@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -71,7 +70,7 @@ final class StatReader {
                 BoardService.refreshAll(server);
             });
         }
-        int filesPerSecond = loadRate(server.getServerDirectory().resolve("rankboard.properties"));
+        int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
         warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond));
     }
 
@@ -109,13 +108,23 @@ final class StatReader {
     static int processed() { return PROCESSED.get(); }
     static int totalFiles() { return TOTAL.get(); }
     static String progress() { return processed() + "/" + totalFiles(); }
+    static long lastOnline(MinecraftServer server, UUID uuid) {
+        if (server.getPlayerList().getPlayer(uuid) != null) return System.currentTimeMillis();
+        return SOURCE_MODIFIED.getOrDefault(uuid, -1L);
+    }
 
     static List<StatSnapshot> readAll(MinecraftServer server) { return readAll(server, null); }
 
     static List<StatSnapshot> readAll(MinecraftServer server, RankBoardMod.Metric onlyMetric) {
         Map<UUID, StatSnapshot> snapshots = new HashMap<>(CACHE);
+        if (RankBoardConfig.get().modWhitelistEnabled) {
+            snapshots.entrySet().removeIf(entry -> !RankBoardWhitelist.matches(server,
+                    entry.getKey(), entry.getValue().name()));
+        }
         // Live handlers are already in memory and are always newer than files on disk.
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (RankBoardConfig.get().modWhitelistEnabled
+                    && !RankBoardWhitelist.matches(server, player.getUUID(), player.getName().getString())) continue;
             snapshots.put(player.getUUID(), fromPlayer(player, onlyMetric));
         }
         return new ArrayList<>(snapshots.values());
@@ -125,11 +134,15 @@ final class StatReader {
         try {
             Map<UUID, String> names = readKnownNames(server);
             Set<UUID> whitelist = readWhitelistNames(server).keySet();
+            Set<UUID> modWhitelist = RankBoardConfig.get().modWhitelistEnabled
+                    ? RankBoardWhitelist.allowedUuids(names) : Set.of();
             Path directory = server.getWorldPath(LevelResource.PLAYER_STATS_DIR);
             List<Path> files;
             try (Stream<Path> stream = Files.isDirectory(directory) ? Files.list(directory) : Stream.empty()) {
             files = stream.filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .filter(path -> uuidFromPathOrNull(path) != null).toList();
+                    .filter(path -> uuidFromPathOrNull(path) != null)
+                    .filter(path -> !RankBoardConfig.get().modWhitelistEnabled
+                            || modWhitelist.contains(uuidFromPath(path))).toList();
             }
             files = new ArrayList<>(files);
             files.sort(Comparator.comparing((Path path) -> !whitelist.contains(uuidFromPath(path))).thenComparing(Path::toString));
@@ -183,6 +196,8 @@ final class StatReader {
                 JsonObject entry = element.getAsJsonObject();
                 UUID uuid = UUID.fromString(entry.get("uuid").getAsString());
                 String name = knownNames.getOrDefault(uuid, entry.get("name").getAsString());
+                if (RankBoardConfig.get().modWhitelistEnabled
+                        && !RankBoardWhitelist.matches(server, uuid, name)) continue;
                 Map<RankBoardMod.Metric, Long> values = new EnumMap<>(RankBoardMod.Metric.class);
                 JsonObject storedValues = entry.getAsJsonObject("values");
                 for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
@@ -292,26 +307,6 @@ final class StatReader {
     private static UUID uuidFromPathOrNull(Path path) {
         try { return uuidFromPath(path); }
         catch (IllegalArgumentException exception) { return null; }
-    }
-
-    private static int loadRate(Path path) {
-        Properties properties = new Properties();
-        int defaultRate = 50;
-        try {
-            if (Files.isRegularFile(path)) {
-                try (Reader reader = Files.newBufferedReader(path)) { properties.load(reader); }
-            } else {
-                properties.setProperty("history-files-per-second", Integer.toString(defaultRate));
-                try (var writer = Files.newBufferedWriter(path)) {
-                    properties.store(writer, "RankBoard settings");
-                }
-            }
-            return Math.max(1, Math.min(1000,
-                    Integer.parseInt(properties.getProperty("history-files-per-second", Integer.toString(defaultRate)))));
-        } catch (Exception exception) {
-            RankBoardMod.LOGGER.warn("Could not read {}, using {} files/second", path, defaultRate, exception);
-            return defaultRate;
-        }
     }
 
     private static void prepareItemSets() {

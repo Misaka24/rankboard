@@ -12,4 +12,9 @@ final class TextCompat {
         return style.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command))
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hoverText));
     }
+
+    static Style suggest(Style style, String command, Text hoverText) {
+        return style.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, command))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hoverText));
+    }
 }

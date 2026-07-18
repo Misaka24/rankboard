@@ -96,7 +96,10 @@ button { cursor: pointer; }
 .avatar { width: 58px; height: 58px; border: 1px solid rgba(75, 157, 219, 0.38); border-radius: 6px; image-rendering: pixelated; background: #7cc8f4; }
 .avatar-fallback { display: grid; place-items: center; color: #fff; font-size: 22px; font-weight: 800; image-rendering: auto; background: #159ce5; }
 .player-info { min-width: 0; }
+.player-heading { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .player-info h2 { margin: 0; color: #1a3765; font-size: 18px; }
+.last-online { color: #6a83a6; font-size: 11px; white-space: nowrap; }
+.last-online.online { color: #0788c8; font-weight: 700; }
 .player-info p { display: flex; flex-wrap: wrap; gap: 3px 8px; margin: 5px 0 0; color: #6685ac; font-size: 12px; }
 .player-info code { color: inherit; font: inherit; overflow-wrap: anywhere; }
 .player-value { color: #087fca; font-size: 19px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -114,6 +117,8 @@ button { cursor: pointer; }
   .ranking-card { grid-template-columns: 32px 46px minmax(0, 1fr) auto; gap: 9px; padding: 10px; }
   .avatar { width: 46px; height: 46px; }
   .player-info h2 { font-size: 15px; }
+  .player-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .last-online { font-size: 9px; }
   .player-value { font-size: 14px; }
 }
 

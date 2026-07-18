@@ -1,0 +1,16 @@
+{
+  "mod_name": "rankboard",
+  "game_version": "1.21.4",
+  "created_at": "2026-07-18T00:59:45+08:00",
+  "build_command": ".\\gradlew.bat clean build --no-daemon -Pminecraft_version=1.21.4",
+  "source_artifacts": [
+    "D:\\ai\\bamgdam\\build\\libs\\rankboard-1.2.0+mc1.21.4+20260718-005808.jar"
+  ],
+  "files": [
+    {
+      "path": "rankboard-1.2.0+mc1.21.4+20260718-005808.jar",
+      "size_bytes": 850553,
+      "sha256": "179eea2ec58bd9881676b232f491ed9d3e0ef424fa252d41082247073b27e61b"
+    }
+  ]
+}

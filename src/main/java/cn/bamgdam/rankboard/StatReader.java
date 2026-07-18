@@ -22,7 +22,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,7 +71,7 @@ final class StatReader {
                 BoardService.refreshAll(server);
             });
         }
-        int filesPerSecond = loadRate(server.getRunDirectory().resolve("rankboard.properties"));
+        int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
         warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond));
     }
 
@@ -110,6 +109,10 @@ final class StatReader {
     static int processed() { return PROCESSED.get(); }
     static int totalFiles() { return TOTAL.get(); }
     static String progress() { return processed() + "/" + totalFiles(); }
+    static long lastOnline(MinecraftServer server, UUID uuid) {
+        if (server.getPlayerManager().getPlayer(uuid) != null) return System.currentTimeMillis();
+        return SOURCE_MODIFIED.getOrDefault(uuid, -1L);
+    }
 
     static List<StatSnapshot> readAll(MinecraftServer server) { return readAll(server, null); }
 
@@ -293,26 +296,6 @@ final class StatReader {
     private static UUID uuidFromPathOrNull(Path path) {
         try { return uuidFromPath(path); }
         catch (IllegalArgumentException exception) { return null; }
-    }
-
-    private static int loadRate(Path path) {
-        Properties properties = new Properties();
-        int defaultRate = 50;
-        try {
-            if (Files.isRegularFile(path)) {
-                try (Reader reader = Files.newBufferedReader(path)) { properties.load(reader); }
-            } else {
-                properties.setProperty("history-files-per-second", Integer.toString(defaultRate));
-                try (var writer = Files.newBufferedWriter(path)) {
-                    properties.store(writer, "RankBoard settings");
-                }
-            }
-            return Math.max(1, Math.min(1000,
-                    Integer.parseInt(properties.getProperty("history-files-per-second", Integer.toString(defaultRate)))));
-        } catch (Exception exception) {
-            RankBoardMod.LOGGER.warn("Could not read {}, using {} files/second", path, defaultRate, exception);
-            return defaultRate;
-        }
     }
 
     private static void prepareItemSets() {

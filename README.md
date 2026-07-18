@@ -1,290 +1,336 @@
-# RankBoard 模组说明文档（中英双语）
+# RankBoard
 
-## 简介 \| Introduction
+## 中文
 
-**中文**：RankBoard 是一款适配 Minecraft Fabric 1\.21\.1 的服务端专属排行榜计分板模组。榜单展示逻辑参考 FZ Survival 数据包计分板设计思路，未复用任何原有函数与资源，独立实现、轻量化、高性能。
+RankBoard 是一个 Fabric 服务端排行榜模组。玩家不需要安装客户端模组，即可使用原版计分板和网页查看排行榜。
 
-**English**：RankBoard is a server\-side leaderboard scoreboard mod for Minecraft Fabric 1\.21\.1\. Its ranking display logic refers to the scoreboard design of the FZ Survival Data Pack, with none of the original functions or resources reused\. It is independently implemented, lightweight and high\-performance\.
+当前版本：`1.3.0`
 
-## 核心功能 \| Core Features
+### 功能与用途
 
-**中文**
+- **多项统计**：记录食物、跳跃、挖掘、放置、击杀、死亡、交易、在线时间、鞘翅飞行、钓鱼和受伤害，用于制作生存、活动和竞技排行榜。
+- **时间周期**：提供 `daily`、`weekly`、`monthly`、`yearly` 和 `all`，方便分别查看短期活动成绩和服务器长期记录。
+- **离线数据读取**：直接读取原版 `world/stats/*.json`，即使玩家当前不在线，也能保留并查询历史成绩。
+- **缓存与后台更新**：首次加载时控制读取速度，避免启动卡顿；之后只检查变化的文件，降低服务器持续开销。
+- **游戏内展示**：个人榜、全服榜、轮播榜和进服恢复让玩家无需打开网页即可查看排名；抬头加 Shift 可快速打开查询菜单。
+- **玩家信息**：缓存头像、显示最后在线时间和按榜单改变名字颜色，帮助玩家快速识别榜单中的对象。
+- **网页排行榜**：提供日期范围、在线筛选、服务器图标、主题配色及 Modrinth/GitHub 链接，适合分享给不在游戏中的玩家。
+- **请求限流**：API 按 IP 逐渐增加冷却时间，防止网页刷新或异常客户端占满服务器资源；图标和静态文件使用独立限制。
+- **白名单**：可沿用服务器白名单，也可单独指定 RankBoard 统计对象，用于只展示活动成员、工作人员或指定玩家。
+- **计分板清理**：检测并清除其他模组留下的计分板目标，避免多个模组争用侧边栏。
 
-- **统计维度**：支持全方位玩家数据统计，包含 `food`（食物食用量）、`jumps`（跳跃次数）、`mined`（方块挖掘数）、`placed`（方块放置数）、`kills`（击杀数）、`deaths`（死亡数）、`trades`（村民交易次数）、`playtime`（在线时长）、`elytra`（鞘翅飞行距离）、`fishing`（钓鱼次数）、`damage`（受到伤害值）。
+### 安装
 
-- **统计周期**：内置五大统计周期，`daily`（日榜）、`weekly`（周榜）、`monthly`（月榜）、`yearly`（年榜）、`all`（总榜），满足不同场景统计需求。
+1. 安装对应 Minecraft 版本的 Fabric Loader 和 Fabric API。
+2. 将 JAR 放入服务器 `mods/` 目录。
+3. 启动服务器一次，生成 `config/rankboard/` 配置目录。
+4. 修改配置后重启，或使用 `/leaderboard config reload`。
 
-- **数据持久化**：周期统计基线存储于主世界持久化文件，服务器重启、重载均不会丢失数据。
+1.21 系列需要 Fabric Loader `0.16.14` 或更高版本，Java 21 或更高版本。
 
-- **原版数据兼容**：自动读取服务端 `world/stats/*.json` 原版统计文件，**离线玩家数据可正常入榜**，完整追溯历史记录。
+26.x 系列需要 Fabric Loader `0.18.6` 或更高版本，Java 25 或更高版本。
 
-- **智能缓存机制**：首次启动限速批量读取历史统计并生成全局缓存文件；后续重启秒级加载榜单，后台仅增量更新变动玩家数据，大幅降低服务器性能消耗。
+### 常用命令
 
-- **精细化过滤**：默认仅读取白名单（`whitelist.json`）内玩家数据，支持 UUID 精准匹配离线历史记录；可独立开关白名单校验、`bot_` 机器人屏蔽、未知玩家过滤、仅在线玩家筛选。
+普通玩家：
 
-- **聚合统计展示**：榜单首行自动展示当前筛选条件下所有玩家的总数据聚合值，直观查看服务器整体数据。
-
-- **人性化显示优化**：在线时长自动将游戏 Tick 换算为标准小时格式（72000 Tick = 1 小时），以 `647h` 简洁样式展示于原版侧边栏计分板。
-
-- **个性化侧边栏**：玩家无需安装客户端模组，可通过可视化彩色可点击菜单，自由切换个人专属侧边栏榜单。
-
-**English**
-
-- **Statistics Metrics**: Comprehensive player data statistics, including`food` \(food consumption\), `jumps` \(jump counts\), `mined` \(blocks mined\), `placed` \(blocks placed\), `kills` \(kill counts\), `deaths` \(death counts\), `trades` \(villager trades\), `playtime` \(online duration\), `elytra` \(elytra flight distance\), `fishing` \(fishing counts\), and `damage` \(damage taken\)\.
-
-- **Time Periods**: Five built\-in statistical cycles: `daily`, `weekly`, `monthly`, `yearly`, and `all` \(total\), adapting to various statistical scenarios\.
-
-- **Data Persistence**: Period baseline data is saved in the overworld persistent files, ensuring no data loss after server restart or reload\.
-
-- **Vanilla Data Compatibility**: Automatically reads vanilla statistics from `world/stats/*.json`\. **Offline player data can be normally included in rankings** for complete historical tracking\.
-
-- **Intelligent Caching**: Reads historical statistics with rate limiting on first startup and generates a global cache file\. Subsequent restarts load rankings instantly, with only changed player data updated incrementally in the background to reduce server performance overhead\.
-
-- **Fine\-grained Filtering**: Only whitelisted players \(from `whitelist.json`\) are displayed by default, with accurate UUID matching for offline historical data\. Independent toggles for whitelist verification, `bot_` bot filtering, unknown player filtering, and online\-only player filtering are available\.
-
-- **Aggregated Data Display**: The first line of the ranking shows the total aggregated data of all players under the current filter conditions, reflecting overall server data intuitively\.
-
-- **Optimized Display**: Playtime is automatically converted from game ticks to hours \(72000 ticks = 1 hour\) and displayed in a concise `647h` format on the vanilla sidebar scoreboard\.
-
-- **Personalized Sidebar**: No client\-side mod required\. Players can freely switch their personal sidebar rankings via a colorful, clickable in\-game menu\.
-
-## 指令系统 \| Command System
-
-**中文**：所有指令服务端全局可用，区分普通玩家权限与管理员（OP）权限，支持自定义榜单展示、过滤规则、缓存管理、玩家侧边栏控制。
-
-**English**: All commands are server\-wide, with separate permissions for regular players and operators \(OPs\), supporting custom ranking display, filter rules, cache management, and sidebar control\.
-
-### 通用查询指令 \| General Query Commands
-
-基础榜单查询，支持指定周期、统计类型和展示条数
-
-```Plain Text
-/leaderboard <daily|weekly|monthly|yearly|all> <metric> [limit]
+```text
+/leaderboard                                         换出聊天栏面板
+/leaderboard help                                    获取指令帮助
+/leaderboard <daily|weekly|monthly|yearly|all> <metric> [limit] 选择指定的日/周/月/年/总排行榜
+/leaderboard mine <all|day|week|month>               查询自己的全部统计分数
+/leaderboard display show <period> <metric>          显示自己的客户端原版侧边栏
+/leaderboard display off                             关闭自己的客户端侧边栏
+/leaderboard carousel <true|false|status>            开关或查询自己的榜单轮播
+/leaderboard namecolor <true|false|status>           开关或查询自己的榜单名字颜色
 ```
 
-示例 \| Examples
+OP：
 
-```Plain Text
-/leaderboard daily food
+```text
+/leaderboard display show <周期> <榜单> <玩家>        为指定玩家显示个人侧边栏
+/leaderboard display off <玩家>                      关闭指定玩家的个人侧边栏
+/leaderboard displayfilter <榜单> <true|false|status> 管理单个榜单是否允许玩家显示
+/leaderboard scoreboard show <周期> <榜单>           设置全服共享的原版侧边栏
+/leaderboard scoreboard clear                         关闭全服共享侧边栏
+/leaderboard scoreboard cleanup                       清理其他模组正在显示的计分板
+/leaderboard scoreboard blocking <true|false|status>  自动屏蔽其他模组计分板
+/leaderboard whitelist <true|false|status>           使用服务器白名单筛选排行榜
+/leaderboard botfilter <true|false|status>           过滤名称以 bot_ 开头的玩家
+/leaderboard customfilter <true|false|status>        过滤无法识别身份的历史玩家
+/leaderboard onlinefilter <true|false|status>        只显示当前在线玩家
+/leaderboard modwhitelist add <name|UUID>            添加 RankBoard 独立白名单成员
+/leaderboard modwhitelist remove <name|UUID>         移除 RankBoard 独立白名单成员
+/leaderboard modwhitelist list|reload                查看或重新读取独立白名单
+/leaderboard cache <status|reload>                   查看或重新加载历史统计缓存
+/leaderboard lookup <UUID|whitelist>                 查询 Mojang UUID 对应的玩家名
+/leaderboard ratelimit clear                          清空全部网页 IP 限流与累计冷却
+/leaderboard config <list|reload|get|set>            查看、修改或重载配置
 ```
 
-```Plain Text
-/leaderboard weekly jumps 20
+`true/false` 是推荐的新语法。旧的 `on/off` 和 `enable/disable` 仍作为兼容别名保留。
+
+### 配置
+
+主配置：`config/rankboard/rankboard.properties`
+
+网页配置：`config/rankboard/rankboard-web.properties`
+
+主配置项：
+
+```properties
+history-files-per-second=50                 # 每秒读取的历史统计文件数量
+welcome-enabled=true                        # 玩家进服时发送欢迎语
+welcome-name=auto                           # 欢迎语服务器名；auto 自动读取
+join-menu-enabled=true                      # 玩家进服时换出聊天栏面板
+join-web-hint-enabled=false                 # 玩家进服时提示网页排行榜地址
+web-public-address=                         # 对玩家显示的网页地址；留空自动生成
+restore-scoreboard-on-join=true             # 恢复玩家上次选择的客户端计分板
+look-up-sneak-menu-enabled=true             # 抬头并按住 Shift 换出聊天栏面板
+carousel-enabled=true                       # 允许玩家开启榜单自动轮播
+carousel-interval-seconds=30                # 榜单轮播切换间隔，单位秒
+client-scoreboard-show-zero=false           # 客户端计分板显示数值为 0 的玩家
+scoreboard-switch-message-enabled=true      # 切换榜单后发送提示消息
+scoreboard-name-color-enabled=true          # 按玩家查看的榜单给名字着色
+scoreboard-title-color-enabled=true         # 计分板标题跟随榜单颜色
+scoreboard-live-update-enabled=true         # 玩家行为改变统计时实时刷新榜单
+scoreboard-live-update-window-seconds=30    # 高频行为检测时间窗口，单位秒
+scoreboard-live-update-threshold=100        # 窗口内超过此次数后降低刷新频率
+scoreboard-live-update-throttle-seconds=30  # 高频时最短刷新间隔，单位秒
+foreign-scoreboard-blocking-mode=ask        # 其他模组计分板：ask/enabled/disabled
+mod-whitelist-enabled=false                 # 只读取 RankBoard 独立白名单中的玩家
+help-visibility=all                         # 帮助可见范围：all/op/hidden
+avatar-cache-enabled=true                   # 缓存进服玩家的皮肤头像
+avatar-cache-days=7                         # 玩家头像缓存保留天数
 ```
 
-```Plain Text
-/leaderboard all elytra 50
+网页配置项：
+
+```properties
+host=0.0.0.0                              # 网页服务监听地址；0.0.0.0 接受所有连接
+port=8765                                 # 网页服务端口
+web-data-requests-per-second=1            # 单个 IP 的数据请求基础频率
+web-icon-requests-per-minute=3            # 单个 IP 对每个图标的每分钟请求上限
+web-ranking-refresh-interval-seconds=30   # 网页排行榜整体刷新间隔，单位秒
+server-name=auto                           # 网页显示的服务器名；auto 自动读取
+website-icon=server-icon.png              # 服务器图标；只能放在 config/rankboard/
 ```
 
-查看帮助 \| View help
+`website-icon` 只能读取 `config/rankboard/` 目录内的文件。绝对路径、越界路径和目录外符号链接都会被拒绝。
 
-```Plain Text
-/leaderboard help
+### RankBoard 白名单
+
+启用配置：
+
+```text
+/leaderboard config set mod-whitelist-enabled true
 ```
 
-打开可视化榜单选择菜单 \| Open visual ranking selection menu
+白名单文件：`config/rankboard/rankboard-whitelist.json`
 
-```Plain Text
-/leaderboard
+示例：
+
+```json
+[
+  {"uuid": "00000000-0000-0000-0000-000000000000"},
+  {"name": "PlayerName"}
+]
 ```
 
-### 个人侧边栏控制 \| Personal Sidebar Control
+启用后，统计文件扫描、缓存、游戏榜单和网页榜单只接受该文件中的玩家。原有服务器 `whitelistOnly` 配置仍然有效；两个白名单同时开启时取交集。
 
-**中文**：玩家自主控制个人计分板侧边栏，无需客户端模组，独立生效互不干扰。
+### 网页与限流
 
-**English**: Players can control their personal scoreboard sidebar independently without client mods, with isolated effects for each player\.
+默认地址：`http://服务器地址:8765/`
 
-```Plain Text
-/leaderboard display show daily food
-```
+接口示例：
 
-```Plain Text
-/leaderboard display show all playtime
-```
-
-```Plain Text
-/leaderboard display off
-```
-
-侧边栏名称颜色开关 \| Toggle ranking name color on sidebar
-
-```Plain Text
-/leaderboard namecolor on|off|status
-```
-
-### 管理员侧边栏权限控制 \| OP Sidebar Permission Control
-
-**中文**：OP 可代为指定玩家开关侧边栏，支持全局榜单展示禁用/启用。
-
-**English**: OPs can toggle the sidebar for specified players and enable/disable global ranking display\.
-
-代为玩家控制侧边栏 \| Control sidebar for other players
-
-```Plain Text
-/leaderboard display show all playtime <player>
-```
-
-```Plain Text
-/leaderboard display off <player>
-```
-
-指定榜单类型全局开关 \| Global toggle for specific ranking types
-
-```Plain Text
-/leaderboard displayfilter fishing disable
-```
-
-```Plain Text
-/leaderboard displayfilter fishing enable
-```
-
-```Plain Text
-/leaderboard displayfilter fishing status
-```
-
-开启全服共用计分板侧边栏 \| Enable server\-wide public scoreboard sidebar
-
-```Plain Text
-/leaderboard scoreboard show weekly mined
-```
-
-```Plain Text
-/leaderboard scoreboard clear
-```
-
-### 过滤规则管理 \| Filter Rule Management
-
-**中文**：管理员可自由切换各类过滤规则，适配私服、公服、机器人隔离等场景。
-
-**English**: Administrators can freely switch filter rules for private servers, public servers, bot isolation and other scenarios\.
-
-白名单过滤开关 \| Whitelist filter toggle
-
-```Plain Text
-/leaderboard whitelist on|off|status
-```
-
-Bot玩家（bot\_前缀）屏蔽开关 \| Bot player filter toggle
-
-```Plain Text
-/leaderboard botfilter on|off|status
-```
-
-未知历史玩家过滤开关 \| Unknown historical player filter toggle
-
-```Plain Text
-/leaderboard customfilter on|off|status
-```
-
-仅在线玩家展示开关 \| Online\-only player display toggle
-
-```Plain Text
-/leaderboard onlinefilter on|off|status
-```
-
-### 缓存与玩家数据管理 \| Cache \& Player Data Management
-
-**中文**：手动刷新玩家 Mojang 正版名称、重载历史数据缓存，修复异常数据。
-
-**English**: Manually refresh player Mojang account names and reload historical data cache to fix abnormal data\.
-
-查询并缓存指定UUID玩家名称 \| Look up and cache player name by UUID
-
-```Plain Text
-/leaderboard lookup <UUID>
-```
-
-批量刷新白名单玩家名称 \| Batch refresh whitelist player names
-
-```Plain Text
-/leaderboard lookup whitelist
-```
-
-查看缓存状态 / 重载缓存 \| Check cache status / Reload cache
-
-```Plain Text
-/leaderboard cache status
-```
-
-```Plain Text
-/leaderboard cache reload
-```
-
-## 网页端功能 \| Web Panel Features
-
-**中文**
-
-- 服务端内置轻量化网页服务，启动后默认访问地址：`http://服务器地址:8765/`，纯只读展示，无高危操作。
-
-- 支持快捷切换日/周/月/总榜，同时支持**自定义起止日期查询历史榜单**，精准查询模组安装后任意时段数据。
-
-- 网页个性化配置：支持玩家头像展示、自定义服务器图标/名称、网站配色、Modrinth/GitHub 外链配置。
-
-- 内置 RESTful JSON API，支持第三方程序对接，单IP每秒1次请求限流，保障服务器稳定。
-
-- 配置文件：服务端根目录 `rankboard-web.properties`
-
-**English**
-
-- Built\-in lightweight web server, default access address after startup: `http://ServerIP:8765/` \(read\-only, no risky operations\)\.
-
-- Supports quick switching of daily/weekly/monthly/all rankings, and **custom start\-end date query for historical data** to view statistics of any period after mod installation\.
-
-- Fully customizable web interface: player avatar display, custom server icon/name, website color scheme, Modrinth/GitHub link configuration\.
-
-- Built\-in RESTful JSON API for third\-party integration, with 1 request per second per IP rate limiting to ensure server stability\.
-
-- Config file: `rankboard-web.properties` in server root directory
-
-### 网页配置示例 \| Web Config Example
-
-```Plain Text
-host=0.0.0.0
-port=8765
-server-name=auto
-website-icon=server-icon.png
-```
-
-**中文**：`server-name=auto` 自动读取服务端 `server.properties` 内的 MOTD 作为网站服务器名称。
-
-**English**: `server-name=auto` automatically reads the MOTD in`server.properties` as the server name displayed on the website\.
-
-### API 接口 \| API Endpoints
-
-```Plain Text
-GET /api/rankings?metric=playtime&from=2026-07-16&to=2026-07-20
-GET /api/rankings?metric=kills&period=week
+```text
 GET /api/rankings?metric=playtime&period=all
+GET /api/rankings?metric=kills&period=week
+GET /api/rankings?metric=playtime&from=2026-07-16&to=2026-07-20
 ```
 
-## 技术说明 \& 兼容备注 \| Technical Notes \& Compatibility
+数据接口 `/api/rankings` 和 `/api/site` 共享 IP 累计记录。两小时内每累计 6 次请求，数据冷却倍数翻倍，最长 1 小时。图标和静态资源使用独立限流：默认每个图标每分钟 3 次，网页资源每秒 1 次。
 
-**中文**
+超过限制返回 HTTP `429` 和 `Retry-After`。OP 可以使用 `/leaderboard ratelimit clear` 清除所有累计冷却。
 
-- 历史数据限制：自定义日期统计仅支持模组安装后生成的快照数据，原版全局累计统计无法逆向推算安装前单日增量数据。
+### 构建
 
-- 数据刷新机制：个人侧边栏每30秒自动刷新；榜单查询优先读取内存缓存，实时覆盖未写入文件的在线玩家最新数据，保证数据时效性。
+需要 JDK 21；构建 26.x 需要 JDK 25。
 
-- 缓存加载逻辑：首次启动限速每秒读取50个玩家统计文件，生成 `rankboard-history-cache.json` 缓存文件；后续重启优先加载缓存，后台增量校验文件更新。
+```text
+gradlew.bat build
+```
 
-- 数据基线规则：玩家首次进入对应统计周期时自动生成数据基线；模组首次安装的周期，以服务器首次启动时间为统计起点。
+构建产物位于 `build/libs/`。发布版本和 Minecraft 版本会写入 JAR 文件名。
 
-- 放置方块统计说明：原版无精准“成功放置方块”统计，`placed` 维度采用方块物品右键使用次数统计，少量未成功放置的右键操作会被计入，属于正常兼容取舍。
+多版本构建结果位于 `multi-version-builds/`，每次成功构建也会单独归档到 `mod-builds/` 的时间戳目录。
 
-- 权限隔离：个人侧边栏仅对自身生效，管理员全局计分板侧边栏对全服玩家生效，互不冲突。
+---
 
-**English**
+## English
 
-- Historical Data Limit: Custom date range statistics only apply to snapshots generated after mod installation\. Vanilla global cumulative statistics cannot calculate daily incremental data before the mod was installed\.
+RankBoard is a server-side Fabric leaderboard mod. Players do not need a client-side mod to use the vanilla sidebar or the web dashboard.
 
-- Data Refresh Mechanism: Personal sidebar refreshes automatically every 30 seconds\. Rank queries prioritize in\-memory cache and override unwritten real\-time data of online players to ensure timeliness\.
+Current version: `1.3.0`
 
-- Cache Loading Logic: Reads 50 player statistic files per second with rate limiting on first startup and generates`rankboard-history-cache.json`\. Subsequent restarts load cache first and verify file updates incrementally in the background\.
+### Features and purpose
 
-- Baseline Rule: A data baseline is automatically created when a player first enters a statistical cycle\. The initial cycle after mod installation starts from the server's first startup time\.
+- **Multiple statistics**: Tracks food, jumps, mined blocks, placed blocks, kills, deaths, trades, playtime, elytra distance, fishing, and damage taken for survival, event, and PvP rankings.
+- **Time periods**: `daily`, `weekly`, `monthly`, `yearly`, and `all` separate short-term event results from long-term server records.
+- **Offline data**: Reads vanilla `world/stats/*.json`, so historical scores remain available when a player is offline.
+- **Caching and background updates**: Throttles the first scan to avoid startup stalls, then checks only changed files to reduce ongoing server work.
+- **In-game display**: Personal and server-wide sidebars, carousel rotation, join restoration, and the look-up-plus-Shift menu let players check rankings without opening a browser.
+- **Player context**: Cached avatars, last-online timestamps, and per-board name colors make players easier to identify in a busy ranking.
+- **Web dashboard**: Date ranges, online-only filtering, server icons, themes, and Modrinth/GitHub links make rankings easy to share outside the game.
+- **Request protection**: IP-based progressive API cooldowns prevent refresh storms or abusive clients from consuming server resources; icons and static files have separate limits.
+- **Whitelists**: Keep the server whitelist behavior or use a separate RankBoard list when only event members, staff, or selected players should appear.
+- **Scoreboard cleanup**: Detects and removes scoreboard objectives left by other mods so the sidebar remains under RankBoard's control.
 
-- Placed Block Statistics Note: Vanilla Minecraft does not have precise "successfully placed blocks" statistics\. The `placed` metric counts block item right\-click usage, which may include a small number of failed placement actions as a reasonable compatibility trade\-off\.
+### Installation
 
-- Permission Isolation: Personal sidebars only affect the individual player, while the administrator global scoreboard sidebar applies to all players without conflict\.
+1. Install Fabric Loader and Fabric API for the target Minecraft version.
+2. Put the JAR in the server `mods/` directory.
+3. Start the server once to create `config/rankboard/`.
+4. Restart after editing configuration, or run `/leaderboard config reload`.
 
-> （注：部分内容可能由 AI 生成）
+Minecraft 1.21 releases require Fabric Loader `0.16.14+` and Java 21+.
+
+Minecraft 26.x releases require Fabric Loader `0.18.6+` and Java 25+.
+
+### Commands
+
+Players:
+
+```text
+/leaderboard                                         Open the clickable ranking menu
+/leaderboard help                                    Show commands, settings, and descriptions
+/leaderboard <period> <metric> [limit]               Show a ranking in chat
+/leaderboard mine <all|day|week|month>               Show the caller's statistic scores
+/leaderboard display show <period> <metric>          Show the caller's personal sidebar
+/leaderboard display off                             Hide the caller's personal sidebar
+/leaderboard carousel <true|false|status>            Toggle or inspect personal carousel rotation
+/leaderboard namecolor <true|false|status>           Toggle or inspect personal ranking-name colors
+```
+
+Operators:
+
+```text
+/leaderboard display show <period> <metric> <player> Show a personal sidebar for a player
+/leaderboard display off <player>                    Hide a player's personal sidebar
+/leaderboard displayfilter <metric> <true|false|status> Allow or block one metric from display
+/leaderboard scoreboard show <period> <metric>       Set the server-wide vanilla sidebar
+/leaderboard scoreboard clear                         Clear the server-wide sidebar
+/leaderboard scoreboard cleanup                       Clear displayed scoreboards from other mods
+/leaderboard scoreboard blocking <true|false|status> Automatically block other-mod scoreboards
+/leaderboard whitelist <true|false|status>           Filter rankings by the server whitelist
+/leaderboard botfilter <true|false|status>           Filter players with a bot_ name prefix
+/leaderboard customfilter <true|false|status>        Filter unrecognized historical players
+/leaderboard onlinefilter <true|false|status>        Restrict rankings to online players
+/leaderboard modwhitelist add|remove <name|UUID>     Manage the RankBoard-only whitelist
+/leaderboard modwhitelist list|reload                List or reload the RankBoard-only whitelist
+/leaderboard cache <status|reload>                   Inspect or reload historical-stat cache
+/leaderboard lookup <UUID|whitelist>                 Look up Mojang player names
+/leaderboard ratelimit clear                          Clear all web IP rate-limit history
+/leaderboard config <list|reload|get|set>            List, change, or reload settings
+```
+
+`true/false` is the recommended syntax. The old `on/off` and `enable/disable` aliases remain available for compatibility.
+
+### Configuration
+
+Main configuration: `config/rankboard/rankboard.properties`
+
+Web configuration: `config/rankboard/rankboard-web.properties`
+
+Main settings:
+
+```properties
+history-files-per-second=50                 # Historical statistic files scanned per second
+welcome-enabled=true                        # Send a welcome message to a joining player
+welcome-name=auto                           # Welcome name; auto reads server information
+join-menu-enabled=true                      # Open the chat ranking menu on join
+join-web-hint-enabled=false                 # Show the web-ranking address on join
+web-public-address=                         # Public web address shown to players; blank is automatic
+restore-scoreboard-on-join=true             # Restore the player's previous personal sidebar
+look-up-sneak-menu-enabled=true             # Open the chat ranking menu while looking up and holding Shift
+carousel-enabled=true                       # Let players enable automatic ranking rotation
+carousel-interval-seconds=30                # Carousel interval in seconds
+client-scoreboard-show-zero=false           # Show zero-value players in personal sidebars
+scoreboard-switch-message-enabled=true      # Send a message after switching rankings
+scoreboard-name-color-enabled=true          # Color names by the ranking a player is viewing
+scoreboard-title-color-enabled=true         # Color sidebar titles by metric
+scoreboard-live-update-enabled=true         # Refresh rankings after player statistic changes
+scoreboard-live-update-window-seconds=30    # High-frequency detection window in seconds
+scoreboard-live-update-threshold=100        # Begin throttling after this many changes in the window
+scoreboard-live-update-throttle-seconds=30  # Minimum high-frequency refresh interval in seconds
+foreign-scoreboard-blocking-mode=ask        # Other-mod scoreboards: ask/enabled/disabled
+mod-whitelist-enabled=false                 # Read only players from the RankBoard whitelist
+help-visibility=all                         # Help visibility: all/op/hidden
+avatar-cache-enabled=true                   # Cache joined-player skin avatars
+avatar-cache-days=7                         # Avatar cache retention in days
+```
+
+Web settings:
+
+```properties
+host=0.0.0.0                              # Web-server bind address; 0.0.0.0 accepts all connections
+port=8765                                 # Web-server port
+web-data-requests-per-second=1            # Per-IP base rate for data requests
+web-icon-requests-per-minute=3            # Per-IP limit for each icon, per minute
+web-ranking-refresh-interval-seconds=30   # Full ranking refresh interval in seconds
+server-name=auto                           # Server name shown on the web page; auto reads server data
+website-icon=server-icon.png              # Server icon, restricted to config/rankboard/
+```
+
+`website-icon` can only reference a file inside `config/rankboard/`. Absolute paths, traversal paths, and symlinks escaping that directory are rejected.
+
+### RankBoard Whitelist
+
+Enable it with:
+
+```text
+/leaderboard config set mod-whitelist-enabled true
+```
+
+Whitelist file: `config/rankboard/rankboard-whitelist.json`
+
+Example:
+
+```json
+[
+  {"uuid": "00000000-0000-0000-0000-000000000000"},
+  {"name": "PlayerName"}
+]
+```
+
+When enabled, statistics scanning, caching, in-game rankings, and web rankings accept only listed players. The existing `whitelistOnly` setting remains active; when both lists are enabled, their intersection is used.
+
+### Web and Rate Limiting
+
+Default address: `http://server-address:8765/`
+
+Example endpoints:
+
+```text
+GET /api/rankings?metric=playtime&period=all
+GET /api/rankings?metric=kills&period=week
+GET /api/rankings?metric=playtime&from=2026-07-16&to=2026-07-20
+```
+
+`/api/rankings` and `/api/site` share an IP-based two-hour request history. Every six requests double the data cooldown, up to one hour. Icons and static resources use separate limits: three requests per icon per minute and one web-resource request per second by default.
+
+Limited requests return HTTP `429` with `Retry-After`. Operators can clear all accumulated cooldowns with `/leaderboard ratelimit clear`.
+
+### Building
+
+JDK 21 is required; JDK 25 is required for 26.x builds.
+
+```text
+gradlew.bat build
+```
+
+Artifacts are written to `build/libs/`. The JAR filename includes the mod and Minecraft versions.
+
+Multi-version results are collected under `multi-version-builds/`; every successful build is also archived in a timestamped directory under `mod-builds/`.

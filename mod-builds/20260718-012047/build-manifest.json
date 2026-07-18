@@ -1,0 +1,16 @@
+{
+  "mod_name": "rankboard",
+  "game_version": "26.1.x",
+  "created_at": "2026-07-18T01:20:47+08:00",
+  "build_command": ".\\gradlew.bat clean build --no-daemon -Pminecraft_version=26.1 -Pmapping_type=none -Pminecraft_dependency=26.1.x",
+  "source_artifacts": [
+    "D:\\ai\\bamgdam\\build\\libs\\rankboard-1.2.0+mc26.1+20260718-012021.jar"
+  ],
+  "files": [
+    {
+      "path": "rankboard-1.2.0+mc26.1+20260718-012021.jar",
+      "size_bytes": 851402,
+      "sha256": "99cdb1b239abd45525510b64367a65ccfd4b38a8cfc9f3df26c3f852cef69e23"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ public final class LeaderboardState extends PersistentState {
     private boolean onlineOnly;
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
+    private final Map<UUID, BoardPreference> boardPreferences = new HashMap<>();
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
     LeaderboardState() { }
 
@@ -58,6 +59,16 @@ public final class LeaderboardState extends PersistentState {
             NbtCompound snapshot = (NbtCompound) element;
             state.dailySnapshots.put(LocalDate.parse(NbtCompat.getString(snapshot, "date")), readPlayers(snapshot));
         }
+        for (NbtElement element : NbtCompat.getList(nbt, "boardPreferences", NbtElement.COMPOUND_TYPE)) {
+            try {
+                NbtCompound entry = (NbtCompound) element;
+                UUID uuid = NbtCompat.getUuid(entry, "uuid");
+                RankBoardMod.Period period = RankBoardMod.Period.valueOf(NbtCompat.getString(entry, "period"));
+                RankBoardMod.Metric metric = RankBoardMod.Metric.valueOf(NbtCompat.getString(entry, "metric"));
+                state.boardPreferences.put(uuid, new BoardPreference(period, metric,
+                        NbtCompat.getBoolean(entry, "enabled"), NbtCompat.getBoolean(entry, "carousel")));
+            } catch (IllegalArgumentException ignored) { }
+        }
         return state;
     }
     public NbtCompound writeNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup lookup) {
@@ -82,6 +93,17 @@ public final class LeaderboardState extends PersistentState {
             snapshots.add(snapshot);
         });
         nbt.put("dailySnapshots", snapshots);
+        NbtList preferences = new NbtList();
+        boardPreferences.forEach((uuid, preference) -> {
+            NbtCompound entry = new NbtCompound();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            entry.putString("period", preference.period().name());
+            entry.putString("metric", preference.metric().name());
+            entry.putBoolean("enabled", preference.enabled());
+            entry.putBoolean("carousel", preference.carousel());
+            preferences.add(entry);
+        });
+        nbt.put("boardPreferences", preferences);
         return nbt;
     }
     public void rollPeriods(MinecraftServer server) {
@@ -156,6 +178,22 @@ public final class LeaderboardState extends PersistentState {
         if (changed) markDirty();
     }
 
+    public BoardPreference boardPreference(UUID uuid) { return boardPreferences.get(uuid); }
+
+    public void setBoardPreference(UUID uuid, RankBoardMod.Period period, RankBoardMod.Metric metric,
+                                   boolean enabled, boolean carousel) {
+        BoardPreference replacement = new BoardPreference(period, metric, enabled, carousel);
+        if (!replacement.equals(boardPreferences.put(uuid, replacement))) markDirty();
+    }
+
+    public void disableBoard(UUID uuid) {
+        BoardPreference current = boardPreferences.get(uuid);
+        if (current != null && current.enabled()) {
+            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false));
+            markDirty();
+        }
+    }
+
     public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
         if (!StatReader.isReady()) {
             throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），请稍后再查询日期范围。");
@@ -190,6 +228,8 @@ public final class LeaderboardState extends PersistentState {
     }
 
     public record RangeData(LocalDate actualStart, LocalDate actualEnd, Map<UUID, Long> values) { }
+    public record BoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric,
+                                  boolean enabled, boolean carousel) { }
 
     private static NbtList writePlayers(Map<UUID, Map<RankBoardMod.Metric, Long>> players) {
         NbtList list = new NbtList();

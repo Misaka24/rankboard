@@ -13,6 +13,7 @@ final class NbtCompat {
     static long getLong(CompoundTag nbt, String key) { return nbt.getLongOr(key, 0L); }
     static String getString(CompoundTag nbt, String key) { return nbt.getStringOr(key, ""); }
     static String asString(Tag element) { return element.asString().orElse(""); }
+    static CompoundTag getCompound(CompoundTag nbt, String key) { return nbt.getCompound(key).orElseThrow(); }
     static ListTag getList(CompoundTag nbt, String key, byte type) { return nbt.getListOrEmpty(key); }
     static void putUuid(CompoundTag nbt, String key, UUID uuid) { nbt.putString(key, uuid.toString()); }
 

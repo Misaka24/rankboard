@@ -14,6 +14,8 @@ type Player = {
   name: string;
   value: number;
   formatted: string;
+  lastOnline: number;
+  online: boolean;
 };
 
 type RankingResponse = {
@@ -36,6 +38,7 @@ function PlayerAvatar({ player }: { player: Player }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const uuid = player.uuid.replaceAll("-", "");
   const sources = [
+    `/avatar/${player.uuid}`,
     `https://crafthead.net/avatar/${uuid}/64`,
     `https://minotar.net/avatar/${encodeURIComponent(player.name)}/64`
   ];
@@ -54,6 +57,14 @@ function PlayerAvatar({ player }: { player: Player }) {
       onError={() => setSourceIndex((current) => current + 1)}
     />
   );
+}
+
+function formatLastOnline(player: Player) {
+  if (player.online) return "当前在线";
+  if (player.lastOnline <= 0) return "最后在线：未知";
+  return `最后在线：${new Date(player.lastOnline).toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false
+  })}`;
 }
 
 const periods = [
@@ -88,13 +99,14 @@ export default function App() {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
+  const [rankingRefreshIntervalSeconds, setRankingRefreshIntervalSeconds] = useState(30);
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
+    const loadRanking = async () => {
       setLoading(true);
       setError(null);
       try {
@@ -121,17 +133,23 @@ export default function App() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, 1050);
+    };
+    const timer = window.setTimeout(loadRanking, 1050);
+    const interval = window.setInterval(loadRanking, Math.max(1, rankingRefreshIntervalSeconds) * 1000);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.clearInterval(interval);
     };
-  }, [period, metric, onlineOnly, from, to]);
+  }, [period, metric, onlineOnly, from, to, rankingRefreshIntervalSeconds]);
 
   useEffect(() => {
     fetch("/api/site")
-      .then((response) => response.ok ? response.json() as Promise<{ name?: string }> : null)
-      .then((site) => { if (site?.name) setServerName(site.name); })
+      .then((response) => response.ok ? response.json() as Promise<{ name?: string; rankingRefreshIntervalSeconds?: number }> : null)
+      .then((site) => {
+        if (site?.name) setServerName(site.name);
+        if (site?.rankingRefreshIntervalSeconds) setRankingRefreshIntervalSeconds(site.rankingRefreshIntervalSeconds);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -250,7 +268,10 @@ export default function App() {
                 <span className="rank-number">{String(player.rank).padStart(2, "0")}</span>
                 <PlayerAvatar player={player} />
                 <div className="player-info">
-                  <h2>{player.name}</h2>
+                  <div className="player-heading">
+                    <h2>{player.name}</h2>
+                    <span className={player.online ? "last-online online" : "last-online"}>{formatLastOnline(player)}</span>
+                  </div>
                   <p><span>{activeMetric.detail}</span><code>UUID {player.uuid}</code></p>
                 </div>
                 <strong className="player-value">{player.formatted}</strong>

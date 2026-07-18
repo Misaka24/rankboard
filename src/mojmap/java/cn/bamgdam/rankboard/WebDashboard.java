@@ -1,3 +1,4 @@
+
 package cn.bamgdam.rankboard;
 
 import com.google.gson.JsonArray;
@@ -14,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -25,6 +27,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Small read-only HTTP dashboard backed by server-thread snapshots. */
 final class WebDashboard {
@@ -32,23 +35,41 @@ final class WebDashboard {
     private static MinecraftServer minecraft;
     private static String serverName = "Minecraft Server";
     private static Path websiteIcon;
-    private static final Map<String, Long> LAST_REQUEST_BY_IP = new ConcurrentHashMap<>();
-    private static final long REQUEST_INTERVAL_MILLIS = 1000;
+    private static int dataRequestsPerSecond = 1;
+    private static int iconRequestsPerMinute = 3;
+    private static int rankingRefreshIntervalSeconds = 30;
+    private static final Map<String, RequestWindow> REQUEST_WINDOWS = new ConcurrentHashMap<>();
+    private static final Map<String, CachedRanking> RANKING_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, DataPenaltyWindow> DATA_PENALTIES = new ConcurrentHashMap<>();
+    private static final long DATA_WINDOW_MILLIS = 1000;
+    private static final long ICON_WINDOW_MILLIS = 60_000;
+    private static final long DATA_PENALTY_WINDOW_MILLIS = TimeUnit.HOURS.toMillis(2);
+    private static final long MAX_DATA_COOLDOWN_MILLIS = TimeUnit.HOURS.toMillis(1);
+    private static final int DATA_REQUESTS_PER_PENALTY_LEVEL = 6;
+    private static final int MAX_DATA_PENALTY_LEVEL = 12;
+    private static final int MAX_PENALTY_REQUESTS = DATA_REQUESTS_PER_PENALTY_LEVEL * MAX_DATA_PENALTY_LEVEL;
+    private static final int MAX_TRACKED_WINDOWS = 20_000;
+    private static final long CLEANUP_INTERVAL_MILLIS = TimeUnit.MINUTES.toMillis(1);
+    private static final AtomicLong LAST_CLEANUP = new AtomicLong();
     private WebDashboard() { }
 
     static synchronized void start(MinecraftServer server) {
         if (http != null) return;
         minecraft = server;
         try {
-            Properties config = loadConfig(server.getServerDirectory().resolve("rankboard-web.properties"));
+            Properties config = RankBoardConfig.loadWeb(server);
             String host = config.getProperty("host", "0.0.0.0");
             int port = Integer.parseInt(config.getProperty("port", "8765"));
+            dataRequestsPerSecond = Integer.parseInt(config.getProperty("web-data-requests-per-second", "1"));
+            iconRequestsPerMinute = Integer.parseInt(config.getProperty("web-icon-requests-per-minute", "3"));
+            rankingRefreshIntervalSeconds = Integer.parseInt(config.getProperty("web-ranking-refresh-interval-seconds", "30"));
             serverName = resolveServerName(server, config.getProperty("server-name", "auto"));
             websiteIcon = resolveIcon(server, config.getProperty("website-icon", "server-icon.png"));
             http = HttpServer.create(new InetSocketAddress(host, port), 0);
             http.createContext("/api/rankings", WebDashboard::rankings);
             http.createContext("/api/site", WebDashboard::site);
             http.createContext("/site-icon", WebDashboard::siteIcon);
+            http.createContext("/avatar/", WebDashboard::avatar);
             http.createContext("/", WebDashboard::webAsset);
             http.setExecutor(Executors.newFixedThreadPool(4, runnable -> {
                 Thread thread = new Thread(runnable, "RankBoard-Web");
@@ -68,43 +89,44 @@ final class WebDashboard {
         http = null;
         minecraft = null;
         websiteIcon = null;
-        LAST_REQUEST_BY_IP.clear();
+        REQUEST_WINDOWS.clear();
+        DATA_PENALTIES.clear();
+        RANKING_CACHE.clear();
+        LAST_CLEANUP.set(0);
     }
 
-    private static Properties loadConfig(Path path) throws IOException {
-        Properties properties = new Properties();
-        boolean changed = false;
-        if (Files.isRegularFile(path)) {
-            try (var reader = Files.newBufferedReader(path)) { properties.load(reader); }
-        }
-        Map<String, String> defaults = Map.of(
-                "host", "0.0.0.0",
-                "port", "8765",
-                "server-name", "auto",
-                "website-icon", "server-icon.png");
-        for (Map.Entry<String, String> entry : defaults.entrySet()) {
-            if (!properties.containsKey(entry.getKey())) {
-                properties.setProperty(entry.getKey(), entry.getValue());
-                changed = true;
-            }
-        }
-        if (changed || !Files.isRegularFile(path)) {
-            try (var writer = Files.newBufferedWriter(path)) {
-                properties.store(writer, "RankBoard read-only web dashboard");
-            }
-        }
-        return properties;
+    static synchronized boolean restart(MinecraftServer server) {
+        stop();
+        start(server);
+        return http != null;
+    }
+
+    static int clearRateLimits() {
+        int cleared = REQUEST_WINDOWS.size() + DATA_PENALTIES.size();
+        REQUEST_WINDOWS.clear();
+        DATA_PENALTIES.clear();
+        LAST_CLEANUP.set(0);
+        return cleared;
     }
 
     private static Path resolveIcon(MinecraftServer server, String configuredPath) {
-        Path runDirectory = server.getServerDirectory();
-        Path configured = Path.of(configuredPath.strip());
-        if (!configured.isAbsolute()) configured = runDirectory.resolve(configured);
-        configured = configured.normalize();
-        if (Files.isRegularFile(configured)) return configured;
-        Path fallback = runDirectory.resolve("server-icon.png");
-        if (!configured.equals(fallback)) {
-            RankBoardMod.LOGGER.warn("Website icon {} was not found; falling back to {}", configured, fallback);
+        Path iconDirectory = RankBoardConfig.configDirectory(server).toAbsolutePath().normalize();
+        Path fallback = iconDirectory.resolve("server-icon.png").normalize();
+        String raw = configuredPath == null ? "" : configuredPath.strip();
+        try {
+            Path requested = Path.of(raw);
+            if (requested.isAbsolute()) throw new IllegalArgumentException("absolute path");
+            Path candidate = iconDirectory.resolve(requested).normalize();
+            if (!candidate.startsWith(iconDirectory)) throw new IllegalArgumentException("path escapes config directory");
+            if (Files.isRegularFile(candidate)) {
+                Path realDirectory = iconDirectory.toRealPath();
+                Path realCandidate = candidate.toRealPath();
+                if (realCandidate.startsWith(realDirectory)) return realCandidate;
+                throw new IllegalArgumentException("symbolic link escapes config directory");
+            }
+            RankBoardMod.LOGGER.warn("Website icon {} was not found in {}; falling back to {}", raw, iconDirectory, fallback);
+        } catch (IOException | RuntimeException exception) {
+            RankBoardMod.LOGGER.warn("Website icon {} is invalid; only files inside {} are allowed", raw, iconDirectory);
         }
         return fallback;
     }
@@ -127,11 +149,13 @@ final class WebDashboard {
     }
 
     private static void rankings(HttpExchange exchange) throws IOException {
-        if (!allowRequest(exchange)) {
-            JsonObject error = new JsonObject();
-            error.addProperty("error", "请求过于频繁，每个 IP 每秒只能查询一次排行榜。");
-            exchange.getResponseHeaders().set("Retry-After", "1");
-            respond(exchange, 429, "application/json; charset=utf-8", error.toString());
+        if (!enforceRateLimit(exchange, RequestKind.API_DATA)) return;
+        String cacheKey = exchange.getRequestURI().getRawQuery();
+        if (cacheKey == null) cacheKey = "";
+        CachedRanking cached = RANKING_CACHE.get(cacheKey);
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.createdAt < rankingRefreshIntervalSeconds * 1000L) {
+            respond(exchange, 200, "application/json; charset=utf-8", cached.body);
             return;
         }
         try {
@@ -160,30 +184,15 @@ final class WebDashboard {
                 try { result.complete(buildRanking(server, period, from, to, metric, onlineOnly)); }
                 catch (Exception exception) { result.completeExceptionally(exception); }
             });
-            respond(exchange, 200, "application/json; charset=utf-8", result.get(15, TimeUnit.SECONDS));
+            String body = result.get(15, TimeUnit.SECONDS);
+            RANKING_CACHE.put(cacheKey, new CachedRanking(System.currentTimeMillis(), body));
+            respond(exchange, 200, "application/json; charset=utf-8", body);
         } catch (Exception exception) {
             Throwable cause = exception.getCause() == null ? exception : exception.getCause();
             JsonObject error = new JsonObject();
             error.addProperty("error", cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage());
             respond(exchange, 400, "application/json; charset=utf-8", error.toString());
         }
-    }
-
-    private static boolean allowRequest(HttpExchange exchange) {
-        String address = exchange.getRemoteAddress().getAddress().getHostAddress();
-        long now = System.currentTimeMillis();
-        boolean[] allowed = {false};
-        LAST_REQUEST_BY_IP.compute(address, (ignored, previous) -> {
-            if (previous == null || now - previous >= REQUEST_INTERVAL_MILLIS) {
-                allowed[0] = true;
-                return now;
-            }
-            return previous;
-        });
-        if (LAST_REQUEST_BY_IP.size() > 10_000) {
-            LAST_REQUEST_BY_IP.entrySet().removeIf(entry -> now - entry.getValue() > 60_000);
-        }
-        return allowed[0];
     }
 
     private static String buildRanking(MinecraftServer server, String period, LocalDate from, LocalDate to,
@@ -236,7 +245,10 @@ final class WebDashboard {
             WebEntry entry = entries.get(i); JsonObject player = new JsonObject();
             player.addProperty("rank", i + 1); player.addProperty("uuid", entry.uuid.toString());
             player.addProperty("name", entry.name); player.addProperty("value", entry.value);
-            player.addProperty("formatted", formatWeb(metric, entry.value)); players.add(player);
+            player.addProperty("formatted", formatWeb(metric, entry.value));
+            player.addProperty("lastOnline", StatReader.lastOnline(server, entry.uuid));
+            player.addProperty("online", server.getPlayerList().getPlayer(entry.uuid) != null);
+            players.add(player);
         }
         root.add("players", players);
         return root.toString();
@@ -249,8 +261,10 @@ final class WebDashboard {
     }
 
     private static void site(HttpExchange exchange) throws IOException {
+        if (!enforceRateLimit(exchange, RequestKind.API_DATA)) return;
         JsonObject root = new JsonObject();
         root.addProperty("name", serverName);
+        root.addProperty("rankingRefreshIntervalSeconds", rankingRefreshIntervalSeconds);
         respond(exchange, 200, "application/json; charset=utf-8", root.toString());
     }
 
@@ -283,6 +297,7 @@ final class WebDashboard {
     }
 
     private static void siteIcon(HttpExchange exchange) throws IOException {
+        if (!enforceRateLimit(exchange, RequestKind.ICON)) return;
         Path icon = websiteIcon;
         if (icon == null || !Files.isRegularFile(icon)) { respond(exchange, 404, "text/plain", "Not found"); return; }
         byte[] bytes = Files.readAllBytes(icon);
@@ -293,8 +308,28 @@ final class WebDashboard {
         try (var output = exchange.getResponseBody()) { output.write(bytes); }
     }
 
+    private static void avatar(HttpExchange exchange) throws IOException {
+        if (!enforceRateLimit(exchange, RequestKind.ICON)) return;
+        MinecraftServer server = minecraft;
+        if (server == null) { respond(exchange, 503, "text/plain; charset=utf-8", "Server unavailable"); return; }
+        String value = exchange.getRequestURI().getPath().substring("/avatar/".length());
+        try {
+            Path path = AvatarCache.path(server, UUID.fromString(value));
+            if (!Files.isRegularFile(path)) { respond(exchange, 404, "text/plain; charset=utf-8", "Not found"); return; }
+            byte[] bytes = Files.readAllBytes(path);
+            exchange.getResponseHeaders().set("Content-Type", "image/png");
+            exchange.getResponseHeaders().set("Cache-Control", "public, max-age=3600");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+        } catch (IllegalArgumentException exception) {
+            respond(exchange, 400, "text/plain; charset=utf-8", "Bad UUID");
+        }
+    }
+
     private static void webAsset(HttpExchange exchange) throws IOException {
         String requestPath = exchange.getRequestURI().getPath();
+        RequestKind requestKind = isImagePath(requestPath) ? RequestKind.ICON : RequestKind.WEB_ASSET;
+        if (!enforceRateLimit(exchange, requestKind)) return;
         String assetPath = requestPath.equals("/") ? "index.html" : requestPath.substring(1);
         if (assetPath.contains("..") || assetPath.contains("\\")) {
             respond(exchange, 400, "text/plain; charset=utf-8", "Bad request");
@@ -332,6 +367,156 @@ final class WebDashboard {
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.sendResponseHeaders(status, bytes.length);
         try (var output = exchange.getResponseBody()) { output.write(bytes); }
+    }
+
+    private static boolean enforceRateLimit(HttpExchange exchange, RequestKind requestKind) throws IOException {
+        long now = System.currentTimeMillis();
+        maybeCleanup(now);
+        int limit = requestKind == RequestKind.ICON ? iconRequestsPerMinute : dataRequestsPerSecond;
+        String address = exchange.getRemoteAddress().getAddress().getHostAddress();
+        DataPenalty penalty = requestKind == RequestKind.API_DATA ? recordDataRequest(address, now) : DataPenalty.NONE;
+        long windowMillis = requestKind == RequestKind.ICON ? ICON_WINDOW_MILLIS
+                : requestKind == RequestKind.API_DATA ? dataCooldownMillis(penalty.multiplier) : DATA_WINDOW_MILLIS;
+        String resource = normalizedRateResource(exchange.getRequestURI().getPath());
+        String key = address + '\n' + requestKind + '\n' + resource;
+        RequestWindow window = REQUEST_WINDOWS.get(key);
+        if (window == null) {
+            if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS) cleanupRequestWindows(now);
+            if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS) {
+                return rateLimited(exchange, requestKind, limit, Math.max(1, windowMillis / 1000));
+            }
+            window = REQUEST_WINDOWS.computeIfAbsent(key, ignored -> new RequestWindow());
+        }
+        RateDecision decision = window.acquire(now, limit, windowMillis);
+        exchange.getResponseHeaders().set("X-RateLimit-Limit", Integer.toString(limit));
+        exchange.getResponseHeaders().set("X-RateLimit-Remaining", Integer.toString(decision.remaining));
+        exchange.getResponseHeaders().set("X-RateLimit-Window", Long.toString(windowMillis / 1000));
+        if (requestKind == RequestKind.API_DATA) {
+            exchange.getResponseHeaders().set("X-RateLimit-Penalty-Level", Integer.toString(penalty.level));
+            exchange.getResponseHeaders().set("X-RateLimit-Penalty-Multiplier", Long.toString(penalty.multiplier));
+            exchange.getResponseHeaders().set("X-RateLimit-Data-Requests-2h", Integer.toString(penalty.requests));
+        }
+        if (decision.allowed) {
+            if (REQUEST_WINDOWS.size() > 10_000) cleanupRequestWindows(now);
+            return true;
+        }
+        return rateLimited(exchange, requestKind, limit, decision.retryAfterSeconds);
+    }
+
+    private static boolean rateLimited(HttpExchange exchange, RequestKind requestKind, int limit,
+                                       long retryAfterSeconds) throws IOException {
+        exchange.getResponseHeaders().set("Retry-After", Long.toString(retryAfterSeconds));
+        String unit = requestKind == RequestKind.ICON ? "分钟" : "秒";
+        String subject = requestKind == RequestKind.ICON ? "同一图标"
+                : requestKind == RequestKind.API_DATA ? "同一数据接口" : "同一网页资源";
+        String message = "请求过于频繁：每个 IP 对" + subject + "每" + unit + "最多请求 " + limit + " 次。";
+        if (requestKind == RequestKind.API_DATA) {
+            String multiplier = exchange.getResponseHeaders().getFirst("X-RateLimit-Penalty-Multiplier");
+            message += " 当前两小时累计处罚为 " + multiplier + " 倍冷却。";
+        }
+        if (exchange.getRequestURI().getPath().startsWith("/api/")) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", message);
+            respond(exchange, 429, "application/json; charset=utf-8", error.toString());
+        } else {
+            respond(exchange, 429, "text/plain; charset=utf-8", message);
+        }
+        return false;
+    }
+
+    private static String normalizedRateResource(String path) {
+        if (path.startsWith("/avatar/")) {
+            String value = path.substring("/avatar/".length());
+            try { return "/avatar/" + UUID.fromString(value); }
+            catch (IllegalArgumentException ignored) { return "/avatar/invalid"; }
+        }
+        return path.length() <= 256 ? path : "/invalid-path";
+    }
+
+    private static boolean isImagePath(String path) {
+        String lower = path.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".svg")
+                || lower.endsWith(".ico");
+    }
+
+    private static void cleanupRequestWindows(long now) {
+        REQUEST_WINDOWS.entrySet().removeIf(entry -> now - entry.getValue().lastAccess() > ICON_WINDOW_MILLIS * 2);
+        DATA_PENALTIES.entrySet().removeIf(entry -> now - entry.getValue().lastAccess() > DATA_PENALTY_WINDOW_MILLIS);
+    }
+
+    private static DataPenalty recordDataRequest(String address, long now) {
+        DataPenaltyWindow penalty = DATA_PENALTIES.get(address);
+        if (penalty == null) {
+            if (DATA_PENALTIES.size() >= MAX_TRACKED_WINDOWS) cleanupRequestWindows(now);
+            if (DATA_PENALTIES.size() >= MAX_TRACKED_WINDOWS) return DataPenalty.MAXIMUM;
+            penalty = DATA_PENALTIES.computeIfAbsent(address, ignored -> new DataPenaltyWindow());
+        }
+        DataPenalty decision = penalty.record(now);
+        return decision;
+    }
+
+    private static void maybeCleanup(long now) {
+        long previous = LAST_CLEANUP.get();
+        if (now - previous < CLEANUP_INTERVAL_MILLIS || !LAST_CLEANUP.compareAndSet(previous, now)) return;
+        cleanupRequestWindows(now);
+    }
+
+    private static long dataCooldownMillis(long multiplier) {
+        if (multiplier <= 1) return DATA_WINDOW_MILLIS;
+        return multiplier >= MAX_DATA_COOLDOWN_MILLIS / DATA_WINDOW_MILLIS
+                ? MAX_DATA_COOLDOWN_MILLIS : DATA_WINDOW_MILLIS * multiplier;
+    }
+
+    private enum RequestKind { API_DATA, WEB_ASSET, ICON }
+
+    private static final class RequestWindow {
+        private final ArrayDeque<Long> requests = new ArrayDeque<>();
+        private long lastAccess;
+
+        synchronized RateDecision acquire(long now, int limit, long windowMillis) {
+            lastAccess = now;
+            while (!requests.isEmpty() && now - requests.peekFirst() >= windowMillis) requests.removeFirst();
+            if (requests.size() < limit) {
+                requests.addLast(now);
+                return new RateDecision(true, limit - requests.size(), 0);
+            }
+            long retryAfter = Math.max(1, (requests.peekFirst() + windowMillis - now + 999) / 1000);
+            return new RateDecision(false, 0, retryAfter);
+        }
+
+        synchronized long lastAccess() { return lastAccess; }
+    }
+
+    /** Per-IP API history. Every six requests in two hours adds one doubling level. */
+    private static final class DataPenaltyWindow {
+        private final ArrayDeque<Long> requests = new ArrayDeque<>();
+        private long lastAccess;
+
+        synchronized DataPenalty record(long now) {
+            lastAccess = now;
+            while (!requests.isEmpty() && now - requests.peekFirst() >= DATA_PENALTY_WINDOW_MILLIS) {
+                requests.removeFirst();
+            }
+            if (requests.size() >= MAX_PENALTY_REQUESTS) requests.removeFirst();
+            requests.addLast(now);
+            int count = requests.size();
+            int level = Math.min(MAX_DATA_PENALTY_LEVEL, count / DATA_REQUESTS_PER_PENALTY_LEVEL);
+            long multiplier = 1L << level;
+            return new DataPenalty(count, level, multiplier);
+        }
+
+        synchronized long lastAccess() { return lastAccess; }
+    }
+
+    private record RateDecision(boolean allowed, int remaining, long retryAfterSeconds) { }
+
+    private record CachedRanking(long createdAt, String body) { }
+
+    private record DataPenalty(int requests, int level, long multiplier) {
+        private static final DataPenalty NONE = new DataPenalty(0, 0, 1);
+        private static final DataPenalty MAXIMUM = new DataPenalty(
+                MAX_PENALTY_REQUESTS, MAX_DATA_PENALTY_LEVEL, 1L << MAX_DATA_PENALTY_LEVEL);
     }
 
     private record WebEntry(UUID uuid, String name, long value) { }

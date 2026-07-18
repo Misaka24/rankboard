@@ -29,6 +29,8 @@ public final class LeaderboardState extends SavedData {
     private boolean onlineOnly;
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
+    private final Map<UUID, BoardPreference> boardPreferences = new HashMap<>();
+    private BoardPreference globalBoardPreference;
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
     LeaderboardState() { }
 
@@ -57,6 +59,24 @@ public final class LeaderboardState extends SavedData {
             CompoundTag snapshot = (CompoundTag) element;
             state.dailySnapshots.put(LocalDate.parse(NbtCompat.getString(snapshot, "date")), readPlayers(snapshot));
         }
+        for (Tag element : NbtCompat.getList(nbt, "boardPreferences", Tag.TAG_COMPOUND)) {
+            try {
+                CompoundTag entry = (CompoundTag) element;
+                UUID uuid = NbtCompat.getUuid(entry, "uuid");
+                RankBoardMod.Period period = RankBoardMod.Period.valueOf(NbtCompat.getString(entry, "period"));
+                RankBoardMod.Metric metric = RankBoardMod.Metric.valueOf(NbtCompat.getString(entry, "metric"));
+                state.boardPreferences.put(uuid, new BoardPreference(period, metric,
+                        NbtCompat.getBoolean(entry, "enabled"), NbtCompat.getBoolean(entry, "carousel")));
+            } catch (IllegalArgumentException ignored) { }
+        }
+        if (nbt.contains("globalBoardPreference")) {
+            try {
+                CompoundTag entry = NbtCompat.getCompound(nbt, "globalBoardPreference");
+                RankBoardMod.Period period = RankBoardMod.Period.valueOf(NbtCompat.getString(entry, "period"));
+                RankBoardMod.Metric metric = RankBoardMod.Metric.valueOf(NbtCompat.getString(entry, "metric"));
+                state.globalBoardPreference = new BoardPreference(period, metric, true, false);
+            } catch (IllegalArgumentException ignored) { }
+        }
         return state;
     }
     public CompoundTag writeNbt(CompoundTag nbt, HolderLookup.Provider lookup) {
@@ -81,6 +101,23 @@ public final class LeaderboardState extends SavedData {
             snapshots.add(snapshot);
         });
         nbt.put("dailySnapshots", snapshots);
+        ListTag preferences = new ListTag();
+        boardPreferences.forEach((uuid, preference) -> {
+            CompoundTag entry = new CompoundTag();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            entry.putString("period", preference.period().name());
+            entry.putString("metric", preference.metric().name());
+            entry.putBoolean("enabled", preference.enabled());
+            entry.putBoolean("carousel", preference.carousel());
+            preferences.add(entry);
+        });
+        nbt.put("boardPreferences", preferences);
+        if (globalBoardPreference != null && globalBoardPreference.enabled()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putString("period", globalBoardPreference.period().name());
+            entry.putString("metric", globalBoardPreference.metric().name());
+            nbt.put("globalBoardPreference", entry);
+        }
         return nbt;
     }
     public void rollPeriods(MinecraftServer server) {
@@ -155,6 +192,39 @@ public final class LeaderboardState extends SavedData {
         if (changed) setDirty();
     }
 
+    public BoardPreference boardPreference(UUID uuid) { return boardPreferences.get(uuid); }
+
+    public void setBoardPreference(UUID uuid, RankBoardMod.Period period, RankBoardMod.Metric metric,
+                                   boolean enabled, boolean carousel) {
+        BoardPreference replacement = new BoardPreference(period, metric, enabled, carousel);
+        if (!replacement.equals(boardPreferences.put(uuid, replacement))) setDirty();
+    }
+
+    public void disableBoard(UUID uuid) {
+        BoardPreference current = boardPreferences.get(uuid);
+        if (current != null && current.enabled()) {
+            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false));
+            setDirty();
+        }
+    }
+
+    public BoardPreference globalBoardPreference() { return globalBoardPreference; }
+
+    public void setGlobalBoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric) {
+        BoardPreference replacement = new BoardPreference(period, metric, true, false);
+        if (!replacement.equals(globalBoardPreference)) {
+            globalBoardPreference = replacement;
+            setDirty();
+        }
+    }
+
+    public void clearGlobalBoardPreference() {
+        if (globalBoardPreference != null) {
+            globalBoardPreference = null;
+            setDirty();
+        }
+    }
+
     public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
         if (!StatReader.isReady()) {
             throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），请稍后再查询日期范围。");
@@ -189,6 +259,8 @@ public final class LeaderboardState extends SavedData {
     }
 
     public record RangeData(LocalDate actualStart, LocalDate actualEnd, Map<UUID, Long> values) { }
+    public record BoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric,
+                                  boolean enabled, boolean carousel) { }
 
     private static ListTag writePlayers(Map<UUID, Map<RankBoardMod.Metric, Long>> players) {
         ListTag list = new ListTag();
