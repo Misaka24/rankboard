@@ -1,0 +1,113 @@
+name: Publish RankBoard 1.5.2
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/release-trigger'
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'Misaka24/rankboard'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out clean source commit
+        uses: actions/checkout@v4
+        with:
+          ref: b9dfdc6e1d079bfc5fd5be0de6515555fc858993
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          ./gradlew clean build --stacktrace > build-output.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload build diagnostics
+        if: steps.build.outputs.exit_code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-1.5.2-build-diagnostics
+          path: build-output.txt
+
+      - name: Stop after build failure
+        if: steps.build.outputs.exit_code != '0'
+        run: |
+          tail -n 250 build-output.txt
+          exit 1
+
+      - name: Select production JAR
+        id: jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar_path="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
+          test -n "$jar_path"
+          cp "$jar_path" rankboard-1.5.2-mc1.21.1.jar
+          sha256sum rankboard-1.5.2-mc1.21.1.jar | tee SHA256SUMS.txt
+          echo "sha256=$(awk '{print $1}' SHA256SUMS.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-1.5.2-mc1.21.1
+          path: |
+            rankboard-1.5.2-mc1.21.1.jar
+            SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create GitHub Release and upload JAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete v1.5.2 --yes --cleanup-tag || true
+          gh release create v1.5.2 \
+            rankboard-1.5.2-mc1.21.1.jar \
+            SHA256SUMS.txt \
+            --target b9dfdc6e1d079bfc5fd5be0de6515555fc858993 \
+            --title 'RankBoard 1.5.2' \
+            --notes $'## RankBoard 1.5.2\n\n- Added damage dealt leaderboard (`dealt`)\n- Added offline `minecraft:damage_dealt` support\n- Added in-game, scoreboard, carousel, web UI/API, colors and labels\n- Added historical baseline migration and cache schema 4\n\nSHA-256: `${{ steps.jar.outputs.sha256 }}`'
+
+      - name: Delete old Actions runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" --jq '.workflow_runs[].id' |
+          while read -r run_id; do
+            if [ "$run_id" != "$GITHUB_RUN_ID" ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
+            fi
+          done
+
+      - name: Delete temporary trigger branch
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/release-v1.5.2-trigger" || true
