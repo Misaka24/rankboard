@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/add-damage-dealt-leaderboard
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -33,18 +35,14 @@ jobs:
       - name: Build
         run: ./gradlew clean build --stacktrace
 
-      - name: Collect JARs
-        run: |
-          mkdir -p artifact
-          find build mod-builds multi-version-builds -type f -name '*.jar' \
-            ! -name '*-sources.jar' \
-            -exec cp {} artifact/ \; 2>/dev/null || true
-          test -n "$(find artifact -maxdepth 1 -type f -name '*.jar' -print -quit)"
-          sha256sum artifact/*.jar > artifact/SHA256SUMS.txt
+      - name: Show build outputs
+        run: find build/libs -maxdepth 1 -type f -printf '%f\n'
 
       - name: Upload JARs
         uses: actions/upload-artifact@v4
         with:
           name: rankboard-1.5.2-mc1.21.1
-          path: artifact/
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
           if-no-files-found: error
