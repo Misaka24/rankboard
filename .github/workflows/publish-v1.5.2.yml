@@ -1,0 +1,24 @@
+name: Publish RankBoard 1.5.2
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/release-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'Misaka24/rankboard'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out clean source commit
+        uses: actions/checkout@v4
+        with:
+          ref: b9dfdc6e1d079bfc5fd5be0de6515555fc858993
+
+      - name: Set up Java 21
+       
