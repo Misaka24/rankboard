@@ -34,7 +34,28 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Build
-        run: ./gradlew clean build --stacktrace
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          ./gradlew clean build --stacktrace > build-output.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload build diagnostics
+        if: steps.build.outputs.exit_code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-1.5.2-build-diagnostics
+          path: build-output.txt
+
+      - name: Stop after build failure
+        if: steps.build.outputs.exit_code != '0'
+        run: |
+          tail -n 250 build-output.txt
+          exit 1
 
       - name: Select production JAR
         id: jar
