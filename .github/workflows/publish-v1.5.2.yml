@@ -21,4 +21,40 @@ jobs:
           ref: b9dfdc6e1d079bfc5fd5be0de6515555fc858993
 
       - name: Set up Java 21
-       
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        run: ./gradlew clean build --stacktrace
+
+      - name: Select production JAR
+        id: jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar_path="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
+          test -n "$jar_path"
+          cp "$jar_path" rankboard-1.5.2-mc1.21.1.jar
+          echo "sha256=$(sha256sum rankboard-1.5.2-mc1.21.1.jar | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release and upload JAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete v1.5.2 --yes --cleanup-tag || true
+          gh release create v1.5.2 \
+            rankboard-1.5.2-mc1.21.1.jar \
+            --target b9dfdc6e1d079bfc5fd5be0de6515555fc858993 \
+            --title 'RankBoard 1.5.2' \
+            --notes $'## RankBoard 1.5.2\n\n- Added damage dealt leaderboard (`dealt`)\n- Added offline `minecraft:damage_dealt` support\n- Added in-game, scoreboard, carousel, web UI/API, colors and labels\n- Added historical baseline migration and cache schema 4\n\nSHA-256: `${{ steps.jar.outputs.sha256 }}`'
