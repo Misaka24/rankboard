@@ -1,0 +1,37 @@
+name: Inspect original multi-version release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/multiversion-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect original release assets and repository tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '=== ORIGINAL RELEASE ASSETS ==='
+            gh api repos/halfkite/rankboard/releases/tags/v1.5.1 --jq '.assets[].name'
+            echo '=== RELEVANT TREE FILES ==='
+            gh api 'repos/halfkite/rankboard/git/trees/bcbd544c86635b59fcaa3b6f5c05f3f67f64d548?recursive=1' --jq '.tree[].path' | grep -Ei 'version|build|gradle|release|properties|workflow'
+            echo '=== WORKFLOW CONTENTS ==='
+            for p in $(gh api 'repos/halfkite/rankboard/git/trees/bcbd544c86635b59fcaa3b6f5c05f3f67f64d548?recursive=1' --jq '.tree[].path' | grep '^.github/workflows/'); do
+              echo "--- $p ---"
+              gh api "repos/halfkite/rankboard/contents/$p?ref=bcbd544c86635b59fcaa3b6f5c05f3f67f64d548" --jq '.content' | base64 -d
+              echo
+            done
+          } | tee inspect-output.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-multiversion-inspection
+          path: inspect-output.txt
