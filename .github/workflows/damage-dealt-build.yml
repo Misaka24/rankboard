@@ -64,7 +64,24 @@ jobs:
           fi
 
       - name: Build
-        run: ./gradlew clean build --stacktrace
+        id: build
+        continue-on-error: true
+        run: |
+          ./gradlew clean build --stacktrace > build-output.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build diagnostics
+        if: steps.build.outputs.exit_code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: damage-dealt-build-diagnostics
+          path: build-output.txt
+
+      - name: Stop after build failure
+        if: steps.build.outputs.exit_code != '0'
+        run: |
+          tail -n 200 build-output.txt
+          exit 1
 
       - name: Collect production JAR
         run: |
