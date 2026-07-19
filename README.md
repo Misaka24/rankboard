@@ -4,7 +4,7 @@
 
 RankBoard 是一个 Fabric 服务端排行榜模组。玩家不需要安装客户端模组，即可使用原版计分板和网页查看排行榜。
 
-当前版本：`1.5.1`
+当前版本：`1.5.2`
 
 ### 功能与用途
 
@@ -208,7 +208,7 @@ gradlew.bat build
 
 RankBoard is a server-side Fabric leaderboard mod. Players do not need a client-side mod to use the vanilla sidebar or the web dashboard.
 
-Current version: `1.5.1`
+Current version: `1.5.2`
 
 ### Features and purpose
 
