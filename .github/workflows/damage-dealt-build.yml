@@ -32,7 +32,24 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Apply source patch
-        run: python .github/patches/add_damage_dealt.py
+        id: patch
+        continue-on-error: true
+        run: |
+          python .github/patches/add_damage_dealt.py > patch-output.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload patch diagnostics
+        if: steps.patch.outputs.exit_code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: damage-dealt-patch-diagnostics
+          path: patch-output.txt
+
+      - name: Stop after patch failure
+        if: steps.patch.outputs.exit_code != '0'
+        run: |
+          cat patch-output.txt
+          exit 1
 
       - name: Commit real source changes
         run: |
