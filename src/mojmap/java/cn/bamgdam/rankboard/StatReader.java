@@ -185,11 +185,33 @@ final class StatReader {
 
     private static boolean loadPersistentCache(MinecraftServer server) {
         Path path = persistentCachePath(server);
+        Path legacy = legacyPersistentCachePath(server);
+        boolean migrated = false;
+        if (!Files.isRegularFile(path) && Files.isRegularFile(legacy)) {
+            try {
+                Files.createDirectories(path.getParent());
+                Path temporary = path.resolveSibling(path.getFileName() + ".migration.tmp");
+                Files.copy(legacy, temporary, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
+                    Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+                migrated = true;
+            } catch (IOException exception) {
+                RankBoardMod.LOGGER.warn("Could not migrate legacy history cache {} to {}", legacy, path, exception);
+                return false;
+            }
+        }
         if (!Files.isRegularFile(path)) return false;
         try (Reader reader = Files.newBufferedReader(path)) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
             if (!root.has("schema") || root.get("schema").getAsInt() != PERSISTENT_CACHE_SCHEMA
-                    || !root.has("complete") || !root.get("complete").getAsBoolean()) return false;
+                    || !root.has("complete") || !root.get("complete").getAsBoolean()) {
+                rollbackMigratedCache(path, migrated);
+                return false;
+            }
             Map<UUID, String> knownNames = readKnownNames(server);
             for (JsonElement element : root.getAsJsonArray("players")) {
                 if (!element.isJsonObject()) continue;
@@ -207,21 +229,39 @@ final class StatReader {
                 CACHE.put(uuid, new StatSnapshot(uuid, name, values));
                 SOURCE_MODIFIED.put(uuid, entry.get("modified").getAsLong());
             }
-            if (CACHE.isEmpty() && root.getAsJsonArray("players").size() > 0) return false;
+            if (CACHE.isEmpty() && root.getAsJsonArray("players").size() > 0) {
+                rollbackMigratedCache(path, migrated);
+                return false;
+            }
+            if (migrated) {
+                try {
+                    Files.deleteIfExists(legacy);
+                } catch (IOException exception) {
+                    RankBoardMod.LOGGER.warn("Could not delete migrated legacy history cache {}", legacy, exception);
+                }
+            }
             RankBoardMod.LOGGER.info("Loaded persistent history cache: {} player files", CACHE.size());
             return true;
         } catch (Exception exception) {
             CACHE.clear();
             SOURCE_MODIFIED.clear();
+            rollbackMigratedCache(path, migrated);
             RankBoardMod.LOGGER.warn("Could not load persistent history cache {}; rebuilding it", path, exception);
             return false;
         }
+    }
+
+    private static void rollbackMigratedCache(Path path, boolean migrated) {
+        if (!migrated) return;
+        try { Files.deleteIfExists(path); }
+        catch (IOException exception) { RankBoardMod.LOGGER.warn("Could not remove invalid migrated cache {}", path, exception); }
     }
 
     private static void savePersistentCache(MinecraftServer server) {
         Path path = persistentCachePath(server);
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try {
+            Files.createDirectories(path.getParent());
             JsonObject root = new JsonObject();
             root.addProperty("schema", PERSISTENT_CACHE_SCHEMA);
             root.addProperty("complete", true);
@@ -252,6 +292,10 @@ final class StatReader {
     }
 
     private static Path persistentCachePath(MinecraftServer server) {
+        return RankBoardConfig.configDirectory(server).resolve("rankboard-history-cache.json");
+    }
+
+    private static Path legacyPersistentCachePath(MinecraftServer server) {
         return server.getServerDirectory().resolve("rankboard-history-cache.json");
     }
 

@@ -17,4 +17,9 @@ final class TextCompat {
         return style.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, command))
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hoverText));
     }
+
+    static Style openUrl(Style style, String url, Text hoverText) {
+        return style.withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, url))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hoverText));
+    }
 }

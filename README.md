@@ -4,7 +4,7 @@
 
 RankBoard 是一个 Fabric 服务端排行榜模组。玩家不需要安装客户端模组，即可使用原版计分板和网页查看排行榜。
 
-当前版本：`1.3.0`
+当前版本：`1.4.0`
 
 ### 功能与用途
 
@@ -84,7 +84,7 @@ welcome-enabled=true                        # 玩家进服时发送欢迎语
 welcome-name=auto                           # 欢迎语服务器名；auto 自动读取
 join-menu-enabled=true                      # 玩家进服时换出聊天栏面板
 join-web-hint-enabled=false                 # 玩家进服时提示网页排行榜地址
-web-public-address=                         # 对玩家显示的网页地址；留空自动生成
+web-public-address=                         # 网站按钮/进服提示地址；留空默认 http://127.0.0.1:8765，可用指令修改
 restore-scoreboard-on-join=true             # 恢复玩家上次选择的客户端计分板
 look-up-sneak-menu-enabled=true             # 抬头并按住 Shift 换出聊天栏面板
 carousel-enabled=true                       # 允许玩家开启榜单自动轮播
@@ -110,7 +110,7 @@ avatar-cache-days=7                         # 玩家头像缓存保留天数
 host=0.0.0.0                              # 网页服务监听地址；0.0.0.0 接受所有连接
 port=8765                                 # 网页服务端口
 web-data-requests-per-second=1            # 单个 IP 的数据请求基础频率
-web-icon-requests-per-minute=3            # 单个 IP 对每个图标的每分钟请求上限
+web-icon-request-interval-seconds=3       # 图片基础请求间隔，单位秒
 web-ranking-refresh-interval-seconds=30   # 网页排行榜整体刷新间隔，单位秒
 server-name=auto                           # 网页显示的服务器名；auto 自动读取
 website-icon=server-icon.png              # 服务器图标；只能放在 config/rankboard/
@@ -151,7 +151,7 @@ GET /api/rankings?metric=kills&period=week
 GET /api/rankings?metric=playtime&from=2026-07-16&to=2026-07-20
 ```
 
-数据接口 `/api/rankings` 和 `/api/site` 共享 IP 累计记录。两小时内每累计 6 次请求，数据冷却倍数翻倍，最长 1 小时。图标和静态资源使用独立限流：默认每个图标每分钟 3 次，网页资源每秒 1 次。
+数据接口 `/api/rankings` 和 `/api/site` 共享同一 IP 的 30 秒请求计数。默认每秒 1 次；30 秒内超过 30 次后，固定 30 分钟改为每 5 秒 1 次。图片默认每 3 秒 1 次；30 秒内超过 6 次后，固定 30 分钟改为每 15 秒 1 次。静态网页资源仍为每秒 1 次。
 
 超过限制返回 HTTP `429` 和 `Retry-After`。OP 可以使用 `/leaderboard ratelimit clear` 清除所有累计冷却。
 
@@ -173,7 +173,7 @@ gradlew.bat build
 
 RankBoard is a server-side Fabric leaderboard mod. Players do not need a client-side mod to use the vanilla sidebar or the web dashboard.
 
-Current version: `1.3.0`
+Current version: `1.4.0`
 
 ### Features and purpose
 
@@ -252,7 +252,7 @@ welcome-enabled=true                        # Send a welcome message to a joinin
 welcome-name=auto                           # Welcome name; auto reads server information
 join-menu-enabled=true                      # Open the chat ranking menu on join
 join-web-hint-enabled=false                 # Show the web-ranking address on join
-web-public-address=                         # Public web address shown to players; blank is automatic
+web-public-address=                         # Website button/join hint address; blank defaults to http://127.0.0.1:8765 and can be changed by command
 restore-scoreboard-on-join=true             # Restore the player's previous personal sidebar
 look-up-sneak-menu-enabled=true             # Open the chat ranking menu while looking up and holding Shift
 carousel-enabled=true                       # Let players enable automatic ranking rotation
@@ -278,7 +278,7 @@ Web settings:
 host=0.0.0.0                              # Web-server bind address; 0.0.0.0 accepts all connections
 port=8765                                 # Web-server port
 web-data-requests-per-second=1            # Per-IP base rate for data requests
-web-icon-requests-per-minute=3            # Per-IP limit for each icon, per minute
+web-icon-request-interval-seconds=3       # Base image request interval in seconds
 web-ranking-refresh-interval-seconds=30   # Full ranking refresh interval in seconds
 server-name=auto                           # Server name shown on the web page; auto reads server data
 website-icon=server-icon.png              # Server icon, restricted to config/rankboard/
@@ -319,7 +319,7 @@ GET /api/rankings?metric=kills&period=week
 GET /api/rankings?metric=playtime&from=2026-07-16&to=2026-07-20
 ```
 
-`/api/rankings` and `/api/site` share an IP-based two-hour request history. Every six requests double the data cooldown, up to one hour. Icons and static resources use separate limits: three requests per icon per minute and one web-resource request per second by default.
+`/api/rankings` and `/api/site` share a 30-second request count per IP. Data starts at one request per second; more than 30 requests in 30 seconds applies a five-second interval for 30 minutes. Images start at one request every three seconds; more than six requests in 30 seconds applies a 15-second interval for 30 minutes. Static web resources remain limited to one request per second.
 
 Limited requests return HTTP `429` with `Retry-After`. Operators can clear all accumulated cooldowns with `/leaderboard ratelimit clear`.
 

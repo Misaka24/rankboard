@@ -23,6 +23,7 @@ import java.util.Properties;
 final class RankBoardConfig {
     private static final String MAIN_FILE = "rankboard.properties";
     private static final String WEB_FILE = "rankboard-web.properties";
+    private static final String READ_LEGACY_CONFIG = "read-legacy-config";
     private static final List<Option> OPTIONS = List.of(
             option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每秒检查的玩家统计文件数；默认 50，范围 1-1000，修改后下次缓存重载生效。"),
             option("welcome-enabled", "true", FileKind.MAIN, "进服提示", "是否发送“欢迎来到”提示；默认 true。"),
@@ -49,8 +50,8 @@ final class RankBoardConfig {
             option("avatar-cache-days", "7", FileKind.MAIN, "玩家头像缓存", "头像缓存有效天数；默认 7，范围 1-365。"),
             option("host", "0.0.0.0", FileKind.WEB, "网页监听", "网页监听地址；默认 0.0.0.0，表示监听所有 IPv4 地址。"),
             option("port", "8765", FileKind.WEB, "网页监听", "网页监听端口；默认 8765，范围 1-65535。"),
-            option("web-data-requests-per-second", "1", FileKind.WEB, "请求限流", "同一 IP 对同一数据接口或网页资源每秒最多请求次数；默认 1，范围 1-100。"),
-            option("web-icon-requests-per-minute", "3", FileKind.WEB, "请求限流", "同一 IP 对同一玩家或服务器图标每分钟最多请求次数；默认 3，范围 1-1000。"),
+            option("web-data-requests-per-second", "1", FileKind.WEB, "请求限流", "数据接口基础请求间隔；值 1 表示每秒最多 1 次。30 秒内超过 30 次后，固定 30 分钟改为每 5 秒 1 次。"),
+            option("web-icon-request-interval-seconds", "3", FileKind.WEB, "请求限流", "图片基础请求间隔秒数；默认 3。30 秒内超过 6 次后，固定 30 分钟改为每 15 秒 1 次。"),
             option("web-ranking-refresh-interval-seconds", "30", FileKind.WEB, "网页数据", "网页排行榜数据快照刷新间隔秒数；默认 30，范围 1-3600。"),
             option("server-name", "auto", FileKind.WEB, "网页显示", "网页显示的服务器名称；默认 auto，自动读取服务器 MOTD。"),
             option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标文件名；只能使用 config/rankboard/ 目录内的文件，默认 server-icon.png。")
@@ -197,8 +198,8 @@ final class RankBoardConfig {
         if (!webPublicAddress.isEmpty()) return webPublicAddress;
         Properties web = webProperties;
         String host = web.getProperty("host", "").strip();
-        if (host.isEmpty() || host.equals("0.0.0.0") || host.equals("::")) host = server.getLocalIp();
-        if (host == null || host.isBlank()) host = "服务器地址";
+        if (host.isEmpty() || host.equals("0.0.0.0") || host.equals("::")) host = "127.0.0.1";
+        if (host == null || host.isBlank()) host = "127.0.0.1";
         return host + ":" + web.getProperty("port", "8765").strip();
     }
 
@@ -208,14 +209,31 @@ final class RankBoardConfig {
         Path target = directory.resolve(fileName);
         Path legacy = server.getServerDirectory().resolve(fileName);
         Properties properties = new Properties();
-        if (Files.isRegularFile(target)) loadInto(target, properties, false);
-        if (Files.isRegularFile(legacy)) loadInto(legacy, properties, true);
+        boolean targetExists = Files.isRegularFile(target);
+        if (targetExists) loadInto(target, properties, false);
+        boolean readLegacy = !targetExists
+                || !"false".equalsIgnoreCase(properties.getProperty(READ_LEGACY_CONFIG, "true").strip());
+        boolean legacyLoaded = false;
+        if (readLegacy && Files.isRegularFile(legacy)) {
+            loadInto(legacy, properties, true);
+            legacyLoaded = true;
+        }
+        // Replaces the former per-minute image limit with an exact per-image interval.
+        if (properties.remove("web-icon-requests-per-minute") != null
+                && !properties.containsKey("web-icon-request-interval-seconds")) {
+            properties.setProperty("web-icon-request-interval-seconds", "3");
+        }
         for (Option option : OPTIONS) {
             if (option.fileKind == fileKind) properties.putIfAbsent(option.key, option.defaultValue);
         }
+        if (readLegacy) properties.setProperty(READ_LEGACY_CONFIG, "false");
         writeConfig(target, properties, fileKind);
-        if (Files.isRegularFile(legacy)) {
-            Files.delete(legacy);
+        if (legacyLoaded) {
+            try {
+                Files.delete(legacy);
+            } catch (IOException exception) {
+                RankBoardMod.LOGGER.warn("Could not delete migrated legacy RankBoard config {}", legacy, exception);
+            }
             RankBoardMod.LOGGER.info("Migrated legacy RankBoard config {} to {}", legacy, target);
         }
         return properties;
@@ -236,6 +254,8 @@ final class RankBoardConfig {
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try {
             try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                writer.write(READ_LEGACY_CONFIG + "="
+                        + properties.getProperty(READ_LEGACY_CONFIG, "true") + "\n");
                 writer.write(fileKind == FileKind.MAIN
                         ? "# RankBoard 主配置（Minecraft 1.21.1）\n"
                         : "# RankBoard 网页配置（Minecraft 1.21.1）\n");
@@ -254,6 +274,7 @@ final class RankBoardConfig {
                 }
                 List<String> unknown = new ArrayList<>();
                 for (String key : properties.stringPropertyNames()) {
+                    if (READ_LEGACY_CONFIG.equals(key)) continue;
                     Option option = findOption(key);
                     if (option == null || option.fileKind != fileKind) unknown.add(key);
                 }
@@ -284,7 +305,7 @@ final class RankBoardConfig {
             case "avatar-cache-days" -> normalizedInteger(value, 1, 365);
             case "port" -> normalizedInteger(value, 1, 65535);
             case "web-data-requests-per-second" -> normalizedInteger(value, 1, 100);
-            case "web-icon-requests-per-minute" -> normalizedInteger(value, 1, 1000);
+            case "web-icon-request-interval-seconds" -> normalizedInteger(value, 1, 3600);
             case "scoreboard-live-update-window-seconds" -> normalizedInteger(value, 1, 300);
             case "scoreboard-live-update-threshold" -> normalizedInteger(value, 1, 100000);
             case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);

@@ -32,6 +32,7 @@ import java.util.UUID;
 /** Maintains real vanilla objectives and controls each player's vanilla sidebar with packets. */
 final class BoardService {
     private static final Map<UUID, Selection> SELECTIONS = new HashMap<>();
+    private static final Map<UUID, RankBoardMod.Period> OVERVIEW_SELECTIONS = new HashMap<>();
     private static final Map<UUID, String> CLIENT_OBJECTIVES = new HashMap<>();
     private static final Map<UUID, Long> NEXT_CAROUSEL_AT = new HashMap<>();
     private static final Map<ActivityKey, Long> LAST_ACTIVITY_VALUES = new HashMap<>();
@@ -41,6 +42,7 @@ final class BoardService {
 
     static void disconnect(ServerPlayer player) {
         SELECTIONS.remove(player.getUUID());
+        OVERVIEW_SELECTIONS.remove(player.getUUID());
         CLIENT_OBJECTIVES.remove(player.getUUID());
         NEXT_CAROUSEL_AT.remove(player.getUUID());
         LAST_ACTIVITY_VALUES.keySet().removeIf(key -> key.uuid.equals(player.getUUID()));
@@ -48,6 +50,7 @@ final class BoardService {
 
     static void clearSessions() {
         SELECTIONS.clear();
+        OVERVIEW_SELECTIONS.clear();
         CLIENT_OBJECTIVES.clear();
         NEXT_CAROUSEL_AT.clear();
         LAST_ACTIVITY_VALUES.clear();
@@ -58,6 +61,7 @@ final class BoardService {
     static int enable(CommandSourceStack source, RankBoardMod.Period period, RankBoardMod.Metric metric) {
         try {
             ServerPlayer player = source.getPlayerOrException();
+            OVERVIEW_SELECTIONS.remove(player.getUUID());
             return enable(source, player, period, metric);
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
             source.sendFailure(Component.literal("该命令只能由玩家执行。"));
@@ -106,6 +110,7 @@ final class BoardService {
 
     static int disable(CommandSourceStack source, ServerPlayer player) {
         SELECTIONS.remove(player.getUUID());
+        OVERVIEW_SELECTIONS.remove(player.getUUID());
         NEXT_CAROUSEL_AT.remove(player.getUUID());
         LeaderboardState.get(PlayerCompat.server(player)).disableBoard(player.getUUID());
         removePrivateObjective(player);
@@ -119,7 +124,14 @@ final class BoardService {
         if (!RankBoardConfig.get().restoreBoardOnJoin) return;
         LeaderboardState state = LeaderboardState.get(PlayerCompat.server(player));
         LeaderboardState.BoardPreference preference = state.boardPreference(player.getUUID());
-        if (preference == null || !preference.enabled() || !state.isMetricDisplayEnabled(preference.metric())) return;
+        if (preference == null || !preference.enabled()) return;
+        if (preference.overview()) {
+            OVERVIEW_SELECTIONS.put(player.getUUID(), preference.period());
+            try { sendOverview(player, preference.period()); }
+            catch (RuntimeException exception) { RankBoardMod.LOGGER.warn("Could not restore overview for {}", player.getName().getString(), exception); }
+            return;
+        }
+        if (!state.isMetricDisplayEnabled(preference.metric())) return;
         Selection selection = new Selection(preference.period(), preference.metric());
         SELECTIONS.put(player.getUUID(), selection);
         if (preference.carousel() && RankBoardConfig.get().carouselEnabled) scheduleCarousel(player.getUUID());
@@ -145,6 +157,7 @@ final class BoardService {
         }
         try {
             ServerPlayer player = source.getPlayerOrException();
+            OVERVIEW_SELECTIONS.remove(player.getUUID());
             LeaderboardState state = LeaderboardState.get(source.getServer());
             LeaderboardState.BoardPreference stored = state.boardPreference(player.getUUID());
             Selection selection = SELECTIONS.get(player.getUUID());
@@ -203,9 +216,10 @@ final class BoardService {
     /** Polls live vanilla statistics and refreshes only scoreboards watching a changed metric. */
     static void tickActivity(MinecraftServer server) {
         RankBoardConfig config = RankBoardConfig.get();
-        if (!config.scoreboardLiveUpdateEnabled || (SELECTIONS.isEmpty() && globalSelection == null)) return;
+        if (!config.scoreboardLiveUpdateEnabled || (SELECTIONS.isEmpty() && OVERVIEW_SELECTIONS.isEmpty() && globalSelection == null)) return;
         Set<RankBoardMod.Metric> activeMetrics = new HashSet<>();
         for (Selection selection : SELECTIONS.values()) activeMetrics.add(selection.metric);
+        if (!OVERVIEW_SELECTIONS.isEmpty()) for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) activeMetrics.add(metric);
         if (globalSelection != null) activeMetrics.add(globalSelection.metric);
         long now = System.currentTimeMillis();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -229,6 +243,10 @@ final class BoardService {
         Map<Selection, Objective> objectives = new HashMap<>();
         LeaderboardState state = LeaderboardState.get(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            RankBoardMod.Period overviewPeriod = OVERVIEW_SELECTIONS.get(player.getUUID());
+            if (overviewPeriod != null) {
+                try { sendOverview(player, overviewPeriod); } catch (RuntimeException exception) { RankBoardMod.LOGGER.warn("Could not refresh overview", exception); }
+            }
             Selection selection = SELECTIONS.get(player.getUUID());
             if (selection == null || selection.metric != metric) continue;
             if (!state.isMetricDisplayEnabled(metric)) {
@@ -254,6 +272,8 @@ final class BoardService {
     static void refreshAll(MinecraftServer server) {
         Map<Selection, Objective> objectives = new HashMap<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            RankBoardMod.Period overviewPeriod = OVERVIEW_SELECTIONS.get(player.getUUID());
+            if (overviewPeriod != null) sendOverview(player, overviewPeriod);
             Selection selection = SELECTIONS.get(player.getUUID());
             if (selection == null) continue;
             if (!LeaderboardState.get(server).isMetricDisplayEnabled(selection.metric)) {
@@ -279,6 +299,45 @@ final class BoardService {
     private static void sendPrivate(ServerPlayer player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
         Objective objective = syncObjective(PlayerCompat.server(player), period, metric, true);
         sendPackets(player, objective, RankBoardMod.entries(PlayerCompat.server(player), period, metric), metric);
+    }
+
+    static int enableOverview(CommandSourceStack source, RankBoardMod.Period period) {
+        try {
+            ServerPlayer player = source.getPlayerOrException();
+            SELECTIONS.remove(player.getUUID());
+            NEXT_CAROUSEL_AT.remove(player.getUUID());
+            OVERVIEW_SELECTIONS.put(player.getUUID(), period);
+            LeaderboardState.get(PlayerCompat.server(player)).setOverviewPreference(player.getUUID(), period, true);
+            sendOverview(player, period);
+            return 1;
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            source.sendFailure(Component.literal("该命令只能由玩家执行。"));
+            return 0;
+        }
+    }
+
+    private static void sendOverview(ServerPlayer player, RankBoardMod.Period period) {
+        MinecraftServer server = PlayerCompat.server(player);
+        Scoreboard scoreboard = server.getScoreboard();
+        String name = "rbo_" + period.command;
+        Objective objective = scoreboard.getObjective(name);
+        Component title = Component.literal(period.label + " 我的总览");
+        if (objective == null) objective = scoreboard.addObjective(name, ObjectiveCriteria.DUMMY, title,
+                ObjectiveCriteria.RenderType.INTEGER, false, null);
+        else { objective.setDisplayName(title); scoreboard.onObjectiveChanged(objective); }
+        removePrivateObjective(player);
+        player.connection.send(new ClientboundSetObjectivePacket(objective, ClientboundSetObjectivePacket.METHOD_ADD));
+        CLIENT_OBJECTIVES.put(player.getUUID(), name);
+        LeaderboardState state = LeaderboardState.get(server);
+        for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+            if (!state.isMetricDisplayEnabled(metric)) continue;
+            long raw = metric.read(player);
+            long value = period == RankBoardMod.Period.ALL ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUUID(), metric));
+            if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
+            int score = scoreboardValue(metric, value);
+            player.connection.send(new ClientboundSetScorePacket(metric.label, name, score, Optional.empty(), scoreboardFormat(metric, score)));
+        }
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
     }
 
     private static void sendPackets(ServerPlayer player, Objective objective,
@@ -476,6 +535,7 @@ final class BoardService {
     }
     private static void disableSilently(ServerPlayer player) {
         SELECTIONS.remove(player.getUUID());
+        OVERVIEW_SELECTIONS.remove(player.getUUID());
         NEXT_CAROUSEL_AT.remove(player.getUUID());
         LeaderboardState.get(PlayerCompat.server(player)).disableBoard(player.getUUID());
         removePrivateObjective(player);
@@ -488,7 +548,7 @@ final class BoardService {
     }
     private static boolean isRankBoardObjective(Objective objective) {
         String name = objective.getName();
-        return name.startsWith("rbp_") || name.startsWith("rbg_");
+        return name.startsWith("rbp_") || name.startsWith("rbg_") || name.startsWith("rbo_");
     }
     private static void scheduleCarousel(UUID uuid) { NEXT_CAROUSEL_AT.put(uuid, carouselDeadline()); }
     private static long carouselDeadline() {

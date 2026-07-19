@@ -15,6 +15,7 @@ final class NbtCompat {
     static String getString(NbtCompound nbt, String key) { return nbt.getString(key, ""); }
     static String asString(NbtElement element) { return element.asString().orElse(""); }
     static NbtList getList(NbtCompound nbt, String key, byte type) { return nbt.getListOrEmpty(key); }
+    static NbtCompound getCompound(NbtCompound nbt, String key) { return nbt.getCompoundOrEmpty(key); }
     static void putUuid(NbtCompound nbt, String key, UUID uuid) { nbt.putString(key, uuid.toString()); }
 
     static UUID getUuid(NbtCompound nbt, String key) {

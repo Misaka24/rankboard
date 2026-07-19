@@ -66,7 +66,8 @@ public final class LeaderboardState extends SavedData {
                 RankBoardMod.Period period = RankBoardMod.Period.valueOf(NbtCompat.getString(entry, "period"));
                 RankBoardMod.Metric metric = RankBoardMod.Metric.valueOf(NbtCompat.getString(entry, "metric"));
                 state.boardPreferences.put(uuid, new BoardPreference(period, metric,
-                        NbtCompat.getBoolean(entry, "enabled"), NbtCompat.getBoolean(entry, "carousel")));
+                        NbtCompat.getBoolean(entry, "enabled"), NbtCompat.getBoolean(entry, "carousel"),
+                        NbtCompat.getBoolean(entry, "overview")));
             } catch (IllegalArgumentException ignored) { }
         }
         if (nbt.contains("globalBoardPreference")) {
@@ -74,7 +75,7 @@ public final class LeaderboardState extends SavedData {
                 CompoundTag entry = NbtCompat.getCompound(nbt, "globalBoardPreference");
                 RankBoardMod.Period period = RankBoardMod.Period.valueOf(NbtCompat.getString(entry, "period"));
                 RankBoardMod.Metric metric = RankBoardMod.Metric.valueOf(NbtCompat.getString(entry, "metric"));
-                state.globalBoardPreference = new BoardPreference(period, metric, true, false);
+                state.globalBoardPreference = new BoardPreference(period, metric, true, false, false);
             } catch (IllegalArgumentException ignored) { }
         }
         return state;
@@ -109,6 +110,7 @@ public final class LeaderboardState extends SavedData {
             entry.putString("metric", preference.metric().name());
             entry.putBoolean("enabled", preference.enabled());
             entry.putBoolean("carousel", preference.carousel());
+            entry.putBoolean("overview", preference.overview());
             preferences.add(entry);
         });
         nbt.put("boardPreferences", preferences);
@@ -196,14 +198,19 @@ public final class LeaderboardState extends SavedData {
 
     public void setBoardPreference(UUID uuid, RankBoardMod.Period period, RankBoardMod.Metric metric,
                                    boolean enabled, boolean carousel) {
-        BoardPreference replacement = new BoardPreference(period, metric, enabled, carousel);
+        BoardPreference replacement = new BoardPreference(period, metric, enabled, carousel, false);
+        if (!replacement.equals(boardPreferences.put(uuid, replacement))) setDirty();
+    }
+
+    public void setOverviewPreference(UUID uuid, RankBoardMod.Period period, boolean enabled) {
+        BoardPreference replacement = new BoardPreference(period, RankBoardMod.Metric.PLAY_TIME, enabled, false, enabled);
         if (!replacement.equals(boardPreferences.put(uuid, replacement))) setDirty();
     }
 
     public void disableBoard(UUID uuid) {
         BoardPreference current = boardPreferences.get(uuid);
         if (current != null && current.enabled()) {
-            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false));
+            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false, false));
             setDirty();
         }
     }
@@ -211,7 +218,7 @@ public final class LeaderboardState extends SavedData {
     public BoardPreference globalBoardPreference() { return globalBoardPreference; }
 
     public void setGlobalBoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric) {
-        BoardPreference replacement = new BoardPreference(period, metric, true, false);
+        BoardPreference replacement = new BoardPreference(period, metric, true, false, false);
         if (!replacement.equals(globalBoardPreference)) {
             globalBoardPreference = replacement;
             setDirty();
@@ -260,7 +267,7 @@ public final class LeaderboardState extends SavedData {
 
     public record RangeData(LocalDate actualStart, LocalDate actualEnd, Map<UUID, Long> values) { }
     public record BoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric,
-                                  boolean enabled, boolean carousel) { }
+                                  boolean enabled, boolean carousel, boolean overview) { }
 
     private static ListTag writePlayers(Map<UUID, Map<RankBoardMod.Metric, Long>> players) {
         ListTag list = new ListTag();

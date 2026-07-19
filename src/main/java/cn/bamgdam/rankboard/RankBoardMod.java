@@ -36,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.net.URI;
 
 public final class RankBoardMod implements ModInitializer {
     public static final String MOD_ID = "rankboard";
@@ -46,10 +47,13 @@ public final class RankBoardMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        LOGGER.info("RankBoard initialized for Minecraft 1.21.1");
+        LOGGER.info("RankBoard initialized for Minecraft 1.21.x");
         CommandRegistrationCallback.EVENT.register(this::registerCommands);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             RankBoardConfig.load(server);
+            RankBoardWhitelist.load(server);
+            BoardService.restoreGlobal(server);
+            BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.startWarmup(server);
             WebDashboard.start(server);
         });
@@ -79,6 +83,7 @@ public final class RankBoardMod implements ModInitializer {
                 ticks = 0;
                 LeaderboardState.get(server).rollPeriods(server);
                 BoardService.refreshAll(server);
+                BoardService.enforceForeignScoreboardPolicy(server);
             }
         });
     }
@@ -88,7 +93,12 @@ public final class RankBoardMod implements ModInitializer {
         LiteralArgumentBuilder<ServerCommandSource> root = CommandManager.literal("leaderboard")
                 .requires(source -> CommandPermissionCompat.has(source, 0)).executes(context -> menu(context.getSource()));
         root.then(CommandManager.literal("help").requires(source -> RankBoardConfig.get().helpVisible(source))
-                .executes(context -> help(context.getSource())));
+                .executes(context -> helpGrouped(context.getSource(), "menu"))
+                .then(CommandManager.literal("player").executes(context -> helpGrouped(context.getSource(), "player")))
+                .then(CommandManager.literal("scoreboard").executes(context -> helpGrouped(context.getSource(), "scoreboard")))
+                .then(CommandManager.literal("web").executes(context -> helpGrouped(context.getSource(), "web")))
+                .then(CommandManager.literal("admin").requires(source -> CommandPermissionCompat.has(source, 2))
+                        .executes(context -> helpGrouped(context.getSource(), "admin"))));
         root.then(CommandManager.literal("mine")
                 .executes(context -> showMyScores(context.getSource(), -1, "总计"))
                 .then(CommandManager.literal("all").executes(context -> showMyScores(context.getSource(), -1, "总计")))
@@ -96,6 +106,8 @@ public final class RankBoardMod implements ModInitializer {
                 .then(CommandManager.literal("week").executes(context -> showMyScores(context.getSource(), 7, "最近一周")))
                 .then(CommandManager.literal("month").executes(context -> showMyScores(context.getSource(), 30, "最近一月"))));
         root.then(CommandManager.literal("carousel")
+                .then(CommandManager.literal("true").executes(context -> BoardService.setCarousel(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> BoardService.setCarousel(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> BoardService.setCarousel(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> BoardService.setCarousel(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> BoardService.carouselStatus(context.getSource()))));
@@ -106,6 +118,8 @@ public final class RankBoardMod implements ModInitializer {
                                         EntityArgumentType.getPlayer(context, "player")))))
                 .then(buildSelectionCommands(false)));
         root.then(CommandManager.literal("namecolor")
+                .then(CommandManager.literal("true").executes(context -> setNameColor(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> setNameColor(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> setNameColor(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> setNameColor(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> nameColorStatus(context.getSource()))));
@@ -113,6 +127,8 @@ public final class RankBoardMod implements ModInitializer {
                 .requires(source -> CommandPermissionCompat.has(source, 2));
         for (Metric metric : Metric.values()) {
             displayFilter.then(CommandManager.literal(metric.command)
+                    .then(CommandManager.literal("true").executes(context -> setMetricDisplay(context.getSource(), metric, true)))
+                    .then(CommandManager.literal("false").executes(context -> setMetricDisplay(context.getSource(), metric, false)))
                     .then(CommandManager.literal("enable").executes(context -> setMetricDisplay(context.getSource(), metric, true)))
                     .then(CommandManager.literal("disable").executes(context -> setMetricDisplay(context.getSource(), metric, false)))
                     .then(CommandManager.literal("status").executes(context -> metricDisplayStatus(context.getSource(), metric))));
@@ -120,23 +136,49 @@ public final class RankBoardMod implements ModInitializer {
         root.then(displayFilter);
         root.then(CommandManager.literal("scoreboard").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(CommandManager.literal("clear").executes(context -> BoardService.clearVanilla(context.getSource())))
+                .then(CommandManager.literal("cleanup").executes(context -> BoardService.clearForeignScoreboards(context.getSource())))
+                .then(CommandManager.literal("blocking")
+                        .then(CommandManager.literal("true").executes(context -> BoardService.setForeignScoreboardBlocking(context.getSource(), true)))
+                        .then(CommandManager.literal("false").executes(context -> BoardService.setForeignScoreboardBlocking(context.getSource(), false)))
+                        .then(CommandManager.literal("enable").executes(context -> BoardService.setForeignScoreboardBlocking(context.getSource(), true)))
+                        .then(CommandManager.literal("disable").executes(context -> BoardService.setForeignScoreboardBlocking(context.getSource(), false)))
+                        .then(CommandManager.literal("status").executes(context -> BoardService.foreignScoreboardBlockingStatus(context.getSource()))))
                 .then(buildSelectionCommands(true)));
         root.then(CommandManager.literal("whitelist").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("true").executes(context -> setWhitelistOnly(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> setWhitelistOnly(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> setWhitelistOnly(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> setWhitelistOnly(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> whitelistStatus(context.getSource()))));
         root.then(CommandManager.literal("botfilter").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("true").executes(context -> setBotFilter(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> setBotFilter(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> setBotFilter(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> setBotFilter(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> botFilterStatus(context.getSource()))));
         root.then(CommandManager.literal("customfilter").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("true").executes(context -> setCustomFilter(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> setCustomFilter(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> setCustomFilter(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> setCustomFilter(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> customFilterStatus(context.getSource()))));
         root.then(CommandManager.literal("onlinefilter").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("true").executes(context -> setOnlineFilter(context.getSource(), true)))
+                .then(CommandManager.literal("false").executes(context -> setOnlineFilter(context.getSource(), false)))
                 .then(CommandManager.literal("on").executes(context -> setOnlineFilter(context.getSource(), true)))
                 .then(CommandManager.literal("off").executes(context -> setOnlineFilter(context.getSource(), false)))
                 .then(CommandManager.literal("status").executes(context -> onlineFilterStatus(context.getSource()))));
+        root.then(CommandManager.literal("modwhitelist").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("add")
+                        .then(CommandManager.argument("player", StringArgumentType.word())
+                                .executes(context -> modifyModWhitelist(context.getSource(), true,
+                                        StringArgumentType.getString(context, "player")))))
+                .then(CommandManager.literal("remove")
+                        .then(CommandManager.argument("player", StringArgumentType.word())
+                                .executes(context -> modifyModWhitelist(context.getSource(), false,
+                                        StringArgumentType.getString(context, "player")))))
+                .then(CommandManager.literal("list").executes(context -> listModWhitelist(context.getSource())))
+                .then(CommandManager.literal("reload").executes(context -> reloadModWhitelist(context.getSource()))));
         root.then(CommandManager.literal("lookup").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(CommandManager.literal("whitelist").executes(context -> MojangNameLookup.lookupWhitelist(context.getSource())))
                 .then(CommandManager.argument("uuid", StringArgumentType.word())
@@ -200,6 +242,64 @@ public final class RankBoardMod implements ModInitializer {
         return periods;
     }
 
+    private int helpGrouped(ServerCommandSource source, String group) {
+        boolean op = CommandPermissionCompat.has(source, 2);
+        if (group.equals("menu")) {
+            Text line = clickable("[玩家指令]", Formatting.AQUA, "/leaderboard help player", "玩家常用指令")
+                    .copy().append(Text.literal(" "))
+                    .append(clickable("[计分板]", Formatting.YELLOW, "/leaderboard help scoreboard", "个人计分板指令"))
+                    .append(Text.literal(" "))
+                    .append(clickable("[网页与配置]", Formatting.GREEN, "/leaderboard help web", "网页地址和配置说明"));
+            if (op) line = line.copy().append(Text.literal(" "))
+                    .append(clickable("[OP 管理]", Formatting.RED, "/leaderboard help admin", "仅 OP 可用的管理指令"));
+            Text menuLine = line;
+            source.sendFeedback(() -> menuLine, false);
+            return 1;
+        }
+        source.sendFeedback(() -> clickable("[返回 Help]", Formatting.GRAY,
+                "/leaderboard help", "返回帮助分组"), false);
+        switch (group) {
+            case "player" -> {
+                helpCommand(source, "/leaderboard", "/leaderboard", "打开排行榜菜单");
+                helpCommand(source, "/leaderboard mine", "/leaderboard mine", "查询所有个人统计并显示总览");
+                helpCommand(source, "/leaderboard mine <all|day|week|month>", "/leaderboard mine ", "查询指定周期的个人统计");
+                helpCommand(source, "/leaderboard <周期> <榜单> [数量]", "/leaderboard all playtime ", "查看排行榜");
+                helpCommand(source, "/leaderboard carousel true|false|status", "/leaderboard carousel ", "控制榜单轮播");
+                helpCommand(source, "/leaderboard namecolor true|false|status", "/leaderboard namecolor ", "开关名字颜色");
+            }
+            case "scoreboard" -> {
+                helpCommand(source, "/leaderboard display show <周期> <榜单>", "/leaderboard display show ", "显示个人单榜计分板");
+                helpCommand(source, "/leaderboard display off", "/leaderboard display off", "关闭个人计分板");
+                helpCommand(source, "/leaderboard mine", "/leaderboard mine", "显示个人所有榜单总览");
+                if (op) {
+                    helpCommand(source, "/leaderboard scoreboard cleanup", "/leaderboard scoreboard cleanup", "清理其他模组计分板");
+                    helpCommand(source, "/leaderboard scoreboard blocking <true|false|status>",
+                            "/leaderboard scoreboard blocking ", "设置其他模组计分板自动屏蔽");
+                }
+            }
+            case "web" -> {
+                source.sendFeedback(() -> websiteButton(source), false);
+                helpCommand(source, "/leaderboard config set web-public-address <地址|auto>",
+                        "/leaderboard config set web-public-address ", "设置网站按钮地址，默认 127.0.0.1:8765");
+                helpCommand(source, "/leaderboard config list|get|set|reload", "/leaderboard config ", "查看或修改配置");
+                helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除网页限流");
+                source.sendFeedback(() -> Text.literal(
+                        "配置文件：config/rankboard/rankboard-web.properties"), false);
+            }
+            case "admin" -> {
+                if (!op) return 0;
+                helpCommand(source, "/leaderboard whitelist <true|false|status>", "/leaderboard whitelist ", "控制服务器白名单筛选");
+                helpCommand(source, "/leaderboard modwhitelist <add|remove|list|reload>", "/leaderboard modwhitelist ", "管理模组自带白名单");
+                helpCommand(source, "/leaderboard displayfilter <榜单> <true|false|status>", "/leaderboard displayfilter ", "管理榜单显示");
+                helpCommand(source, "/leaderboard scoreboard blocking <true|false|status>",
+                        "/leaderboard scoreboard blocking ", "屏蔽其他模组计分板");
+                helpCommand(source, "/leaderboard cache <status|reload>", "/leaderboard cache ", "管理统计缓存");
+                helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除全部限流记录");
+            }
+        }
+        return 1;
+    }
+
     private int help(ServerCommandSource source) {
         boolean op = CommandPermissionCompat.has(source, 2);
         source.sendFeedback(() -> Text.literal("RankBoard 排行榜帮助").formatted(Formatting.GOLD), false);
@@ -228,7 +328,7 @@ public final class RankBoardMod implements ModInitializer {
             helpCommand(source, "/leaderboard config set welcome-enabled false", "/leaderboard config set welcome-enabled false", "关闭欢迎语");
             helpCommand(source, "/leaderboard config set welcome-name <名称|auto>", "/leaderboard config set welcome-name ", "修改欢迎语名称");
             helpCommand(source, "/leaderboard config set web-data-requests-per-second <次数>", "/leaderboard config set web-data-requests-per-second ", "修改网页数据基础限额");
-            helpCommand(source, "/leaderboard config set web-icon-requests-per-minute <次数>", "/leaderboard config set web-icon-requests-per-minute ", "修改图标基础限额");
+            helpCommand(source, "/leaderboard config set web-icon-request-interval-seconds <秒>", "/leaderboard config set web-icon-request-interval-seconds ", "修改图片基础请求间隔");
             helpCommand(source, "/leaderboard config set web-ranking-refresh-interval-seconds <秒>", "/leaderboard config set web-ranking-refresh-interval-seconds ", "修改网页整体刷新间隔");
             helpCommand(source, "/leaderboard config set scoreboard-live-update-threshold <次数>", "/leaderboard config set scoreboard-live-update-threshold ", "修改客户端即时刷新高频阈值");
             helpCommand(source, "/leaderboard config set scoreboard-live-update-throttle-seconds <秒>", "/leaderboard config set scoreboard-live-update-throttle-seconds ", "修改高频榜单刷新间隔");
@@ -265,6 +365,7 @@ public final class RankBoardMod implements ModInitializer {
             header = header.copy().append(Text.literal(" "))
                     .append(clickable("[Help]", Formatting.GREEN, "/leaderboard help", "查看 RankBoard 帮助"));
         }
+        header = header.copy().append(Text.literal(" ")).append(websiteButton(source));
         Text finalHeader = header;
         source.sendFeedback(() -> finalHeader, false);
         Text line = Text.empty();
@@ -289,12 +390,15 @@ public final class RankBoardMod implements ModInitializer {
         else source.sendFeedback(() -> Text.literal("所有榜单显示均已被 OP 禁用。\n").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("点击榜单即可切换自己的原版侧边栏。")
                 .formatted(Formatting.GRAY), false);
+        BoardService.sendForeignScoreboardPrompt(source);
         return 1;
     }
 
     private int showMyScores(ServerCommandSource source, int days, String label) {
         try {
             ServerPlayerEntity player = source.getPlayerOrThrow();
+            BoardService.enableOverview(source, days < 0 ? Period.ALL
+                    : (days <= 1 ? Period.DAILY : (days <= 7 ? Period.WEEKLY : Period.MONTHLY)));
             LeaderboardState state = LeaderboardState.get(source.getServer());
             source.sendFeedback(() -> Text.literal("=== 我的分数 · " + label + " ===").formatted(Formatting.GOLD), false);
             LocalDate today = LocalDate.now();
@@ -421,6 +525,20 @@ public final class RankBoardMod implements ModInitializer {
         return Text.literal(label).setStyle(TextCompat.interactive(Style.EMPTY.withColor(color), command, Text.literal(hover)));
     }
 
+    private static Text websiteButton(ServerCommandSource source) {
+        String address = RankBoardConfig.get().webAddress(source.getServer());
+        if (!address.startsWith("http://") && !address.startsWith("https://")) address = "http://" + address;
+        try {
+            URI uri = URI.create(address);
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null) throw new IllegalArgumentException();
+            return Text.literal("[打开网站]").setStyle(TextCompat.openUrl(
+                    Style.EMPTY.withColor(Formatting.AQUA), address, Text.literal("打开 RankBoard 网页排行榜")));
+        } catch (RuntimeException exception) {
+            return Text.literal("[网站地址无效]").formatted(Formatting.DARK_GRAY);
+        }
+    }
+
     private int setNameColor(ServerCommandSource source, boolean enabled) {
         try {
             ServerPlayerEntity player = source.getPlayerOrThrow();
@@ -512,6 +630,38 @@ public final class RankBoardMod implements ModInitializer {
         boolean enabled = LeaderboardState.get(source.getServer()).isOnlineOnly();
         source.sendFeedback(() -> Text.literal("仅显示在线玩家：" + (enabled ? "已开启" : "已关闭")), false);
         return enabled ? 1 : 0;
+    }
+
+    private int modifyModWhitelist(ServerCommandSource source, boolean add, String player) {
+        try {
+            boolean changed = add ? RankBoardWhitelist.add(source.getServer(), player)
+                    : RankBoardWhitelist.remove(source.getServer(), player);
+            if (changed && RankBoardConfig.get().modWhitelistEnabled) StatReader.startWarmup(source.getServer());
+            source.sendFeedback(() -> Text.literal(changed
+                    ? (add ? "已添加到模组白名单：" : "已从模组白名单移除：") + player
+                    : (add ? "模组白名单中已存在：" : "模组白名单中未找到：") + player), true);
+            return changed ? 1 : 0;
+        } catch (IllegalArgumentException exception) {
+            source.sendError(Text.literal("模组白名单参数无效：" + exception.getMessage()));
+        } catch (java.io.IOException exception) {
+            source.sendError(Text.literal("模组白名单保存失败：" + exception.getMessage()));
+        }
+        return 0;
+    }
+
+    private int listModWhitelist(ServerCommandSource source) {
+        List<String> entries = RankBoardWhitelist.entries();
+        source.sendFeedback(() -> Text.literal("模组白名单（" + entries.size() + "）："
+                + (entries.isEmpty() ? "空" : String.join("，", entries))), false);
+        return entries.size();
+    }
+
+    private int reloadModWhitelist(ServerCommandSource source) {
+        RankBoardWhitelist.reload(source.getServer());
+        source.sendFeedback(() -> Text.literal("模组白名单已重新加载，共 "
+                + RankBoardWhitelist.entries().size() + " 项。"), true);
+        if (RankBoardConfig.get().modWhitelistEnabled) StatReader.startWarmup(source.getServer());
+        return 1;
     }
 
     private int cacheStatus(ServerCommandSource source) {

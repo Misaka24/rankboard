@@ -35,18 +35,18 @@ final class WebDashboard {
     private static String serverName = "Minecraft Server";
     private static Path websiteIcon;
     private static int dataRequestsPerSecond = 1;
-    private static int iconRequestsPerMinute = 3;
+    private static int iconRequestIntervalSeconds = 3;
     private static int rankingRefreshIntervalSeconds = 30;
     private static final Map<String, RequestWindow> REQUEST_WINDOWS = new ConcurrentHashMap<>();
     private static final Map<String, CachedRanking> RANKING_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, DataPenaltyWindow> DATA_PENALTIES = new ConcurrentHashMap<>();
+    private static final Map<String, BurstPenaltyWindow> BURST_PENALTIES = new ConcurrentHashMap<>();
     private static final long DATA_WINDOW_MILLIS = 1000;
-    private static final long ICON_WINDOW_MILLIS = 60_000;
-    private static final long DATA_PENALTY_WINDOW_MILLIS = TimeUnit.HOURS.toMillis(2);
-    private static final long MAX_DATA_COOLDOWN_MILLIS = TimeUnit.HOURS.toMillis(1);
-    private static final int DATA_REQUESTS_PER_PENALTY_LEVEL = 6;
-    private static final int MAX_DATA_PENALTY_LEVEL = 12;
-    private static final int MAX_PENALTY_REQUESTS = DATA_REQUESTS_PER_PENALTY_LEVEL * MAX_DATA_PENALTY_LEVEL;
+    private static final long BURST_WINDOW_MILLIS = TimeUnit.SECONDS.toMillis(30);
+    private static final long PENALTY_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(30);
+    private static final long DATA_PENALTY_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(5);
+    private static final long ICON_PENALTY_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(15);
+    private static final int DATA_BURST_THRESHOLD = 30;
+    private static final int ICON_BURST_THRESHOLD = 6;
     private static final int MAX_TRACKED_WINDOWS = 20_000;
     private static final long CLEANUP_INTERVAL_MILLIS = TimeUnit.MINUTES.toMillis(1);
     private static final AtomicLong LAST_CLEANUP = new AtomicLong();
@@ -60,7 +60,7 @@ final class WebDashboard {
             String host = config.getProperty("host", "0.0.0.0");
             int port = Integer.parseInt(config.getProperty("port", "8765"));
             dataRequestsPerSecond = Integer.parseInt(config.getProperty("web-data-requests-per-second", "1"));
-            iconRequestsPerMinute = Integer.parseInt(config.getProperty("web-icon-requests-per-minute", "3"));
+            iconRequestIntervalSeconds = Integer.parseInt(config.getProperty("web-icon-request-interval-seconds", "3"));
             rankingRefreshIntervalSeconds = Integer.parseInt(config.getProperty("web-ranking-refresh-interval-seconds", "30"));
             serverName = resolveServerName(server, config.getProperty("server-name", "auto"));
             websiteIcon = resolveIcon(server, config.getProperty("website-icon", "server-icon.png"));
@@ -89,7 +89,7 @@ final class WebDashboard {
         minecraft = null;
         websiteIcon = null;
         REQUEST_WINDOWS.clear();
-        DATA_PENALTIES.clear();
+        BURST_PENALTIES.clear();
         RANKING_CACHE.clear();
         LAST_CLEANUP.set(0);
     }
@@ -101,22 +101,31 @@ final class WebDashboard {
     }
 
     static int clearRateLimits() {
-        int cleared = REQUEST_WINDOWS.size() + DATA_PENALTIES.size();
+        int cleared = REQUEST_WINDOWS.size() + BURST_PENALTIES.size();
         REQUEST_WINDOWS.clear();
-        DATA_PENALTIES.clear();
+        BURST_PENALTIES.clear();
         LAST_CLEANUP.set(0);
         return cleared;
     }
 
     private static Path resolveIcon(MinecraftServer server, String configuredPath) {
-        Path runDirectory = server.getRunDirectory();
-        Path configured = Path.of(configuredPath.strip());
-        if (!configured.isAbsolute()) configured = runDirectory.resolve(configured);
-        configured = configured.normalize();
-        if (Files.isRegularFile(configured)) return configured;
-        Path fallback = runDirectory.resolve("server-icon.png");
-        if (!configured.equals(fallback)) {
-            RankBoardMod.LOGGER.warn("Website icon {} was not found; falling back to {}", configured, fallback);
+        Path iconDirectory = RankBoardConfig.configDirectory(server).toAbsolutePath().normalize();
+        Path fallback = iconDirectory.resolve("server-icon.png").normalize();
+        String raw = configuredPath == null ? "" : configuredPath.strip();
+        try {
+            Path requested = Path.of(raw);
+            if (requested.isAbsolute()) throw new IllegalArgumentException("absolute path");
+            Path candidate = iconDirectory.resolve(requested).normalize();
+            if (!candidate.startsWith(iconDirectory)) throw new IllegalArgumentException("path escapes config directory");
+            if (Files.isRegularFile(candidate)) {
+                Path realDirectory = iconDirectory.toRealPath();
+                Path realCandidate = candidate.toRealPath();
+                if (realCandidate.startsWith(realDirectory)) return realCandidate;
+                throw new IllegalArgumentException("symbolic link escapes config directory");
+            }
+            RankBoardMod.LOGGER.warn("Website icon {} was not found in {}; falling back to {}", raw, iconDirectory, fallback);
+        } catch (IOException | RuntimeException exception) {
+            RankBoardMod.LOGGER.warn("Website icon {} is invalid; only files inside {} are allowed", raw, iconDirectory);
         }
         return fallback;
     }
@@ -361,49 +370,43 @@ final class WebDashboard {
 
     private static boolean enforceRateLimit(HttpExchange exchange, RequestKind requestKind) throws IOException {
         long now = System.currentTimeMillis();
-        maybeCleanup(now);
-        int limit = requestKind == RequestKind.ICON ? iconRequestsPerMinute : dataRequestsPerSecond;
+        maybeCleanupBurst(now);
         String address = exchange.getRemoteAddress().getAddress().getHostAddress();
-        DataPenalty penalty = requestKind == RequestKind.API_DATA ? recordDataRequest(address, now) : DataPenalty.NONE;
-        long windowMillis = requestKind == RequestKind.ICON ? ICON_WINDOW_MILLIS
-                : requestKind == RequestKind.API_DATA ? dataCooldownMillis(penalty.multiplier) : DATA_WINDOW_MILLIS;
+        BurstPenalty penalty = recordBurst(address, requestKind, now);
+        long windowMillis = requestIntervalMillis(requestKind, penalty.active);
+        int limit = requestKind == RequestKind.API_DATA && !penalty.active ? dataRequestsPerSecond : 1;
         String resource = normalizedRateResource(exchange.getRequestURI().getPath());
-        String key = address + '\n' + requestKind + '\n' + resource;
-        RequestWindow window = REQUEST_WINDOWS.get(key);
-        if (window == null) {
-            if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS) cleanupRequestWindows(now);
-            if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS) {
-                return rateLimited(exchange, requestKind, limit, Math.max(1, windowMillis / 1000));
-            }
-            window = REQUEST_WINDOWS.computeIfAbsent(key, ignored -> new RequestWindow());
+        String key = "burst\n" + address + '\n' + requestKind + '\n' + resource;
+        if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS) cleanupRequestWindows(now);
+        if (REQUEST_WINDOWS.size() >= MAX_TRACKED_WINDOWS && !REQUEST_WINDOWS.containsKey(key)) {
+            return rateLimited(exchange, requestKind, limit, Math.max(1, windowMillis / 1000));
         }
+        RequestWindow window = REQUEST_WINDOWS.computeIfAbsent(key, ignored -> new RequestWindow());
         RateDecision decision = window.acquire(now, limit, windowMillis);
         exchange.getResponseHeaders().set("X-RateLimit-Limit", Integer.toString(limit));
         exchange.getResponseHeaders().set("X-RateLimit-Remaining", Integer.toString(decision.remaining));
         exchange.getResponseHeaders().set("X-RateLimit-Window", Long.toString(windowMillis / 1000));
-        if (requestKind == RequestKind.API_DATA) {
-            exchange.getResponseHeaders().set("X-RateLimit-Penalty-Level", Integer.toString(penalty.level));
-            exchange.getResponseHeaders().set("X-RateLimit-Penalty-Multiplier", Long.toString(penalty.multiplier));
-            exchange.getResponseHeaders().set("X-RateLimit-Data-Requests-2h", Integer.toString(penalty.requests));
+        if (requestKind == RequestKind.API_DATA || requestKind == RequestKind.ICON) {
+            exchange.getResponseHeaders().set("X-RateLimit-Burst-Requests", Integer.toString(penalty.requests));
+            exchange.getResponseHeaders().set("X-RateLimit-Penalty-Active", Boolean.toString(penalty.active));
+            if (penalty.active) {
+                exchange.getResponseHeaders().set("X-RateLimit-Penalty-Until", Long.toString(penalty.until));
+            }
         }
-        if (decision.allowed) {
-            if (REQUEST_WINDOWS.size() > 10_000) cleanupRequestWindows(now);
-            return true;
-        }
+        if (decision.allowed) return true;
         return rateLimited(exchange, requestKind, limit, decision.retryAfterSeconds);
     }
 
     private static boolean rateLimited(HttpExchange exchange, RequestKind requestKind, int limit,
                                        long retryAfterSeconds) throws IOException {
         exchange.getResponseHeaders().set("Retry-After", Long.toString(retryAfterSeconds));
-        String unit = requestKind == RequestKind.ICON ? "分钟" : "秒";
-        String subject = requestKind == RequestKind.ICON ? "同一图标"
-                : requestKind == RequestKind.API_DATA ? "同一数据接口" : "同一网页资源";
-        String message = "请求过于频繁：每个 IP 对" + subject + "每" + unit + "最多请求 " + limit + " 次。";
-        if (requestKind == RequestKind.API_DATA) {
-            String multiplier = exchange.getResponseHeaders().getFirst("X-RateLimit-Penalty-Multiplier");
-            message += " 当前两小时累计处罚为 " + multiplier + " 倍冷却。";
-        }
+        String message = switch (requestKind) {
+            case API_DATA -> "请求过于频繁：数据请求基础每秒最多 " + dataRequestsPerSecond
+                    + " 次；30 秒内超过 30 次后，30 分钟内每 5 秒最多 1 次。";
+            case ICON -> "请求过于频繁：同一图标基础每 " + iconRequestIntervalSeconds
+                    + " 秒最多 1 次；30 秒内图片请求超过 6 次后，30 分钟内每 15 秒最多 1 次。";
+            case WEB_ASSET -> "请求过于频繁，请在 " + retryAfterSeconds + " 秒后重试。";
+        };
         if (exchange.getRequestURI().getPath().startsWith("/api/")) {
             JsonObject error = new JsonObject();
             error.addProperty("error", message);
@@ -431,31 +434,39 @@ final class WebDashboard {
     }
 
     private static void cleanupRequestWindows(long now) {
-        REQUEST_WINDOWS.entrySet().removeIf(entry -> now - entry.getValue().lastAccess() > ICON_WINDOW_MILLIS * 2);
-        DATA_PENALTIES.entrySet().removeIf(entry -> now - entry.getValue().lastAccess() > DATA_PENALTY_WINDOW_MILLIS);
+        REQUEST_WINDOWS.entrySet().removeIf(
+                entry -> now - entry.getValue().lastAccess() > PENALTY_DURATION_MILLIS + BURST_WINDOW_MILLIS);
     }
 
-    private static DataPenalty recordDataRequest(String address, long now) {
-        DataPenaltyWindow penalty = DATA_PENALTIES.get(address);
-        if (penalty == null) {
-            if (DATA_PENALTIES.size() >= MAX_TRACKED_WINDOWS) cleanupRequestWindows(now);
-            if (DATA_PENALTIES.size() >= MAX_TRACKED_WINDOWS) return DataPenalty.MAXIMUM;
-            penalty = DATA_PENALTIES.computeIfAbsent(address, ignored -> new DataPenaltyWindow());
+    private static BurstPenalty recordBurst(String address, RequestKind requestKind, long now) {
+        if (requestKind == RequestKind.WEB_ASSET) return BurstPenalty.NONE;
+        String key = address + '\n' + requestKind;
+        BurstPenaltyWindow penalty = BURST_PENALTIES.computeIfAbsent(key, ignored -> new BurstPenaltyWindow());
+        return penalty.record(now,
+                requestKind == RequestKind.API_DATA ? DATA_BURST_THRESHOLD : ICON_BURST_THRESHOLD);
+    }
+
+    private static void maybeCleanupBurst(long now) {
+        maybeCleanup(now);
+        BURST_PENALTIES.entrySet().removeIf(
+                entry -> now - entry.getValue().lastAccess() > PENALTY_DURATION_MILLIS + BURST_WINDOW_MILLIS);
+    }
+
+    private static long requestIntervalMillis(RequestKind requestKind, boolean penaltyActive) {
+        if (requestKind == RequestKind.API_DATA) {
+            return penaltyActive ? DATA_PENALTY_INTERVAL_MILLIS : DATA_WINDOW_MILLIS;
         }
-        DataPenalty decision = penalty.record(now);
-        return decision;
+        if (requestKind == RequestKind.ICON) {
+            return penaltyActive ? ICON_PENALTY_INTERVAL_MILLIS
+                    : TimeUnit.SECONDS.toMillis(iconRequestIntervalSeconds);
+        }
+        return DATA_WINDOW_MILLIS;
     }
 
     private static void maybeCleanup(long now) {
         long previous = LAST_CLEANUP.get();
         if (now - previous < CLEANUP_INTERVAL_MILLIS || !LAST_CLEANUP.compareAndSet(previous, now)) return;
         cleanupRequestWindows(now);
-    }
-
-    private static long dataCooldownMillis(long multiplier) {
-        if (multiplier <= 1) return DATA_WINDOW_MILLIS;
-        return multiplier >= MAX_DATA_COOLDOWN_MILLIS / DATA_WINDOW_MILLIS
-                ? MAX_DATA_COOLDOWN_MILLIS : DATA_WINDOW_MILLIS * multiplier;
     }
 
     private enum RequestKind { API_DATA, WEB_ASSET, ICON }
@@ -478,22 +489,21 @@ final class WebDashboard {
         synchronized long lastAccess() { return lastAccess; }
     }
 
-    /** Per-IP API history. Every six requests in two hours adds one doubling level. */
-    private static final class DataPenaltyWindow {
+    private static final class BurstPenaltyWindow {
         private final ArrayDeque<Long> requests = new ArrayDeque<>();
         private long lastAccess;
+        private long penaltyUntil;
 
-        synchronized DataPenalty record(long now) {
+        synchronized BurstPenalty record(long now, int threshold) {
             lastAccess = now;
-            while (!requests.isEmpty() && now - requests.peekFirst() >= DATA_PENALTY_WINDOW_MILLIS) {
+            while (!requests.isEmpty() && now - requests.peekFirst() >= BURST_WINDOW_MILLIS) {
                 requests.removeFirst();
             }
-            if (requests.size() >= MAX_PENALTY_REQUESTS) requests.removeFirst();
             requests.addLast(now);
-            int count = requests.size();
-            int level = Math.min(MAX_DATA_PENALTY_LEVEL, count / DATA_REQUESTS_PER_PENALTY_LEVEL);
-            long multiplier = 1L << level;
-            return new DataPenalty(count, level, multiplier);
+            if (penaltyUntil <= now && requests.size() > threshold) {
+                penaltyUntil = now + PENALTY_DURATION_MILLIS;
+            }
+            return new BurstPenalty(requests.size(), penaltyUntil > now, penaltyUntil);
         }
 
         synchronized long lastAccess() { return lastAccess; }
@@ -503,10 +513,8 @@ final class WebDashboard {
 
     private record CachedRanking(long createdAt, String body) { }
 
-    private record DataPenalty(int requests, int level, long multiplier) {
-        private static final DataPenalty NONE = new DataPenalty(0, 0, 1);
-        private static final DataPenalty MAXIMUM = new DataPenalty(
-                MAX_PENALTY_REQUESTS, MAX_DATA_PENALTY_LEVEL, 1L << MAX_DATA_PENALTY_LEVEL);
+    private record BurstPenalty(int requests, boolean active, long until) {
+        private static final BurstPenalty NONE = new BurstPenalty(0, false, 0);
     }
 
     private record WebEntry(UUID uuid, String name, long value) { }

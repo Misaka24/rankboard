@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.net.URI;
 
 public final class RankBoardMod implements ModInitializer {
     public static final String MOD_ID = "rankboard";
@@ -93,7 +94,12 @@ public final class RankBoardMod implements ModInitializer {
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("leaderboard")
                 .requires(source -> CommandPermissionCompat.has(source, 0)).executes(context -> menu(context.getSource()));
         root.then(Commands.literal("help").requires(source -> RankBoardConfig.get().helpVisible(source))
-                .executes(context -> help(context.getSource())));
+                .executes(context -> helpGrouped(context.getSource(), "menu"))
+                .then(Commands.literal("player").executes(context -> helpGrouped(context.getSource(), "player")))
+                .then(Commands.literal("scoreboard").executes(context -> helpGrouped(context.getSource(), "scoreboard")))
+                .then(Commands.literal("web").executes(context -> helpGrouped(context.getSource(), "web")))
+                .then(Commands.literal("admin").requires(source -> CommandPermissionCompat.has(source, 2))
+                        .executes(context -> helpGrouped(context.getSource(), "admin"))));
         root.then(Commands.literal("mine")
                 .executes(context -> showMyScores(context.getSource(), -1, "总计"))
                 .then(Commands.literal("all").executes(context -> showMyScores(context.getSource(), -1, "总计")))
@@ -238,6 +244,56 @@ public final class RankBoardMod implements ModInitializer {
         return periods;
     }
 
+    private int helpGrouped(CommandSourceStack source, String group) {
+        boolean op = CommandPermissionCompat.has(source, 2);
+        if (group.equals("menu")) {
+            Component line = clickable("[玩家指令]", ChatFormatting.AQUA, "/leaderboard help player", "玩家常用指令")
+                    .copy().append(Component.literal(" "))
+                    .append(clickable("[计分板]", ChatFormatting.YELLOW, "/leaderboard help scoreboard", "个人计分板指令"))
+                    .append(Component.literal(" "))
+                    .append(clickable("[网页与配置]", ChatFormatting.GREEN, "/leaderboard help web", "网页地址和配置说明"));
+            if (op) line = line.copy().append(Component.literal(" "))
+                    .append(clickable("[OP 管理]", ChatFormatting.RED, "/leaderboard help admin", "仅 OP 可用的管理指令"));
+            Component menuLine = line;
+            source.sendSuccess(() -> menuLine, false);
+            return 1;
+        }
+        source.sendSuccess(() -> clickable("[返回 Help]", ChatFormatting.GRAY, "/leaderboard help", "返回帮助分组"), false);
+        switch (group) {
+            case "player" -> {
+                helpCommand(source, "/leaderboard", "/leaderboard", "打开排行榜菜单");
+                helpCommand(source, "/leaderboard mine", "/leaderboard mine", "查询所有个人统计并显示总览");
+                helpCommand(source, "/leaderboard mine <all|day|week|month>", "/leaderboard mine ", "查询指定周期的个人统计");
+                helpCommand(source, "/leaderboard <周期> <榜单> [数量]", "/leaderboard all playtime ", "查看排行榜");
+                helpCommand(source, "/leaderboard carousel true|false|status", "/leaderboard carousel ", "控制榜单轮播");
+                helpCommand(source, "/leaderboard namecolor true|false|status", "/leaderboard namecolor ", "开关名字颜色");
+            }
+            case "scoreboard" -> {
+                helpCommand(source, "/leaderboard display show <周期> <榜单>", "/leaderboard display show ", "显示个人单榜计分板");
+                helpCommand(source, "/leaderboard display off", "/leaderboard display off", "关闭个人计分板");
+                helpCommand(source, "/leaderboard mine", "/leaderboard mine", "显示个人所有榜单总览");
+                helpCommand(source, "/leaderboard scoreboard cleanup", "/leaderboard scoreboard cleanup", "清理其他模组计分板");
+            }
+            case "web" -> {
+                helpCommand(source, "/leaderboard config list|get|set|reload", "/leaderboard config ", "查看或修改配置");
+                helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除网页限流");
+                source.sendSuccess(() -> websiteButton(source), false);
+                helpCommand(source, "/leaderboard config set web-public-address <地址|auto>", "/leaderboard config set web-public-address ", "设置网站按钮打开的地址，默认 127.0.0.1:8765");
+                source.sendSuccess(() -> Component.literal("网页配置：config/rankboard/rankboard-web.properties；可设置 web-public-address。"), false);
+            }
+            case "admin" -> {
+                if (!op) return 0;
+                helpCommand(source, "/leaderboard whitelist <true|false|status>", "/leaderboard whitelist ", "控制白名单筛选");
+                helpCommand(source, "/leaderboard modwhitelist <add|remove|list|reload>", "/leaderboard modwhitelist ", "管理模组白名单");
+                helpCommand(source, "/leaderboard displayfilter <榜单> <true|false|status>", "/leaderboard displayfilter ", "管理榜单显示");
+                helpCommand(source, "/leaderboard scoreboard blocking <true|false|status>", "/leaderboard scoreboard blocking ", "屏蔽其他模组计分板");
+                helpCommand(source, "/leaderboard cache <status|reload>", "/leaderboard cache ", "管理统计缓存");
+                helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除全部限流记录");
+            }
+        }
+        return 1;
+    }
+
     private int help(CommandSourceStack source) {
         boolean op = CommandPermissionCompat.has(source, 2);
         source.sendSuccess(() -> Component.literal("RankBoard 排行榜帮助").withStyle(ChatFormatting.GOLD), false);
@@ -266,14 +322,14 @@ public final class RankBoardMod implements ModInitializer {
             helpCommand(source, "/leaderboard config list|get|set|reload", "/leaderboard config ", "查询、修改或重载配置");
             helpCommand(source, "/leaderboard config set welcome-enabled false", "/leaderboard config set welcome-enabled false", "关闭欢迎语");
             helpCommand(source, "/leaderboard config set welcome-name <名称|auto>", "/leaderboard config set welcome-name ", "修改欢迎语名称");
-            helpCommand(source, "/leaderboard config set web-data-requests-per-second <次数>", "/leaderboard config set web-data-requests-per-second ", "修改网页数据基础限额");
-            helpCommand(source, "/leaderboard config set web-icon-requests-per-minute <次数>", "/leaderboard config set web-icon-requests-per-minute ", "修改图标基础限额");
+            helpCommand(source, "/leaderboard config set web-data-requests-per-second <次数>", "/leaderboard config set web-data-requests-per-second ", "修改数据接口每秒基础次数");
+            helpCommand(source, "/leaderboard config set web-icon-request-interval-seconds <秒>", "/leaderboard config set web-icon-request-interval-seconds ", "修改图片基础请求间隔");
             helpCommand(source, "/leaderboard config set web-ranking-refresh-interval-seconds <秒>", "/leaderboard config set web-ranking-refresh-interval-seconds ", "修改网页整体刷新间隔");
             helpCommand(source, "/leaderboard config set scoreboard-live-update-threshold <次数>", "/leaderboard config set scoreboard-live-update-threshold ", "修改客户端即时刷新高频阈值");
             helpCommand(source, "/leaderboard config set scoreboard-live-update-throttle-seconds <秒>", "/leaderboard config set scoreboard-live-update-throttle-seconds ", "修改高频榜单刷新间隔");
             helpCommand(source, "/leaderboard config set scoreboard-name-color-enabled <true|false>", "/leaderboard config set scoreboard-name-color-enabled ", "全局开关玩家名字颜色");
             helpCommand(source, "/leaderboard config set scoreboard-title-color-enabled <true|false>", "/leaderboard config set scoreboard-title-color-enabled ", "独立开关计分板标题颜色");
-            helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除全部网页限流和累计冷却");
+            helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除全部网页限流处罚并立即恢复基础间隔");
             helpCommand(source, "/leaderboard displayfilter <榜单> <true|false|status>", "/leaderboard displayfilter ", "管理单个榜单是否可显示");
             helpCommand(source, "/leaderboard scoreboard <show|clear|cleanup>", "/leaderboard scoreboard ", "管理全服侧边栏并关闭其他模组计分板");
             helpCommand(source, "/leaderboard scoreboard blocking <true|false|status>", "/leaderboard scoreboard blocking ", "设置其他模组计分板自动屏蔽");
@@ -306,6 +362,7 @@ public final class RankBoardMod implements ModInitializer {
             header = header.copy().append(Component.literal(" "))
                     .append(clickable("[Help]", ChatFormatting.GREEN, "/leaderboard help", "查看 RankBoard 帮助"));
         }
+        header = header.copy().append(Component.literal(" ")).append(websiteButton(source));
         Component finalHeader = header;
         source.sendSuccess(() -> finalHeader, false);
         Component line = Component.empty();
@@ -337,6 +394,7 @@ public final class RankBoardMod implements ModInitializer {
     private int showMyScores(CommandSourceStack source, int days, String label) {
         try {
             ServerPlayer player = source.getPlayerOrException();
+            BoardService.enableOverview(source, days < 0 ? Period.ALL : (days <= 1 ? Period.DAILY : (days <= 7 ? Period.WEEKLY : Period.MONTHLY)));
             LeaderboardState state = LeaderboardState.get(source.getServer());
             source.sendSuccess(() -> Component.literal("=== 我的分数 · " + label + " ===").withStyle(ChatFormatting.GOLD), false);
             LocalDate today = LocalDate.now();
@@ -499,6 +557,22 @@ public final class RankBoardMod implements ModInitializer {
 
     private static Component clickable(String label, ChatFormatting color, String command, String hover) {
         return Component.literal(label).setStyle(TextCompat.interactive(Style.EMPTY.withColor(color), command, Component.literal(hover)));
+    }
+
+    private static Component websiteButton(CommandSourceStack source) {
+        String address = RankBoardConfig.get().webAddress(source.getServer());
+        if (!WebDashboard.isRunning()) return Component.literal("[网站不可用：网页服务未启动]").withStyle(ChatFormatting.DARK_GRAY);
+        if (!address.startsWith("http://") && !address.startsWith("https://")) address = "http://" + address;
+        try {
+            URI uri = URI.create(address);
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme())) || uri.getHost() == null)
+                throw new IllegalArgumentException();
+            String target = address;
+            return Component.literal("[打开网站]").setStyle(TextCompat.openUrl(
+                    Style.EMPTY.withColor(ChatFormatting.AQUA), target, Component.literal("打开 RankBoard 网页排行榜")));
+        } catch (RuntimeException exception) {
+            return Component.literal("[网站地址无效]").withStyle(ChatFormatting.DARK_GRAY);
+        }
     }
 
     private int setNameColor(CommandSourceStack source, boolean enabled) {

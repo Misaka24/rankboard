@@ -118,8 +118,14 @@ final class StatReader {
 
     static List<StatSnapshot> readAll(MinecraftServer server, RankBoardMod.Metric onlyMetric) {
         Map<UUID, StatSnapshot> snapshots = new HashMap<>(CACHE);
+        if (RankBoardConfig.get().modWhitelistEnabled) {
+            snapshots.entrySet().removeIf(entry -> !RankBoardWhitelist.matches(
+                    server, entry.getKey(), entry.getValue().name()));
+        }
         // Live handlers are already in memory and are always newer than files on disk.
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (RankBoardConfig.get().modWhitelistEnabled
+                    && !RankBoardWhitelist.matches(server, player.getUuid(), player.getName().getString())) continue;
             snapshots.put(player.getUuid(), fromPlayer(player, onlyMetric));
         }
         return new ArrayList<>(snapshots.values());
@@ -129,11 +135,15 @@ final class StatReader {
         try {
             Map<UUID, String> names = readKnownNames(server);
             Set<UUID> whitelist = readWhitelistNames(server).keySet();
+            Set<UUID> modWhitelist = RankBoardConfig.get().modWhitelistEnabled
+                    ? RankBoardWhitelist.allowedUuids(names) : Set.of();
             Path directory = server.getSavePath(WorldSavePath.STATS);
             List<Path> files;
             try (Stream<Path> stream = Files.isDirectory(directory) ? Files.list(directory) : Stream.empty()) {
             files = stream.filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .filter(path -> uuidFromPathOrNull(path) != null).toList();
+                    .filter(path -> uuidFromPathOrNull(path) != null)
+                    .filter(path -> !RankBoardConfig.get().modWhitelistEnabled
+                            || modWhitelist.contains(uuidFromPath(path))).toList();
             }
             files = new ArrayList<>(files);
             files.sort(Comparator.comparing((Path path) -> !whitelist.contains(uuidFromPath(path))).thenComparing(Path::toString));
@@ -176,11 +186,26 @@ final class StatReader {
 
     private static boolean loadPersistentCache(MinecraftServer server) {
         Path path = persistentCachePath(server);
+        Path legacy = legacyPersistentCachePath(server);
+        boolean migrated = false;
+        if (!Files.isRegularFile(path) && Files.isRegularFile(legacy)) {
+            try {
+                Files.createDirectories(path.getParent());
+                Files.copy(legacy, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                migrated = true;
+            } catch (IOException exception) {
+                RankBoardMod.LOGGER.warn("Could not migrate legacy history cache {} to {}", legacy, path, exception);
+                return false;
+            }
+        }
         if (!Files.isRegularFile(path)) return false;
         try (Reader reader = Files.newBufferedReader(path)) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
             if (!root.has("schema") || root.get("schema").getAsInt() != PERSISTENT_CACHE_SCHEMA
-                    || !root.has("complete") || !root.get("complete").getAsBoolean()) return false;
+                    || !root.has("complete") || !root.get("complete").getAsBoolean()) {
+                if (migrated) Files.deleteIfExists(path);
+                return false;
+            }
             Map<UUID, String> knownNames = readKnownNames(server);
             for (JsonElement element : root.getAsJsonArray("players")) {
                 if (!element.isJsonObject()) continue;
@@ -196,12 +221,22 @@ final class StatReader {
                 CACHE.put(uuid, new StatSnapshot(uuid, name, values));
                 SOURCE_MODIFIED.put(uuid, entry.get("modified").getAsLong());
             }
-            if (CACHE.isEmpty() && root.getAsJsonArray("players").size() > 0) return false;
+            if (CACHE.isEmpty() && root.getAsJsonArray("players").size() > 0) {
+                if (migrated) Files.deleteIfExists(path);
+                return false;
+            }
+            if (migrated) Files.deleteIfExists(legacy);
             RankBoardMod.LOGGER.info("Loaded persistent history cache: {} player files", CACHE.size());
             return true;
         } catch (Exception exception) {
             CACHE.clear();
             SOURCE_MODIFIED.clear();
+            if (migrated) {
+                try { Files.deleteIfExists(path); }
+                catch (IOException cleanupException) {
+                    RankBoardMod.LOGGER.warn("Could not remove invalid migrated history cache {}", path, cleanupException);
+                }
+            }
             RankBoardMod.LOGGER.warn("Could not load persistent history cache {}; rebuilding it", path, exception);
             return false;
         }
@@ -211,6 +246,7 @@ final class StatReader {
         Path path = persistentCachePath(server);
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try {
+            Files.createDirectories(path.getParent());
             JsonObject root = new JsonObject();
             root.addProperty("schema", PERSISTENT_CACHE_SCHEMA);
             root.addProperty("complete", true);
@@ -241,6 +277,10 @@ final class StatReader {
     }
 
     private static Path persistentCachePath(MinecraftServer server) {
+        return RankBoardConfig.configDirectory(server).resolve("rankboard-history-cache.json");
+    }
+
+    private static Path legacyPersistentCachePath(MinecraftServer server) {
         return server.getRunDirectory().resolve("rankboard-history-cache.json");
     }
 
