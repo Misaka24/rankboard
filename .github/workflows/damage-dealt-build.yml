@@ -1,0 +1,33 @@
+name: Damage Dealt Build Validation
+
+on:
+  push:
+    branches:
+      - agent/add-damage-dealt-leaderboard
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build
+        run: ./gradlew build
+
+      - name: Verify jar output
+        run: |
+          test -n "$(find build/libs -name '*.jar' | head -n 1)"
+          echo "Build artifact found"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-damage-dealt-build
+          path: build/libs/*.jar
