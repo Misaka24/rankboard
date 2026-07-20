@@ -323,6 +323,10 @@ final class BoardService {
 
     private static void sendOverview(ServerPlayerEntity player, RankBoardMod.Period period) {
         MinecraftServer server = PlayerCompat.server(player);
+        LeaderboardState state = LeaderboardState.get(server);
+        if (period != RankBoardMod.Period.ALL && !state.isPeriodComplete(period)) {
+            throw new IllegalStateException(period.label + "统计没有完整周期边界");
+        }
         Scoreboard scoreboard = server.getScoreboard();
         String name = "rbo_" + period.command;
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
@@ -338,7 +342,6 @@ final class BoardService {
         player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(
                 objective, ScoreboardObjectiveUpdateS2CPacket.ADD_MODE));
         CLIENT_OBJECTIVES.put(player.getUuid(), name);
-        LeaderboardState state = LeaderboardState.get(server);
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);

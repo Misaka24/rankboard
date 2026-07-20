@@ -8,6 +8,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.storage.LevelResource;
 import java.io.IOException;
@@ -37,11 +38,12 @@ final class StatReader {
     private static final Map<UUID, Long> SOURCE_MODIFIED = new ConcurrentHashMap<>();
     private static final Set<String> FOOD_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Set<String> BLOCK_ITEMS = ConcurrentHashMap.newKeySet();
+    private static final Set<String> BLOCK_IDS = ConcurrentHashMap.newKeySet();
     private static final Set<String> REDSTONE_COMPONENT_ITEMS = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 4;
+    private static final int PERSISTENT_CACHE_SCHEMA = 5;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -64,13 +66,7 @@ final class StatReader {
         SOURCE_MODIFIED.clear();
         prepareItemSets();
         persistentCacheLoaded = loadPersistentCache(server);
-        ready = persistentCacheLoaded;
-        if (persistentCacheLoaded) {
-            server.execute(() -> {
-                LeaderboardState.get(server).rollPeriods(server);
-                BoardService.refreshAll(server);
-            });
-        }
+        // Persisted values are preview-only until every source file is verified.
         int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
         warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond));
     }
@@ -84,6 +80,16 @@ final class StatReader {
         persistentCacheLoaded = false;
     }
 
+    static void capturePlayer(MinecraftServer server, ServerPlayer player) {
+        StatSnapshot snapshot = fromPlayer(player);
+        UUID uuid = player.getUUID();
+        CACHE.put(uuid, snapshot);
+        Path path = server.getWorldPath(LevelResource.PLAYER_STATS_DIR).resolve(uuid + ".json");
+        SOURCE_MODIFIED.put(uuid, modifiedTime(path));
+        savePersistentCache(server);
+        WebDashboard.invalidateRankings();
+    }
+
     static void reloadPlayer(MinecraftServer server, UUID uuid) {
         long generation = GENERATION.get();
         LOADER.submit(() -> {
@@ -95,6 +101,7 @@ final class StatReader {
                 CACHE.put(uuid, snapshot);
                 SOURCE_MODIFIED.put(uuid, modifiedTime(path));
                 savePersistentCache(server);
+                WebDashboard.invalidateRankings();
             });
         });
     }
@@ -175,7 +182,10 @@ final class StatReader {
             RankBoardMod.LOGGER.info("History cache ready: {} player files loaded", CACHE.size());
             server.execute(() -> {
                 LeaderboardState.get(server).rollPeriods(server);
+                BoardService.restoreGlobal(server);
+                for (var player : server.getPlayerList().getPlayers()) BoardService.restore(player);
                 BoardService.refreshAll(server);
+                WebDashboard.invalidateRankings();
             });
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -357,7 +367,11 @@ final class StatReader {
     private static void prepareItemSets() {
         FOOD_ITEMS.clear();
         BLOCK_ITEMS.clear();
+        BLOCK_IDS.clear();
         REDSTONE_COMPONENT_ITEMS.clear();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            BLOCK_IDS.add(BuiltInRegistries.BLOCK.getKey(block).toString());
+        }
         for (Item item : BuiltInRegistries.ITEM) {
             String id = BuiltInRegistries.ITEM.getKey(item).toString();
             if (item.components().get(DataComponents.FOOD) != null) FOOD_ITEMS.add(id);
@@ -395,7 +409,7 @@ final class StatReader {
         return switch (metric) {
             case FOOD -> sumMatching(stats, "minecraft:used", FOOD_ITEMS);
             case PLACED -> sumMatching(stats, "minecraft:used", BLOCK_ITEMS);
-            case MINED -> sum(stats, "minecraft:mined");
+            case MINED -> sumMatching(stats, "minecraft:mined", BLOCK_IDS);
             case JUMPS -> stat(stats, "minecraft:custom", "minecraft:jump");
             case KILLS -> stat(stats, "minecraft:custom", "minecraft:mob_kills") + stat(stats, "minecraft:custom", "minecraft:player_kills");
             case DEATHS -> stat(stats, "minecraft:custom", "minecraft:deaths");
