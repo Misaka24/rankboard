@@ -43,7 +43,7 @@ final class StatReader {
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 5;
+    private static final int PERSISTENT_CACHE_SCHEMA = 6;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -416,6 +416,7 @@ final class StatReader {
             case MINED -> sumMatching(stats, "minecraft:mined", BLOCK_IDS);
             case JUMPS -> stat(stats, "minecraft:custom", "minecraft:jump");
             case KILLS -> stat(stats, "minecraft:custom", "minecraft:mob_kills") + stat(stats, "minecraft:custom", "minecraft:player_kills");
+            case PVP_KILLS -> stat(stats, "minecraft:custom", "minecraft:player_kills");
             case DEATHS -> stat(stats, "minecraft:custom", "minecraft:deaths");
             case TRADES -> stat(stats, "minecraft:custom", "minecraft:traded_with_villager");
             case PLAY_TIME -> stat(stats, "minecraft:custom", "minecraft:play_time");

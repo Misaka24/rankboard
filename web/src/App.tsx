@@ -84,6 +84,7 @@ const metrics: Metric[] = [
   { id: "mined", label: "挖掘榜", detail: "资源" },
   { id: "placed", label: "放置榜", detail: "建造" },
   { id: "kills", label: "击杀榜", detail: "战斗" },
+  { id: "pvp", label: "PvP榜", detail: "玩家对战" },
   { id: "deaths", label: "死亡榜", detail: "生存" },
   { id: "trades", label: "交易榜", detail: "经济" },
   { id: "elytra", label: "鞘翅飞行榜", detail: "探索" },

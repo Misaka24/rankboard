@@ -504,7 +504,7 @@ final class BoardService {
         Objective objective = scoreboard.getObjective(name);
         String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
         boolean partialPeriod = period != RankBoardMod.Period.ALL
-                && !LeaderboardState.get(server).isPeriodComplete(period);
+                && !LeaderboardState.get(server).isPeriodComplete(period, metric);
         Component title = Component.literal(period.label + (partialPeriod ? "（部分）" : "")
                 + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {

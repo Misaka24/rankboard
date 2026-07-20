@@ -162,6 +162,8 @@ public final class LeaderboardState extends SavedData {
                 snapshots.forEach(replacement::capture);
                 periods.put(period, replacement);
                 changed = true;
+            } else if (old.initializeMissingMetrics(snapshots)) {
+                changed = true;
             }
         }
         if (!dailySnapshots.containsKey(now)) {
@@ -171,6 +173,21 @@ public final class LeaderboardState extends SavedData {
             if (LocalTime.now().isAfter(COMPLETE_BOUNDARY_LIMIT)) partialSnapshotDates.add(now);
             else partialSnapshotDates.remove(now);
             changed = true;
+        } else {
+            Map<UUID, Map<RankBoardMod.Metric, Long>> values = dailySnapshots.get(now);
+            boolean activatedMetric = false;
+            for (StatSnapshot snapshot : snapshots) {
+                Map<RankBoardMod.Metric, Long> playerValues = values.get(snapshot.uuid());
+                if (playerValues == null) continue;
+                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                    if (!playerValues.containsKey(metric)) {
+                        playerValues.put(metric, snapshot.value(metric));
+                        activatedMetric = true;
+                        changed = true;
+                    }
+                }
+            }
+            if (activatedMetric) partialSnapshotDates.add(now);
         }
         if (changed) setDirty();
     }
@@ -189,7 +206,12 @@ public final class LeaderboardState extends SavedData {
     public boolean isPeriodComplete(RankBoardMod.Period period) {
         if (period == RankBoardMod.Period.ALL) return true;
         PeriodData data = periods.get(period);
-        return data != null && data.complete;
+        return data != null && data.complete && data.partialMetrics.isEmpty();
+    }
+    public boolean isPeriodComplete(RankBoardMod.Period period, RankBoardMod.Metric metric) {
+        if (period == RankBoardMod.Period.ALL) return true;
+        PeriodData data = periods.get(period);
+        return data != null && data.complete && !data.partialMetrics.contains(metric);
     }
     public boolean isWhitelistOnly() { return whitelistOnly; }
     public void setWhitelistOnly(boolean whitelistOnly) {
@@ -287,14 +309,19 @@ public final class LeaderboardState extends SavedData {
 
         Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> startEntry;
         if (allowPartialStart) {
-            startEntry = dailySnapshots.ceilingEntry(from);
-            if (startEntry == null || startEntry.getKey().isAfter(to)) {
-                throw new IllegalArgumentException("所选范围内还没有可用历史快照；最早快照为 " + earliestSnapshotDate());
+            startEntry = firstSnapshotWithMetric(from, to, metric);
+            if (startEntry == null) {
+                throw new IllegalArgumentException("所选范围内还没有可用的 " + metric.label()
+                        + " 快照；最早快照为 " + earliestSnapshotDate(metric));
             }
         } else {
             Map<UUID, Map<RankBoardMod.Metric, Long>> exact = dailySnapshots.get(from);
             if (exact == null) {
-                throw new IllegalArgumentException("开始日期没有真实边界快照；最早快照为 " + earliestSnapshotDate());
+                throw new IllegalArgumentException("开始日期没有真实边界快照；最早快照为 " + earliestSnapshotDate(metric));
+            }
+            if (!snapshotHasMetric(exact, metric)) {
+                throw new IllegalArgumentException("开始日期 " + from + " 尚未记录 " + metric.label()
+                        + "；最早快照为 " + earliestSnapshotDate(metric));
             }
             if (partialSnapshotDates.contains(from)) {
                 throw new IllegalArgumentException("开始日期 " + from + " 不是零点建立的完整快照");
@@ -316,8 +343,14 @@ public final class LeaderboardState extends SavedData {
             LocalDate requiredEnd = to.plusDays(1);
             Map<UUID, Map<RankBoardMod.Metric, Long>> end = dailySnapshots.get(requiredEnd);
             if (end == null) throw new IllegalArgumentException("结束日期缺少次日零点快照：" + requiredEnd);
+            if (!snapshotHasMetric(end, metric)) {
+                throw new IllegalArgumentException("结束边界 " + requiredEnd + " 尚未记录 " + metric.label());
+            }
             if (partialSnapshotDates.contains(requiredEnd)) throw new IllegalArgumentException("结束边界 " + requiredEnd + " 不是完整零点快照");
-            end.forEach((uuid, values) -> endValues.put(uuid, values.getOrDefault(metric, 0L)));
+            end.forEach((uuid, values) -> {
+                Long value = values.get(metric);
+                if (value != null) endValues.put(uuid, value);
+            });
         }
 
         Map<UUID, Long> result = new HashMap<>();
@@ -344,6 +377,30 @@ public final class LeaderboardState extends SavedData {
         if (dailySnapshots.isEmpty()) return "暂无历史快照";
         LocalDate first = dailySnapshots.firstKey();
         return first + (partialSnapshotDates.contains(first) ? "（部分）" : "");
+    }
+
+    public String earliestSnapshotDate(RankBoardMod.Metric metric) {
+        for (Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> entry : dailySnapshots.entrySet()) {
+            if (snapshotHasMetric(entry.getValue(), metric)) {
+                return entry.getKey() + (partialSnapshotDates.contains(entry.getKey()) ? "（部分）" : "");
+            }
+        }
+        return "暂无 " + metric.label() + " 快照";
+    }
+
+    private Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> firstSnapshotWithMetric(
+            LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
+        Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> entry = dailySnapshots.ceilingEntry(from);
+        while (entry != null && !entry.getKey().isAfter(to)) {
+            if (snapshotHasMetric(entry.getValue(), metric)) return entry;
+            entry = dailySnapshots.higherEntry(entry.getKey());
+        }
+        return null;
+    }
+
+    private static boolean snapshotHasMetric(Map<UUID, Map<RankBoardMod.Metric, Long>> snapshot,
+                                             RankBoardMod.Metric metric) {
+        return snapshot.values().stream().anyMatch(values -> values.containsKey(metric));
     }
 
     public record RangeData(LocalDate actualStart, LocalDate actualEnd, Map<UUID, Long> values,
@@ -388,18 +445,42 @@ public final class LeaderboardState extends SavedData {
     private static final class PeriodData {
         final RankBoardMod.Period period; final String key; final boolean complete;
         final Map<UUID, Map<RankBoardMod.Metric, Long>> players = new HashMap<>();
+        final Set<RankBoardMod.Metric> partialMetrics = new HashSet<>();
         PeriodData(RankBoardMod.Period period, String key, boolean complete) {
             this.period = period; this.key = key; this.complete = complete;
         }
-        void capture(StatSnapshot snapshot) { players.put(snapshot.uuid(), snapshot.values()); }
+        void capture(StatSnapshot snapshot) { players.put(snapshot.uuid(), new EnumMap<>(snapshot.values())); }
+        boolean initializeMissingMetrics(List<StatSnapshot> snapshots) {
+            boolean changed = false;
+            for (StatSnapshot snapshot : snapshots) {
+                Map<RankBoardMod.Metric, Long> values = players.get(snapshot.uuid());
+                if (values == null) continue;
+                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                    if (!values.containsKey(metric)) {
+                        values.put(metric, snapshot.value(metric));
+                        partialMetrics.add(metric);
+                        changed = true;
+                    }
+                }
+            }
+            return changed;
+        }
         CompoundTag toNbt() {
             CompoundTag nbt = new CompoundTag(); nbt.putString("period", period.name()); nbt.putString("key", key);
-            nbt.putBoolean("complete", complete); nbt.put("players", writePlayers(players)); return nbt;
+            nbt.putBoolean("complete", complete); nbt.put("players", writePlayers(players));
+            ListTag partial = new ListTag();
+            partialMetrics.forEach(metric -> partial.add(StringTag.valueOf(metric.name())));
+            nbt.put("partialMetrics", partial);
+            return nbt;
         }
         static PeriodData fromNbt(CompoundTag nbt) {
             PeriodData data = new PeriodData(RankBoardMod.Period.valueOf(NbtCompat.getString(nbt, "period")),
                     NbtCompat.getString(nbt, "key"), NbtCompat.getBoolean(nbt, "complete"));
             data.players.putAll(readPlayers(nbt));
+            for (Tag element : NbtCompat.getList(nbt, "partialMetrics", Tag.TAG_STRING)) {
+                try { data.partialMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }
+                catch (IllegalArgumentException ignored) { }
+            }
             return data;
         }
     }

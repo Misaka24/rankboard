@@ -1029,7 +1029,7 @@ public final class RankBoardMod implements ModInitializer {
                         + "），当前榜单可能不完整。").withStyle(ChatFormatting.GRAY), false);
             }
             if (StatReader.isReady() && period != Period.ALL
-                    && !LeaderboardState.get(source.getServer()).isPeriodComplete(period)) {
+                    && !LeaderboardState.get(source.getServer()).isPeriodComplete(period, metric)) {
                 source.sendSuccess(() -> Component.literal(period.label
                         + "统计为部分周期：从服务器本周期内首次建立可信基线时开始。")
                         .withStyle(ChatFormatting.YELLOW), false);
@@ -1106,6 +1106,7 @@ public final class RankBoardMod implements ModInitializer {
         MINED("mined", "挖掘榜", ChatFormatting.BLUE, RankBoardMod::mined),
         PLACED("placed", "放置榜", ChatFormatting.DARK_AQUA, RankBoardMod::placed),
         KILLS("kills", "击杀榜", ChatFormatting.RED, p -> custom(p, Stats.MOB_KILLS) + custom(p, Stats.PLAYER_KILLS)),
+        PVP_KILLS("pvp", "PvP榜", ChatFormatting.DARK_RED, p -> custom(p, Stats.PLAYER_KILLS)),
         DEATHS("deaths", "死亡榜", ChatFormatting.DARK_RED, p -> custom(p, Stats.DEATHS)),
         TRADES("trades", "交易榜", ChatFormatting.GREEN, p -> custom(p, Stats.TRADED_WITH_VILLAGER)),
         PLAY_TIME("playtime", "在线榜", ChatFormatting.AQUA, p -> custom(p, Stats.PLAY_TIME)),

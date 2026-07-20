@@ -242,7 +242,7 @@ final class WebDashboard {
         root.addProperty("period", period);
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
-        root.addProperty("earliest", state.earliestSnapshotDate());
+        root.addProperty("earliest", state.earliestSnapshotDate(metric));
         root.addProperty("complete", complete);
         JsonArray warningArray = new JsonArray();
         warnings.forEach(warningArray::add);
