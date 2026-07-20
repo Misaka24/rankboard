@@ -1,0 +1,60 @@
+name: Cancel incorrect build and inspect upstream 1.5.4
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/cancel-inspect-1.5.4-trigger'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel incorrect release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/Misaka24/rankboard/actions/runs/29719480988/cancel || true
+
+      - name: Fetch complete upstream release metadata and assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p inspect/assets
+          gh api repos/halfkite/rankboard/releases/tags/1.5.4 > inspect/release.json
+          jq -r '.body' inspect/release.json > inspect/release-notes.md
+          jq '{id,tag_name,target_commitish,name,published_at,body,assets:[.assets[]|{id,name,size,digest,browser_download_url}]}' inspect/release.json > inspect/release-summary.json
+          jq -r '.assets[] | [.id,.name] | @tsv' inspect/release.json |
+          while IFS=$'\t' read -r id name; do
+            gh api "repos/halfkite/rankboard/releases/assets/$id" -H 'Accept: application/octet-stream' > "inspect/assets/$name"
+          done
+          python - <<'PY'
+          import json, os, zipfile, hashlib
+          root='inspect/assets'
+          report=[]
+          for name in sorted(os.listdir(root)):
+              path=os.path.join(root,name)
+              item={'name':name,'size':os.path.getsize(path),'sha256':hashlib.sha256(open(path,'rb').read()).hexdigest()}
+              if zipfile.is_zipfile(path):
+                  with zipfile.ZipFile(path) as z:
+                      item['entries']=z.namelist()
+                      manifests=[]
+                      for entry in z.namelist():
+                          if entry.endswith('fabric.mod.json'):
+                              try: manifests.append({'entry':entry,'content':json.loads(z.read(entry))})
+                              except Exception: pass
+                      item['manifests']=manifests
+              report.append(item)
+          with open('inspect/assets-report.json','w',encoding='utf-8') as f:
+              json.dump(report,f,ensure_ascii=False,indent=2)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-1.5.4-complete-inspection
+          path: inspect
