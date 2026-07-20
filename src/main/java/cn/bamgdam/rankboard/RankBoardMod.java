@@ -1108,6 +1108,12 @@ public final class RankBoardMod implements ModInitializer {
                 source.sendFeedback(() -> Text.literal("历史统计仍在加载（" + StatReader.progress()
                         + "），当前榜单可能不完整。").formatted(Formatting.GRAY), false);
             }
+            if (StatReader.isReady() && period != Period.ALL
+                    && !LeaderboardState.get(source.getServer()).isPeriodComplete(period)) {
+                source.sendFeedback(() -> Text.literal(period.label
+                        + "统计为部分周期：从服务器本周期内首次建立可信基线时开始。")
+                        .formatted(Formatting.YELLOW), false);
+            }
             List<Entry> entries = entries(source.getServer(), period, metric);
             source.sendFeedback(() -> RankBoardColors.text("=== " + period.label + " " + metric.label() + " ===", metric), false);
             if (entries.isEmpty()) {
@@ -1138,9 +1144,6 @@ public final class RankBoardMod implements ModInitializer {
         if (!StatReader.isReady()) throw new IllegalStateException("统计文件尚未完成权威扫描（" + StatReader.progress() + "）");
         LeaderboardState state = LeaderboardState.get(server);
         state.rollPeriods(server);
-        if (period != Period.ALL && !state.isPeriodComplete(period)) {
-            throw new IllegalStateException(period.label + "统计没有完整周期边界；服务器需在周期开始时在线并完成统计扫描");
-        }
         return StatReader.readAll(server, metric).stream()
                 .filter(snapshot -> isIncluded(server, state, snapshot.uuid(), snapshot.name()))
                 .map(snapshot -> new Entry(snapshot.name(), Math.max(0, snapshot.value(metric) - (period == Period.ALL ? 0 : state.getBaseline(period, snapshot.uuid(), metric)))))

@@ -152,11 +152,6 @@ final class BoardService {
         LeaderboardState state = LeaderboardState.get(server);
         LeaderboardState.BoardPreference preference = state.globalBoardPreference();
         if (preference == null || !preference.enabled() || !state.isMetricDisplayEnabled(preference.metric())) return;
-        if (preference.period() != RankBoardMod.Period.ALL && !state.isPeriodComplete(preference.period())) {
-            globalSelection = null;
-            RankBoardMod.LOGGER.warn("Skipped restoring incomplete global {} period scoreboard", preference.period().command);
-            return;
-        }
         Selection restored = new Selection(preference.period(), preference.metric());
         ScoreboardObjective objective = syncObjective(server, restored.period, restored.metric, false);
         globalSelection = restored;
@@ -330,13 +325,11 @@ final class BoardService {
     private static void sendOverview(ServerPlayerEntity player, RankBoardMod.Period period) {
         MinecraftServer server = PlayerCompat.server(player);
         LeaderboardState state = LeaderboardState.get(server);
-        if (period != RankBoardMod.Period.ALL && !state.isPeriodComplete(period)) {
-            throw new IllegalStateException(period.label + "统计没有完整周期边界");
-        }
         Scoreboard scoreboard = server.getScoreboard();
         String name = "rbo_" + period.command;
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
-        Text title = Text.literal(period.label + " 我的总览");
+        boolean partialPeriod = period != RankBoardMod.Period.ALL && !state.isPeriodComplete(period);
+        Text title = Text.literal(period.label + (partialPeriod ? "（部分）" : "") + " 我的总览");
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
                     ScoreboardCriterion.RenderType.INTEGER, false, null);
@@ -509,7 +502,10 @@ final class BoardService {
         Scoreboard scoreboard = server.getScoreboard();
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
         String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
-        Text title = Text.literal(period.label + " " + metric.label() + unit);
+        boolean partialPeriod = period != RankBoardMod.Period.ALL
+                && !LeaderboardState.get(server).isPeriodComplete(period);
+        Text title = Text.literal(period.label + (partialPeriod ? "（部分）" : "")
+                + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
             int titleColor = carousel && !RankBoardConfig.get().carouselColorFollowMetric
                     ? (Formatting.AQUA.getColorValue() == null ? 0x55FFFF : Formatting.AQUA.getColorValue())

@@ -220,7 +220,7 @@ final class WebDashboard {
             actualStart = "原版统计起始";
             actualEnd = LocalDate.now().toString();
         } else {
-            LeaderboardState.RangeData range = state.range(server, from, to, metric);
+            LeaderboardState.RangeData range = state.range(server, from, to, metric, true);
             complete = range.complete();
             warnings = range.warnings();
             Map<UUID, String> names = new HashMap<>();
