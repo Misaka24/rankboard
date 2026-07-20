@@ -1,0 +1,24 @@
+name: Cleanup RankBoard 1.5.7 temporary branches
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'cleanup-1.5.7-branches'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete temporary branches
+        run: |
+          git push origin --delete fix-partial-periods-1.5.7-trigger || true
+          git push origin --delete release-1.5.7-final || true
+      - name: Delete cleanup branch
+        run: git push origin --delete cleanup-1.5.7-branches || true
