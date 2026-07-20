@@ -33,10 +33,12 @@ final class RankBoardConfig {
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
+            option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("restore-scoreboard-on-join", "true", FileKind.MAIN, "客户端计分板", "玩家进服时是否恢复上一次选择的计分板；默认 true。"),
             option("look-up-sneak-menu-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许抬头并按住 Shift 打开排行榜菜单；默认 true。"),
             option("carousel-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许玩家使用榜单轮播；默认 true。"),
             option("carousel-interval-seconds", "30", FileKind.MAIN, "客户端计分板", "榜单轮播间隔秒数；默认 30，范围 3-3600。"),
+            option("carousel-color-follow-metric", "true", FileKind.MAIN, "客户端计分板", "轮播计分板标题是否跟随当前榜单颜色；false 时固定使用青色；默认 true。"),
             option("client-scoreboard-show-zero", "false", FileKind.MAIN, "客户端计分板", "个人侧边栏是否显示当前榜单数值为 0 的玩家；默认 false。"),
             option("scoreboard-switch-message-enabled", "true", FileKind.MAIN, "客户端计分板", "切换个人榜单后是否发送“已显示……”提示；默认 true。"),
             option("scoreboard-name-color-enabled", "true", FileKind.MAIN, "客户端计分板", "玩家名字颜色模式；true 同步排行榜、聊天、TAB 和头顶名牌，false 全部关闭，scoreboard-only 仅排行榜；默认 true。"),
@@ -100,6 +102,7 @@ final class RankBoardConfig {
     final boolean lookUpSneakMenuEnabled;
     final boolean carouselEnabled;
     final int carouselIntervalSeconds;
+    final boolean carouselColorFollowMetric;
     final boolean clientScoreboardShowZero;
     final boolean scoreboardSwitchMessageEnabled;
     final NameColorMode nameColorMode;
@@ -112,6 +115,7 @@ final class RankBoardConfig {
     final ForeignScoreboardPolicy foreignScoreboardPolicy;
     final boolean modWhitelistEnabled;
     final boolean joinWebHintEnabled;
+    final boolean websiteButtonEnabled;
     final boolean avatarCacheEnabled;
     final int avatarCacheDays;
     final String welcomeName;
@@ -126,6 +130,7 @@ final class RankBoardConfig {
         lookUpSneakMenuEnabled = bool(properties, "look-up-sneak-menu-enabled", true);
         carouselEnabled = bool(properties, "carousel-enabled", true);
         carouselIntervalSeconds = integer(properties, "carousel-interval-seconds", 30, 3, 3600);
+        carouselColorFollowMetric = bool(properties, "carousel-color-follow-metric", true);
         clientScoreboardShowZero = bool(properties, "client-scoreboard-show-zero", false);
         scoreboardSwitchMessageEnabled = bool(properties, "scoreboard-switch-message-enabled", true);
         nameColorMode = NameColorMode.parse(properties.getProperty("scoreboard-name-color-enabled", "true"));
@@ -139,6 +144,7 @@ final class RankBoardConfig {
                 properties.getProperty("foreign-scoreboard-blocking-mode", "ask"));
         modWhitelistEnabled = bool(properties, "mod-whitelist-enabled", false);
         joinWebHintEnabled = bool(properties, "join-web-hint-enabled", false);
+        websiteButtonEnabled = bool(properties, "website-button-enabled", true);
         avatarCacheEnabled = bool(properties, "avatar-cache-enabled", true);
         avatarCacheDays = integer(properties, "avatar-cache-days", 7, 1, 365);
         welcomeName = properties.getProperty("welcome-name", "auto").strip();
@@ -379,8 +385,8 @@ final class RankBoardConfig {
             case "scoreboard-live-update-window-seconds" -> normalizedInteger(value, 1, 300);
             case "scoreboard-live-update-threshold" -> normalizedInteger(value, 1, 100000);
             case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);
-            case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled",
-                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled",
+            case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled", "website-button-enabled",
+                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled", "carousel-color-follow-metric",
                     "client-scoreboard-show-zero", "scoreboard-switch-message-enabled",
                     "scoreboard-title-color-enabled",
                     "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled" -> normalizedBoolean(value);

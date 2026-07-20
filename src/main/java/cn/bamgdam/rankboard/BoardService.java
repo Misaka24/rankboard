@@ -298,7 +298,10 @@ final class BoardService {
     }
 
     private static void sendPrivate(ServerPlayerEntity player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
-        ScoreboardObjective objective = syncObjective(PlayerCompat.server(player), period, metric, true);
+        LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
+                .boardPreference(player.getUuid());
+        boolean carousel = preference != null && preference.carousel();
+        ScoreboardObjective objective = syncObjective(PlayerCompat.server(player), period, metric, true, carousel);
         sendPackets(player, objective, RankBoardMod.entries(PlayerCompat.server(player), period, metric), metric);
     }
 
@@ -488,13 +491,21 @@ final class BoardService {
 
     private static ScoreboardObjective syncObjective(MinecraftServer server, RankBoardMod.Period period,
                                                      RankBoardMod.Metric metric, boolean personal) {
+        return syncObjective(server, period, metric, personal, false);
+    }
+
+    private static ScoreboardObjective syncObjective(MinecraftServer server, RankBoardMod.Period period,
+                                                     RankBoardMod.Metric metric, boolean personal, boolean carousel) {
         String name = objectiveName(period, metric, personal);
         Scoreboard scoreboard = server.getScoreboard();
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
         String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
         Text title = Text.literal(period.label + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
-            title = title.copy().styled(style -> style.withColor(RankBoardColors.renderedRgb(metric)));
+            int titleColor = carousel && !RankBoardConfig.get().carouselColorFollowMetric
+                    ? (Formatting.AQUA.getColorValue() == null ? 0x55FFFF : Formatting.AQUA.getColorValue())
+                    : RankBoardColors.renderedRgb(metric);
+            title = title.copy().styled(style -> style.withColor(titleColor));
         }
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
