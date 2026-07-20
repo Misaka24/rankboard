@@ -18,8 +18,8 @@ jobs:
           ref: b9dfdc6e1d079bfc5fd5be0de6515555fc858993
           fetch-depth: 1
       - name: Package source
-        run: tar --exclude=.git -czf rankboard-feature-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/rankboard-feature-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: rankboard-feature-source-b9dfdc6
-          path: rankboard-feature-source.tar.gz
+          path: /tmp/rankboard-feature-source.tar.gz
