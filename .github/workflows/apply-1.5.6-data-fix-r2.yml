@@ -3,7 +3,7 @@ name: Apply RankBoard 1.5.6 data fix r2
 on:
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [opened, synchronize]
 
 permissions:
   contents: write
@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Correct one-shot patcher
+        run: python3 tools/fix_history_patcher_1_5_6.py
       - name: Apply source patches
         run: |
           set +e
@@ -48,7 +50,7 @@ jobs:
           ./gradlew clean build --stacktrace
       - name: Commit corrected source
         run: |
-          rm -f tools/patch_stat_reader_1_5_6.py tools/patch_history_1_5_6.py tools/patch_misc_1_5_6.py
+          rm -f tools/patch_stat_reader_1_5_6.py tools/patch_history_1_5_6.py tools/patch_misc_1_5_6.py tools/fix_history_patcher_1_5_6.py
           rm -f .github/workflows/apply-1.5.6-data-fix-r2.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
