@@ -1,0 +1,25 @@
+name: Cleanup final RankBoard 1.5.6 branches
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'cleanup-final-1.5.6'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete final temporary branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/final-audit-1.5.6-trigger" || true
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/release-1.5.6-final" || true
+      - name: Delete cleanup branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/cleanup-final-1.5.6"
