@@ -3,7 +3,7 @@ name: Release RankBoard 1.5.7 period fix
 on:
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [opened, synchronize]
 
 permissions:
   contents: write
@@ -27,7 +27,9 @@ jobs:
       - name: Patch, build and publish RankBoard 1.5.7
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash tools/release_1_5_7.sh
+        run: |
+          python3 tools/fix_release_validator_1_5_7.py
+          bash tools/release_1_5_7.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
