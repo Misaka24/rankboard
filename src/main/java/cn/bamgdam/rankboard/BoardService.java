@@ -152,8 +152,14 @@ final class BoardService {
         LeaderboardState state = LeaderboardState.get(server);
         LeaderboardState.BoardPreference preference = state.globalBoardPreference();
         if (preference == null || !preference.enabled() || !state.isMetricDisplayEnabled(preference.metric())) return;
-        globalSelection = new Selection(preference.period(), preference.metric());
-        ScoreboardObjective objective = syncObjective(server, globalSelection.period, globalSelection.metric, false);
+        if (preference.period() != RankBoardMod.Period.ALL && !state.isPeriodComplete(preference.period())) {
+            globalSelection = null;
+            RankBoardMod.LOGGER.warn("Skipped restoring incomplete global {} period scoreboard", preference.period().command);
+            return;
+        }
+        Selection restored = new Selection(preference.period(), preference.metric());
+        ScoreboardObjective objective = syncObjective(server, restored.period, restored.metric, false);
+        globalSelection = restored;
         server.getScoreboard().setObjectiveSlot(ScoreboardDisplaySlot.SIDEBAR, objective);
     }
 
@@ -323,6 +329,10 @@ final class BoardService {
 
     private static void sendOverview(ServerPlayerEntity player, RankBoardMod.Period period) {
         MinecraftServer server = PlayerCompat.server(player);
+        LeaderboardState state = LeaderboardState.get(server);
+        if (period != RankBoardMod.Period.ALL && !state.isPeriodComplete(period)) {
+            throw new IllegalStateException(period.label + "统计没有完整周期边界");
+        }
         Scoreboard scoreboard = server.getScoreboard();
         String name = "rbo_" + period.command;
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
@@ -338,7 +348,6 @@ final class BoardService {
         player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(
                 objective, ScoreboardObjectiveUpdateS2CPacket.ADD_MODE));
         CLIENT_OBJECTIVES.put(player.getUuid(), name);
-        LeaderboardState state = LeaderboardState.get(server);
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);

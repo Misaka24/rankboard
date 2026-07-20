@@ -200,12 +200,14 @@ final class WebDashboard {
                                        RankBoardMod.Metric metric, boolean requestOnlineOnly) {
         LeaderboardState state = LeaderboardState.get(server);
         boolean effectiveOnlineOnly = requestOnlineOnly || state.isOnlineOnly();
-        if (!period.equals("all") && !StatReader.isReady()) {
-            throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），日期范围榜将在加载完成后可用。");
+        if (!StatReader.isReady()) {
+            throw new IllegalStateException("统计文件仍在进行权威扫描（" + StatReader.progress() + "），总榜和日期范围榜暂不可用。");
         }
         List<WebEntry> entries = new ArrayList<>();
         String actualStart;
         String actualEnd;
+        boolean complete = true;
+        List<String> warnings = List.of();
         if (period.equals("all")) {
             StatReader.readAll(server, metric).forEach(snapshot -> {
                 if (isIncluded(server, state, snapshot.uuid(), snapshot.name(), effectiveOnlineOnly)) {
@@ -216,6 +218,8 @@ final class WebDashboard {
             actualEnd = LocalDate.now().toString();
         } else {
             LeaderboardState.RangeData range = state.range(server, from, to, metric);
+            complete = range.complete();
+            warnings = range.warnings();
             Map<UUID, String> names = new HashMap<>();
             StatReader.readAll(server, metric).forEach(snapshot -> names.put(snapshot.uuid(), snapshot.name()));
             range.values().forEach((uuid, value) -> {
@@ -239,6 +243,10 @@ final class WebDashboard {
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
         root.addProperty("earliest", state.earliestSnapshotDate());
+        root.addProperty("complete", complete);
+        JsonArray warningArray = new JsonArray();
+        warnings.forEach(warningArray::add);
+        root.add("warnings", warningArray);
         root.addProperty("metric", metric.command); root.addProperty("label", metric.label());
         root.addProperty("total", total); root.addProperty("formattedTotal", formatWeb(metric, total));
         JsonArray players = new JsonArray();
