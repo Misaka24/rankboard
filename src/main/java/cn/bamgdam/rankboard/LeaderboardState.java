@@ -24,7 +24,7 @@ import java.util.UUID;
 /** Stores raw-stat baselines, allowing period ranks without modifying vanilla statistics. */
 public final class LeaderboardState extends PersistentState {
     private static final String STATE_ID = "rankboard_leaderboard";
-    private static final int HISTORY_SCHEMA = 2;
+    private static final int HISTORY_SCHEMA = 3;
     private static final LocalTime COMPLETE_BOUNDARY_LIMIT = LocalTime.of(0, 5);
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
     private boolean whitelistOnly = true;
@@ -150,13 +150,16 @@ public final class LeaderboardState extends PersistentState {
     public void rollPeriods(MinecraftServer server) {
         if (!StatReader.isReady()) return;
         LocalDate now = LocalDate.now();
+        LocalTime boundaryTime = LocalTime.now();
+        boolean nearMidnight = !boundaryTime.isAfter(COMPLETE_BOUNDARY_LIMIT);
         boolean changed = false;
         List<StatSnapshot> snapshots = StatReader.readAll(server);
         for (RankBoardMod.Period period : RankBoardMod.Period.values()) {
             if (period == RankBoardMod.Period.ALL) continue;
             PeriodData old = periods.get(period);
             if (old == null || !old.key.equals(period.key(now))) {
-                PeriodData replacement = new PeriodData(period, period.key(now));
+                PeriodData replacement = new PeriodData(period, period.key(now),
+                        completePeriodBoundary(period, now, nearMidnight));
                 snapshots.forEach(replacement::capture);
                 periods.put(period, replacement);
                 changed = true;
@@ -183,6 +186,11 @@ public final class LeaderboardState extends PersistentState {
     public long getBaseline(RankBoardMod.Period period, UUID uuid, RankBoardMod.Metric metric) {
         PeriodData data = periods.get(period);
         return data == null ? 0 : data.players.getOrDefault(uuid, Map.of()).getOrDefault(metric, 0L);
+    }
+    public boolean isPeriodComplete(RankBoardMod.Period period) {
+        if (period == RankBoardMod.Period.ALL) return true;
+        PeriodData data = periods.get(period);
+        return data != null && data.complete;
     }
     public boolean isWhitelistOnly() { return whitelistOnly; }
     public void setWhitelistOnly(boolean whitelistOnly) {
@@ -316,6 +324,17 @@ public final class LeaderboardState extends PersistentState {
     public record BoardPreference(RankBoardMod.Period period, RankBoardMod.Metric metric,
                                   boolean enabled, boolean carousel, boolean overview) { }
 
+    private static boolean completePeriodBoundary(RankBoardMod.Period period, LocalDate date, boolean nearMidnight) {
+        if (!nearMidnight) return false;
+        return switch (period) {
+            case DAILY -> true;
+            case WEEKLY -> date.getDayOfWeek() == java.time.DayOfWeek.MONDAY;
+            case MONTHLY -> date.getDayOfMonth() == 1;
+            case YEARLY -> date.getDayOfYear() == 1;
+            case ALL -> true;
+        };
+    }
+
     private static NbtList writePlayers(Map<UUID, Map<RankBoardMod.Metric, Long>> players) {
         NbtList list = new NbtList();
         players.forEach((uuid, values) -> {
@@ -340,16 +359,19 @@ public final class LeaderboardState extends PersistentState {
         return players;
     }
     private static final class PeriodData {
-        final RankBoardMod.Period period; final String key;
+        final RankBoardMod.Period period; final String key; final boolean complete;
         final Map<UUID, Map<RankBoardMod.Metric, Long>> players = new HashMap<>();
-        PeriodData(RankBoardMod.Period period, String key) { this.period = period; this.key = key; }
+        PeriodData(RankBoardMod.Period period, String key, boolean complete) {
+            this.period = period; this.key = key; this.complete = complete;
+        }
         void capture(StatSnapshot snapshot) { players.put(snapshot.uuid(), snapshot.values()); }
         NbtCompound toNbt() {
             NbtCompound nbt = new NbtCompound(); nbt.putString("period", period.name()); nbt.putString("key", key);
-            nbt.put("players", writePlayers(players)); return nbt;
+            nbt.putBoolean("complete", complete); nbt.put("players", writePlayers(players)); return nbt;
         }
         static PeriodData fromNbt(NbtCompound nbt) {
-            PeriodData data = new PeriodData(RankBoardMod.Period.valueOf(NbtCompat.getString(nbt, "period")), NbtCompat.getString(nbt, "key"));
+            PeriodData data = new PeriodData(RankBoardMod.Period.valueOf(NbtCompat.getString(nbt, "period")),
+                    NbtCompat.getString(nbt, "key"), NbtCompat.getBoolean(nbt, "complete"));
             data.players.putAll(readPlayers(nbt));
             return data;
         }

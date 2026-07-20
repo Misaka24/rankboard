@@ -183,6 +183,7 @@ final class StatReader {
             server.execute(() -> {
                 LeaderboardState.get(server).rollPeriods(server);
                 BoardService.restoreGlobal(server);
+                for (var player : server.getPlayerList().getPlayers()) BoardService.restore(player);
                 BoardService.refreshAll(server);
                 WebDashboard.invalidateRankings();
             });
