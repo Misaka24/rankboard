@@ -1,0 +1,46 @@
+name: Inspect live upstream update
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/sync-upstream-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect live upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/halfkite/rankboard.git || true
+          git fetch upstream main --tags --force
+          {
+            echo "UPSTREAM_HEAD=$(git rev-parse upstream/main)"
+            echo "FORK_HEAD=$(git rev-parse origin/main)"
+            echo "=== UPSTREAM LATEST ==="
+            git log -1 --format='%H%n%s%n%ci' upstream/main
+            echo "=== DIVERGENCE ==="
+            git rev-list --left-right --count origin/main...upstream/main
+            echo "=== UPSTREAM-ONLY COMMITS ==="
+            git log --oneline --decorate origin/main..upstream/main
+            echo "=== CHANGED FILES SINCE FORK MERGE BASE ==="
+            base=$(git merge-base origin/main upstream/main)
+            echo "MERGE_BASE=$base"
+            git diff --stat "$base"..upstream/main
+            git diff --name-status "$base"..upstream/main
+            echo "=== VERSION ==="
+            grep -E '^(mod_version|minecraft_version|loader_version|fabric_version)=' <(git show upstream/main:gradle.properties) || true
+          } | tee upstream-inspection.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-inspection
+          path: upstream-inspection.txt
