@@ -32,6 +32,8 @@ type RankingResponse = {
   actualStart?: string;
   actualEnd?: string;
   earliest?: string;
+  complete?: boolean;
+  warnings?: string[];
 };
 
 function PlayerAvatar({ player }: { player: Player }) {
@@ -249,7 +251,7 @@ export default function App() {
 
           <div className="title-row">
             <div>
-              <p className="eyebrow">{period === "custom" && ranking ? `${ranking.from} 至 ${ranking.to}` : periods.find((item) => item.id === period)?.label}</p>
+              <p className="eyebrow">{period === "custom" && ranking ? `${ranking.actualStart ?? ranking.from} 至 ${ranking.actualEnd ?? ranking.to}` : periods.find((item) => item.id === period)?.label}</p>
               <h1>{ranking?.label ?? activeMetric.label}</h1>
             </div>
             {ranking?.cacheChecking && (
@@ -259,6 +261,9 @@ export default function App() {
 
           {loading && <div className="notice glass">正在读取服务器排行榜...</div>}
           {error && <div className="notice error glass">{error}</div>}
+          {!error && ranking?.complete === false && (
+            <div className="notice error glass">该范围不是完整统计：{ranking.warnings?.join("；") || "部分玩家数据已排除"}</div>
+          )}
 
           <div className="ranking-list">
             {!loading && !error && visiblePlayers.length === 0 && (

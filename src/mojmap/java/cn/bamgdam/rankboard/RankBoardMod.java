@@ -70,7 +70,6 @@ public final class RankBoardMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             RankBoardConfig.load(server);
             RankBoardWhitelist.load(server);
-            BoardService.restoreGlobal(server);
             BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.startWarmup(server);
             WebDashboard.start(server);
@@ -90,6 +89,7 @@ public final class RankBoardMod implements ModInitializer {
             sendJoinExperience(player);
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            StatReader.capturePlayer(server, handler.getPlayer());
             StatReader.reloadPlayer(server, handler.getPlayer().getUUID());
             LOOK_MENU_HELD.remove(handler.getPlayer().getUUID());
             BoardService.disconnect(handler.getPlayer());
@@ -1055,6 +1055,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+        if (!StatReader.isReady()) throw new IllegalStateException("统计文件尚未完成权威扫描（" + StatReader.progress() + "）");
         LeaderboardState state = LeaderboardState.get(server);
         state.rollPeriods(server);
         return StatReader.readAll(server, metric).stream()
@@ -1130,7 +1131,7 @@ public final class RankBoardMod implements ModInitializer {
         String key(LocalDate date) {
             return switch (this) {
                 case DAILY -> date.toString();
-                case WEEKLY -> date.getYear() + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
+                case WEEKLY -> date.get(WeekFields.ISO.weekBasedYear()) + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
                 case MONTHLY -> date.getYear() + "-" + date.getMonthValue();
                 case YEARLY -> Integer.toString(date.getYear());
                 case ALL -> "all";
