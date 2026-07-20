@@ -1,0 +1,54 @@
+name: Decompile upstream RankBoard 1.5.4
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/decompile-upstream-1.5.4-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets and CFR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/assets work/jars work/decompiled
+          gh api repos/halfkite/rankboard/releases/tags/1.5.4 > work/release.json
+          jq -r '.assets[] | [.id,.name] | @tsv' work/release.json |
+          while IFS=$'\t' read -r id name; do
+            gh api "repos/halfkite/rankboard/releases/assets/$id" -H 'Accept: application/octet-stream' > "work/assets/$name"
+          done
+          curl -fsSL https://www.benf.org/other/cfr/cfr-0.152.jar -o work/cfr.jar
+          unzip -p work/assets/rankboard-1.5.4+mc1.21.x+2607200935.jar META-INF/jars/rankboard-mc1.21.11-1.5.4.jar > work/jars/rankboard-1.5.4-mc1.21.11.jar
+
+      - name: Decompile relevant classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for jar in work/jars/rankboard-1.5.4-mc1.21.11.jar work/assets/rankboard-1.5.4+mc26.1.x.jar; do
+            label=$(basename "$jar" .jar)
+            java -jar work/cfr.jar "$jar" --outputdir "work/decompiled/$label" --silent true
+          done
+          mkdir -p work/relevant
+          for root in work/decompiled/*; do
+            label=$(basename "$root")
+            mkdir -p "work/relevant/$label"
+            for f in RankBoardMod.java RankBoardConfig.java BoardService.java LeaderboardState.java; do
+              find "$root" -type f -name "$f" -exec cp {} "work/relevant/$label/$f" \;
+            done
+          done
+          find work/relevant -type f -maxdepth 3 -print
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-rankboard-1.5.4-decompiled
+          path: |
+            work/relevant
+            work/release.json
