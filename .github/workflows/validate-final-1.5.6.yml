@@ -1,0 +1,81 @@
+name: Validate final RankBoard 1.5.6
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: mc1.21.1, minecraft: 1.21.1, kind: yarn }
+          - { id: mc1.21.5, minecraft: 1.21.5, kind: yarn }
+          - { id: mc1.21.10, minecraft: 1.21.10, kind: yarn }
+          - { id: mc1.21.11, minecraft: 1.21.11, kind: yarn }
+          - { id: mc26.1.2, minecraft: 26.1.2, kind: none }
+          - { id: mc26.2, minecraft: 26.2, kind: none }
+    runs-on: ubuntu-latest
+    name: build-${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve dependencies
+        env:
+          MC: ${{ matrix.minecraft }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          python3 <<'PY'
+          import json, os, urllib.request
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          mc=os.environ['MC']; kind=os.environ['KIND']
+          xml=urllib.request.urlopen('https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml',timeout=30).read()
+          versions=[n.text for n in ET.fromstring(xml).findall('.//version')]
+          matches=[v for v in versions if v.endswith('+'+mc)]
+          if not matches: raise SystemExit('No Fabric API for '+mc)
+          fabric=matches[-1]
+          yarn=None
+          if kind=='yarn':
+              data=json.load(urllib.request.urlopen(f'https://meta.fabricmc.net/v2/versions/yarn/{mc}',timeout=30))
+              stable=[e['version'] for e in data if e.get('stable')]
+              yarn=(stable or [e['version'] for e in data])[0]
+          p=Path('gradle.properties'); out=[]; mapping_seen=False
+          for line in p.read_text(encoding='utf-8').splitlines():
+              if line.startswith('minecraft_version='): line='minecraft_version='+mc
+              elif line.startswith('yarn_mappings=') and yarn: line='yarn_mappings='+yarn
+              elif line.startswith('loader_version='): line='loader_version=0.18.6'
+              elif line.startswith('fabric_version='): line='fabric_version='+fabric
+              elif line.startswith('mapping_type='):
+                  mapping_seen=True; line='mapping_type='+kind
+              out.append(line)
+          if not mapping_seen: out.append('mapping_type='+kind)
+          p.write_text('\n'.join(out)+'\n',encoding='utf-8')
+          print(mc, fabric, yarn or 'none')
+          PY
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew clean build --stacktrace 2>&1 | tee build-${{ matrix.id }}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: final-${{ matrix.id }}
+          path: |
+            build-${{ matrix.id }}.log
+            build/libs/*.jar
