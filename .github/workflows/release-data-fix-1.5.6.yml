@@ -1,0 +1,35 @@
+name: Release RankBoard 1.5.6 data fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.head_ref == 'release-data-fix-1.5.6-trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and publish RankBoard 1.5.6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/release_1_5_6.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rankboard-1.5.6-release
+          path: release-1.5.6/
