@@ -1,0 +1,35 @@
+name: Final audit and rebuild RankBoard 1.5.6
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    if: github.head_ref == 'final-audit-1.5.6-trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply runtime audit fixes and replace release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/rebuild_release_1_5_6.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rankboard-1.5.6-final-audited
+          path: release-1.5.6-final/
