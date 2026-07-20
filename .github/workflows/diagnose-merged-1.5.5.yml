@@ -1,0 +1,66 @@
+name: Diagnose merged RankBoard 1.5.5
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/diagnose-1.5.5-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sync-upstream-1.5.4-release
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Compile each target and capture logs
+        shell: bash
+        run: |
+          set +e
+          mkdir -p diagnostics
+          run_build() {
+            local label="$1"; shift
+            echo "=== $label ===" | tee "diagnostics/$label.log"
+            ./gradlew clean build --no-daemon --stacktrace "$@" 2>&1 | tee -a "diagnostics/$label.log"
+            echo "EXIT=${PIPESTATUS[0]}" | tee -a "diagnostics/$label.log"
+          }
+          run_build mc1.21 -Pminecraft_version=1.21 -Pmapping_type=yarn -Pyarn_mappings=1.21+build.9 -Pminecraft_dependency='>=1.21 <1.21.5' -Ploader_version=0.15.11 -Pfabric_version=0.102.0+1.21
+          run_build mc1.21.5 -Pminecraft_version=1.21.5 -Pmapping_type=yarn -Pyarn_mappings=1.21.5+build.1 -Pminecraft_dependency='>=1.21.5 <1.21.10' -Ploader_version=0.15.11 -Pfabric_version=0.128.2+1.21.5
+          run_build mc1.21.10 -Pminecraft_version=1.21.10 -Pmapping_type=yarn -Pyarn_mappings=1.21.10+build.3 -Pminecraft_dependency='>=1.21.10 <1.21.11' -Ploader_version=0.15.11 -Pfabric_version=0.138.4+1.21.10
+          run_build mc1.21.11 -Pminecraft_version=1.21.11 -Pmapping_type=yarn -Pyarn_mappings=1.21.11+build.6 -Pminecraft_dependency='>=1.21.11 <1.22' -Ploader_version=0.15.11 -Pfabric_version=0.141.5+1.21.11
+          fabric261=$(python - <<'PY'
+          import urllib.request, xml.etree.ElementTree as ET
+          root=ET.fromstring(urllib.request.urlopen('https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml').read())
+          print([e.text for e in root.findall('.//version') if e.text and e.text.endswith('+26.1.2')][-1])
+          PY
+          )
+          fabric262=$(python - <<'PY'
+          import urllib.request, xml.etree.ElementTree as ET
+          root=ET.fromstring(urllib.request.urlopen('https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml').read())
+          print([e.text for e in root.findall('.//version') if e.text and e.text.endswith('+26.2')][-1])
+          PY
+          )
+          run_build mc26.1 -Pminecraft_version=26.1.2 -Pmapping_type=none -Pminecraft_dependency='>=26.1 <26.2' -Ploader_version=0.18.6 -Pfabric_version="$fabric261"
+          run_build mc26.2 -Pminecraft_version=26.2 -Pmapping_type=none -Pminecraft_dependency='>=26.2 <26.3' -Ploader_version=0.18.6 -Pfabric_version="$fabric262"
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-1.5.5-compile-diagnostics
+          path: diagnostics
