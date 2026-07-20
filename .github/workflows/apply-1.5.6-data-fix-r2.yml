@@ -1,0 +1,57 @@
+name: Apply RankBoard 1.5.6 data fix r2
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-build:
+    if: github.head_ref == 'fix-data-correctness-1.5.6-r2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply source patches
+        run: |
+          set +e
+          python3 tools/patch_stat_reader_1_5_6.py > patch.log 2>&1
+          code=$?
+          if [ $code -eq 0 ]; then python3 tools/patch_history_1_5_6.py >> patch.log 2>&1; code=$?; fi
+          if [ $code -eq 0 ]; then python3 tools/patch_misc_1_5_6.py >> patch.log 2>&1; code=$?; fi
+          cat patch.log
+          echo $code > patch-exit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: patch-log
+          path: |
+            patch.log
+            patch-exit.txt
+      - name: Verify patch succeeded
+        run: test "$(cat patch-exit.txt)" = "0"
+      - name: Build current target
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build --stacktrace
+      - name: Commit corrected source
+        run: |
+          rm -f tools/patch_stat_reader_1_5_6.py tools/patch_history_1_5_6.py tools/patch_misc_1_5_6.py
+          rm -f .github/workflows/apply-1.5.6-data-fix-r2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix leaderboard data correctness"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
