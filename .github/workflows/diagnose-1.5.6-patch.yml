@@ -1,0 +1,64 @@
+name: Diagnose RankBoard 1.5.6 patch
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'fix-data-correctness-1.5.6'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Count patch anchors
+        run: |
+          python3 <<'PY' > patch-diagnostic.txt
+          from pathlib import Path
+
+          checks = []
+          def add(path, label, needle):
+              text = Path(path).read_text(encoding='utf-8')
+              checks.append((path, label, text.count(needle)))
+
+          for path in ['src/main/java/cn/bamgdam/rankboard/StatReader.java', 'src/mojmap/java/cn/bamgdam/rankboard/StatReader.java']:
+              add(path, 'block field', '    private static final Set<String> BLOCK_ITEMS = ConcurrentHashMap.newKeySet();\n')
+              add(path, 'schema', 'PERSISTENT_CACHE_SCHEMA = 4')
+              add(path, 'startup block', '''        persistentCacheLoaded = loadPersistentCache(server);\n        ready = persistentCacheLoaded;\n        if (persistentCacheLoaded) {\n            server.execute(() -> {\n                LeaderboardState.get(server).rollPeriods(server);\n                BoardService.refreshAll(server);\n            });\n        }\n        int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;''')
+              add(path, 'reload method', '    static void reloadPlayer(MinecraftServer server, UUID uuid) {\n')
+              add(path, 'warmup callback', '''            server.execute(() -> {\n                LeaderboardState.get(server).rollPeriods(server);\n                BoardService.refreshAll(server);\n            });''')
+              add(path, 'prepare sets', '        FOOD_ITEMS.clear();\n        BLOCK_ITEMS.clear();\n        REDSTONE_COMPONENT_ITEMS.clear();\n')
+              add(path, 'mined line', '            case MINED -> sum(stats, "minecraft:mined");')
+
+          for path in ['src/main/java/cn/bamgdam/rankboard/LeaderboardState.java', 'src/mojmap/java/cn/bamgdam/rankboard/LeaderboardState.java']:
+              add(path, 'date import', 'import java.time.LocalDate;\n')
+              add(path, 'state id', '    private static final String STATE_ID = "rankboard_leaderboard";\n')
+              add(path, 'daily field', '    private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();\n')
+              add(path, 'daily create', '''        if (!dailySnapshots.containsKey(now)) {\n            Map<UUID, Map<RankBoardMod.Metric, Long>> values = new HashMap<>();\n            snapshots.forEach(snapshot -> values.put(snapshot.uuid(), new EnumMap<>(snapshot.values())));\n            dailySnapshots.put(now, values);\n            changed = true;\n        }\n        if (backfillMissingMetrics(snapshots)) changed = true;''')
+              add(path, 'range method', '    public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {\n')
+              add(path, 'range record', '    public record RangeData(LocalDate actualStart, LocalDate actualEnd, Map<UUID, Long> values) { }')
+
+          for path in ['src/main/java/cn/bamgdam/rankboard/RankBoardMod.java', 'src/mojmap/java/cn/bamgdam/rankboard/RankBoardMod.java']:
+              add(path, 'restore global', '            BoardService.restoreGlobal(server);\n')
+              add(path, 'entries signature', '    static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {\n        LeaderboardState state = LeaderboardState.get(server);\n')
+              add(path, 'week key', 'date.getYear() + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear())')
+
+          for path in ['src/main/java/cn/bamgdam/rankboard/WebDashboard.java', 'src/mojmap/java/cn/bamgdam/rankboard/WebDashboard.java']:
+              add(path, 'web readiness', '        if (!period.equals("all") && !StatReader.isReady()) {\n            throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），日期范围榜将在加载完成后可用。");\n        }')
+              add(path, 'actual vars', '        String actualStart;\n        String actualEnd;\n')
+              add(path, 'range assignment', '            LeaderboardState.RangeData range = state.range(server, from, to, metric);\n')
+              add(path, 'earliest json', '        root.addProperty("earliest", state.earliestSnapshotDate());\n')
+
+          for path, label, count in checks:
+              print(f'{count}\t{path}\t{label}')
+          PY
+          cat patch-diagnostic.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patch-diagnostic
+          path: patch-diagnostic.txt
