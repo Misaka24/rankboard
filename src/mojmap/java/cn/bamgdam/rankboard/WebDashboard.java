@@ -7,8 +7,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.server.MinecraftServer;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
@@ -16,14 +14,11 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -40,15 +35,11 @@ final class WebDashboard {
     private static MinecraftServer minecraft;
     private static String serverName = "Minecraft Server";
     private static Path websiteIcon;
-    private static byte[] websiteIconBytes;
-    private static String websiteIconContentType = "application/octet-stream";
-    private static String websiteIconVersion = "none";
 
     static boolean isRunning() { return true; }
     private static int dataRequestsPerSecond = 1;
     private static int iconRequestIntervalSeconds = 3;
     private static int rankingRefreshIntervalSeconds = 30;
-    private static Properties webTheme = new Properties();
     private static final Map<String, RequestWindow> REQUEST_WINDOWS = new ConcurrentHashMap<>();
     private static final Map<String, CachedRanking> RANKING_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, BurstPenaltyWindow> BURST_PENALTIES = new ConcurrentHashMap<>();
@@ -76,12 +67,6 @@ final class WebDashboard {
             rankingRefreshIntervalSeconds = Integer.parseInt(config.getProperty("web-ranking-refresh-interval-seconds", "30"));
             serverName = resolveServerName(server, config.getProperty("server-name", "auto"));
             websiteIcon = resolveIcon(server, config.getProperty("website-icon", "server-icon.png"));
-            loadWebsiteIcon(websiteIcon);
-            persistDetectedThemeBase(server, config, websiteIcon);
-            webTheme = new Properties();
-            for (String key : config.stringPropertyNames()) {
-                if (key.startsWith("web-theme-")) webTheme.setProperty(key, config.getProperty(key));
-            }
             http = HttpServer.create(new InetSocketAddress(host, port), 0);
             http.createContext("/api/rankings", WebDashboard::rankings);
             http.createContext("/api/site", WebDashboard::site);
@@ -106,10 +91,6 @@ final class WebDashboard {
         http = null;
         minecraft = null;
         websiteIcon = null;
-        websiteIconBytes = null;
-        websiteIconContentType = "application/octet-stream";
-        websiteIconVersion = "none";
-        webTheme = new Properties();
         REQUEST_WINDOWS.clear();
         BURST_PENALTIES.clear();
         RANKING_CACHE.clear();
@@ -134,8 +115,7 @@ final class WebDashboard {
 
     private static Path resolveIcon(MinecraftServer server, String configuredPath) {
         Path iconDirectory = RankBoardConfig.configDirectory(server).toAbsolutePath().normalize();
-        Path configFallback = iconDirectory.resolve("server-icon.png").normalize();
-        Path serverFallback = server.getServerDirectory().resolve("server-icon.png").toAbsolutePath().normalize();
+        Path fallback = iconDirectory.resolve("server-icon.png").normalize();
         String raw = configuredPath == null ? "" : configuredPath.strip();
         try {
             Path requested = Path.of(raw);
@@ -148,71 +128,11 @@ final class WebDashboard {
                 if (realCandidate.startsWith(realDirectory)) return realCandidate;
                 throw new IllegalArgumentException("symbolic link escapes config directory");
             }
-            if (Files.isRegularFile(configFallback)) return configFallback.toRealPath();
-            if (Files.isRegularFile(serverFallback)) return serverFallback.toRealPath();
-            RankBoardMod.LOGGER.warn("Website icon {} was not found; checked {} and {}", raw, configFallback, serverFallback);
+            RankBoardMod.LOGGER.warn("Website icon {} was not found in {}; falling back to {}", raw, iconDirectory, fallback);
         } catch (IOException | RuntimeException exception) {
             RankBoardMod.LOGGER.warn("Website icon {} is invalid; only files inside {} are allowed", raw, iconDirectory);
         }
-        return Files.isRegularFile(configFallback) ? configFallback : serverFallback;
-    }
-
-    private static void persistDetectedThemeBase(MinecraftServer server, Properties config, Path icon) {
-        if (!Boolean.parseBoolean(config.getProperty("web-theme-follow-icon", "true"))) return;
-        String detected = detectIconColor(icon);
-        if (detected == null || detected.equalsIgnoreCase(config.getProperty("web-theme-base", "auto"))) return;
-        try {
-            String saved = RankBoardConfig.set(server, "web-theme-base", detected);
-            config.setProperty("web-theme-base", saved);
-            RankBoardMod.LOGGER.info("Detected website theme base {} from {}", saved, icon);
-        } catch (IOException | IllegalArgumentException exception) {
-            RankBoardMod.LOGGER.warn("Could not persist website theme color detected from {}", icon, exception);
-        }
-    }
-
-    private static void loadWebsiteIcon(Path icon) throws IOException {
-        if (icon == null || !Files.isRegularFile(icon)) {
-            websiteIconBytes = null;
-            websiteIconContentType = "application/octet-stream";
-            websiteIconVersion = "none";
-            return;
-        }
-        websiteIconBytes = Files.readAllBytes(icon);
-        String type = Files.probeContentType(icon);
-        websiteIconContentType = type == null ? "application/octet-stream" : type;
-        try {
-            websiteIconVersion = HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(websiteIconBytes));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is unavailable", exception);
-        }
-    }
-
-    private static String detectIconColor(Path icon) {
-        if (icon == null || !Files.isRegularFile(icon)) return null;
-        try {
-            BufferedImage image = ImageIO.read(icon.toFile());
-            if (image == null) return null;
-            long red = 0L, green = 0L, blue = 0L, count = 0L;
-            int stepX = Math.max(1, image.getWidth() / 64);
-            int stepY = Math.max(1, image.getHeight() / 64);
-            for (int y = 0; y < image.getHeight(); y += stepY) {
-                for (int x = 0; x < image.getWidth(); x += stepX) {
-                    int argb = image.getRGB(x, y);
-                    if (((argb >>> 24) & 0xFF) < 48) continue;
-                    red += (argb >>> 16) & 0xFF;
-                    green += (argb >>> 8) & 0xFF;
-                    blue += argb & 0xFF;
-                    count++;
-                }
-            }
-            if (count == 0L) return null;
-            return String.format(java.util.Locale.ROOT, "#%02X%02X%02X",
-                    red / count, green / count, blue / count);
-        } catch (IOException | RuntimeException exception) {
-            RankBoardMod.LOGGER.warn("Could not read website icon color from {}", icon, exception);
-            return null;
-        }
+        return fallback;
     }
 
     private static String resolveServerName(MinecraftServer server, String configuredName) {
@@ -282,16 +202,15 @@ final class WebDashboard {
     private static String buildRanking(MinecraftServer server, String period, LocalDate from, LocalDate to,
                                        RankBoardMod.Metric metric, boolean requestOnlineOnly) {
         LeaderboardState state = LeaderboardState.get(server);
-        if (!state.isMetricDisplayEnabled(metric)) {
-            throw new IllegalArgumentException(metric.label() + " 已被 OP 禁止显示");
-        }
         boolean effectiveOnlineOnly = requestOnlineOnly || state.isOnlineOnly();
-        if (!period.equals("all") && !StatReader.isReady()) {
-            throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），日期范围榜将在加载完成后可用。");
-        }
         List<WebEntry> entries = new ArrayList<>();
         String actualStart;
         String actualEnd;
+        boolean complete = StatReader.isReady();
+        List<String> warnings = new ArrayList<>();
+        if (!StatReader.isReady()) {
+            warnings.add("权威扫描进行中（" + StatReader.progress() + "），当前为缓存预览");
+        }
         if (period.equals("all")) {
             StatReader.readAll(server, metric).forEach(snapshot -> {
                 if (isIncluded(server, state, snapshot.uuid(), snapshot.name(), effectiveOnlineOnly)) {
@@ -301,7 +220,9 @@ final class WebDashboard {
             actualStart = "原版统计起始";
             actualEnd = LocalDate.now().toString();
         } else {
-            LeaderboardState.RangeData range = state.range(server, from, to, metric);
+            LeaderboardState.RangeData range = state.range(server, from, to, metric, true);
+            complete = complete && range.complete();
+            warnings.addAll(range.warnings());
             Map<UUID, String> names = new HashMap<>();
             StatReader.readAll(server, metric).forEach(snapshot -> names.put(snapshot.uuid(), snapshot.name()));
             range.values().forEach((uuid, value) -> {
@@ -324,7 +245,11 @@ final class WebDashboard {
         root.addProperty("period", period);
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
-        root.addProperty("earliest", state.earliestSnapshotDate());
+        root.addProperty("earliest", state.earliestSnapshotDate(metric));
+        root.addProperty("complete", complete);
+        JsonArray warningArray = new JsonArray();
+        warnings.forEach(warningArray::add);
+        root.add("warnings", warningArray);
         root.addProperty("metric", metric.command); root.addProperty("label", metric.label());
         root.addProperty("total", total); root.addProperty("formattedTotal", formatWeb(metric, total));
         JsonArray players = new JsonArray();
@@ -352,27 +277,6 @@ final class WebDashboard {
         JsonObject root = new JsonObject();
         root.addProperty("name", serverName);
         root.addProperty("rankingRefreshIntervalSeconds", rankingRefreshIntervalSeconds);
-        root.addProperty("themeFollowIcon", Boolean.parseBoolean(
-                webTheme.getProperty("web-theme-follow-icon", "true")));
-        root.addProperty("themeBase", webTheme.getProperty("web-theme-base", "auto"));
-        root.addProperty("iconVersion", websiteIconVersion);
-        JsonObject theme = new JsonObject();
-        for (String name : List.of("background", "surface", "primary", "secondary", "text", "muted",
-                "border", "success", "danger")) {
-            theme.addProperty(name, webTheme.getProperty("web-theme-" + name, "auto"));
-        }
-        root.add("theme", theme);
-        JsonArray metrics = new JsonArray();
-        MinecraftServer server = minecraft;
-        LeaderboardState state = server == null ? null : LeaderboardState.get(server);
-        for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
-            if (state != null && !state.isMetricDisplayEnabled(metric)) continue;
-            JsonObject item = new JsonObject();
-            item.addProperty("id", metric.command);
-            item.addProperty("label", metric.label());
-            metrics.add(item);
-        }
-        root.add("metrics", metrics);
         respond(exchange, 200, "application/json; charset=utf-8", root.toString());
     }
 
@@ -385,7 +289,7 @@ final class WebDashboard {
         return switch (metric) {
             case PLAY_TIME -> String.format(java.util.Locale.ROOT, "%,dh %dm", value / 72000, (value / 1200) % 60);
             case ELYTRA_DISTANCE -> String.format(java.util.Locale.ROOT, "%,.1f km", value / 100000.0);
-            case DAMAGE_TAKEN -> String.format(java.util.Locale.ROOT, "%,.1f", value / 10.0);
+            case DAMAGE_TAKEN, DAMAGE_DEALT -> String.format(java.util.Locale.ROOT, "%,.1f", value / 10.0);
             default -> {
                 String exact = String.format(java.util.Locale.ROOT, "%,d", value);
                 yield value > 100_000 ? (value / 10_000) + "w · " + exact : exact;
@@ -405,18 +309,13 @@ final class WebDashboard {
     }
 
     private static void siteIcon(HttpExchange exchange) throws IOException {
-        String etag = '"' + websiteIconVersion + '"';
-        exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");
-        exchange.getResponseHeaders().set("ETag", etag);
-        if (etag.equals(exchange.getRequestHeaders().getFirst("If-None-Match"))) {
-            exchange.sendResponseHeaders(304, -1);
-            exchange.close();
-            return;
-        }
         if (!enforceRateLimit(exchange, RequestKind.ICON)) return;
-        byte[] bytes = websiteIconBytes;
-        if (bytes == null) { respond(exchange, 404, "text/plain", "Not found"); return; }
-        exchange.getResponseHeaders().set("Content-Type", websiteIconContentType);
+        Path icon = websiteIcon;
+        if (icon == null || !Files.isRegularFile(icon)) { respond(exchange, 404, "text/plain", "Not found"); return; }
+        byte[] bytes = Files.readAllBytes(icon);
+        String contentType = Files.probeContentType(icon);
+        exchange.getResponseHeaders().set("Content-Type", contentType == null ? "application/octet-stream" : contentType);
+        exchange.getResponseHeaders().set("Cache-Control", "no-cache");
         exchange.sendResponseHeaders(200, bytes.length);
         try (var output = exchange.getResponseBody()) { output.write(bytes); }
     }

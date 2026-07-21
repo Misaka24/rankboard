@@ -69,7 +69,6 @@ public final class RankBoardMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             RankBoardConfig.load(server);
             RankBoardWhitelist.load(server);
-            BoardService.restoreGlobal(server);
             BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.startWarmup(server);
             WebDashboard.start(server);
@@ -89,6 +88,7 @@ public final class RankBoardMod implements ModInitializer {
             sendJoinExperience(player);
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            StatReader.capturePlayer(server, handler.getPlayer());
             StatReader.reloadPlayer(server, handler.getPlayer().getUuid());
             LOOK_MENU_HELD.remove(handler.getPlayer().getUuid());
             BoardService.disconnect(handler.getPlayer());
@@ -153,6 +153,7 @@ public final class RankBoardMod implements ModInitializer {
                                         StringArgumentType.getString(context, "color")))))
                 .then(CommandManager.literal("status").executes(context -> webThemeModeStatus(context.getSource()))));
         root.then(CommandManager.literal("display")
+                .then(CommandManager.literal("on").executes(context -> BoardService.enable(context.getSource())))
                 .then(CommandManager.literal("off").executes(context -> BoardService.disable(context.getSource()))
                         .then(CommandManager.argument("player", EntityArgumentType.player()).requires(source -> CommandPermissionCompat.has(source, 2))
                                 .executes(context -> BoardService.disable(context.getSource(),
@@ -231,6 +232,13 @@ public final class RankBoardMod implements ModInitializer {
                                         StringArgumentType.getString(context, "player")))))
                 .then(CommandManager.literal("list").executes(context -> listModWhitelist(context.getSource())))
                 .then(CommandManager.literal("reload").executes(context -> reloadModWhitelist(context.getSource()))));
+        root.then(CommandManager.literal("recipients").requires(source -> CommandPermissionCompat.has(source, 2))
+                .executes(context -> recipientFilterStatus(context.getSource()))
+                .then(CommandManager.literal("status").executes(context -> recipientFilterStatus(context.getSource())))
+                .then(CommandManager.literal("fake-only").executes(context -> setRecipientFilter(context.getSource(), "fake-only")))
+                .then(CommandManager.literal("false").executes(context -> setRecipientFilter(context.getSource(), "false")))
+                .then(CommandManager.literal("whitelist").executes(context -> setRecipientFilter(context.getSource(), "whitelist")))
+                .then(CommandManager.literal("blacklist").executes(context -> setRecipientFilter(context.getSource(), "blacklist"))));
         root.then(CommandManager.literal("lookup").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(CommandManager.literal("whitelist").executes(context -> MojangNameLookup.lookupWhitelist(context.getSource())))
                 .then(CommandManager.argument("uuid", StringArgumentType.word())
@@ -238,7 +246,13 @@ public final class RankBoardMod implements ModInitializer {
                                 StringArgumentType.getString(context, "uuid")))));
         root.then(CommandManager.literal("cache").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(CommandManager.literal("status").executes(context -> cacheStatus(context.getSource())))
-                .then(CommandManager.literal("reload").executes(context -> reloadCache(context.getSource()))));
+                .then(CommandManager.literal("reload").executes(context -> reloadCache(context.getSource())))
+                .then(CommandManager.literal("threads")
+                        .executes(context -> cacheThreadsStatus(context.getSource()))
+                        .then(CommandManager.literal("status").executes(context -> cacheThreadsStatus(context.getSource())))
+                        .then(CommandManager.argument("count", IntegerArgumentType.integer(0, 256))
+                                .executes(context -> setCacheThreads(context.getSource(),
+                                        IntegerArgumentType.getInteger(context, "count"))))));
         root.then(CommandManager.literal("ratelimit").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(CommandManager.literal("clear").executes(context -> clearRateLimits(context.getSource()))));
         root.then(CommandManager.literal("config").requires(source -> CommandPermissionCompat.has(source, 2))
@@ -358,6 +372,7 @@ public final class RankBoardMod implements ModInitializer {
             }
             case "scoreboard" -> {
                 helpCommand(source, "/leaderboard display show <周期> <榜单>", "/leaderboard display show ", "显示个人单榜计分板");
+                helpCommand(source, "/leaderboard display on", "/leaderboard display on", "恢复关闭前的个人计分板");
                 helpCommand(source, "/leaderboard display off", "/leaderboard display off", "关闭个人计分板");
                 helpCommand(source, "/leaderboard mine", "/leaderboard mine", "显示个人所有榜单总览");
                 if (op) {
@@ -402,6 +417,7 @@ public final class RankBoardMod implements ModInitializer {
                 if (!op) return 0;
                 helpCommand(source, "/leaderboard whitelist <true|false|status>", "/leaderboard whitelist ", "控制服务器白名单筛选");
                 helpCommand(source, "/leaderboard modwhitelist <add|remove|list|reload>", "/leaderboard modwhitelist ", "管理模组自带白名单");
+                helpCommand(source, "/leaderboard recipients <fake-only|false|whitelist|blacklist|status>", "/leaderboard recipients ", "控制哪些在线玩家接收个人榜单数据；白名单和黑名单复用模组名单");
                 helpCommand(source, "/leaderboard botfilter <true|false|status>", "/leaderboard botfilter ", "筛选 bot_ 前缀玩家；立即生效");
                 helpCommand(source, "/leaderboard customfilter <true|false|status>", "/leaderboard customfilter ", "筛选无法识别身份的历史玩家；立即生效");
                 helpCommand(source, "/leaderboard onlinefilter <true|false|status>", "/leaderboard onlinefilter ", "只显示在线玩家；立即生效");
@@ -437,6 +453,8 @@ public final class RankBoardMod implements ModInitializer {
                         "/leaderboard webtheme ", "选择图标自动取色或默认蓝色网页主题");
                 helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "立即清除全部网页限流记录");
                 helpCommand(source, "/leaderboard cache <status|reload>", "/leaderboard cache ", "查看或重载历史统计缓存");
+                helpCommand(source, "/leaderboard cache threads <0-256|status>", "/leaderboard cache threads ",
+                        "设置或查看历史扫描线程；0 自动，最多使用 50% 逻辑处理器；显示线程数与总扫描速率，修改后立即重新扫描");
                 helpCommand(source, "/leaderboard config set avatar-cache-enabled <true|false>",
                         "/leaderboard config set avatar-cache-enabled ", "开关玩家头像缓存；重新进服时生效");
             }
@@ -476,6 +494,7 @@ public final class RankBoardMod implements ModInitializer {
                 configHelp(source, "web-public-address");
                 configHelp(source, "help-visibility");
                 configHelp(source, "mod-whitelist-enabled");
+                configHelp(source, "scoreboard-recipient-filter");
                 configHelp(source, "avatar-cache-enabled");
                 configHelp(source, "avatar-cache-days");
             }
@@ -500,6 +519,7 @@ public final class RankBoardMod implements ModInitializer {
                 configHelp(source, "scoreboard-live-update-threshold");
                 configHelp(source, "scoreboard-live-update-throttle-seconds");
                 configHelp(source, "history-files-per-second");
+                configHelp(source, "history-scan-threads");
             }
             case "config-web" -> {
                 if (!op) return 0;
@@ -543,7 +563,8 @@ public final class RankBoardMod implements ModInitializer {
 
     private static void configHelp(ServerCommandSource source, String key) {
         String effect = switch (key) {
-            case "history-files-per-second", "mod-whitelist-enabled" -> "；修改后执行 /leaderboard cache reload";
+            case "history-files-per-second", "history-scan-threads", "mod-whitelist-enabled" ->
+                    "；修改后执行 /leaderboard cache reload";
             case "host", "port", "server-name", "website-icon", "web-data-requests-per-second",
                     "web-icon-request-interval-seconds", "web-ranking-refresh-interval-seconds" ->
                     "；修改后执行 /leaderboard config reload";
@@ -554,9 +575,18 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int menu(ServerCommandSource source) {
+        boolean boardEnabled = false;
+        try {
+            LeaderboardState.BoardPreference preference = LeaderboardState.get(source.getServer())
+                    .boardPreference(source.getEntity() == null ? null : source.getEntity().getUuid());
+            boardEnabled = preference != null && preference.enabled();
+        } catch (RuntimeException ignored) { }
         Text firstRow = clickable("[查询分数]", Formatting.GOLD, "/leaderboard mine all", "查看自己的全部统计分数")
                 .copy().append(Text.literal(" "))
-                .append(clickable("[关闭榜单]", Formatting.RED, "/leaderboard display off", "关闭自己的客户端计分板"));
+                .append(clickable(boardEnabled ? "[关闭榜单]" : "[开启榜单]",
+                        boardEnabled ? Formatting.RED : Formatting.GREEN,
+                        boardEnabled ? "/leaderboard display off" : "/leaderboard display on",
+                        boardEnabled ? "关闭自己的客户端计分板" : "恢复关闭前的客户端计分板"));
         try {
             boolean enabled = LeaderboardState.get(source.getServer()).isLookMenuEnabled(source.getEntity() == null
                     ? null : source.getEntity().getUuid());
@@ -576,15 +606,15 @@ public final class RankBoardMod implements ModInitializer {
                     "[轮播]", Formatting.AQUA, "/leaderboard carousel on", "自动轮播当前周期的榜单"));
             hasSecondRowButton = true;
         }
+        if (RankBoardConfig.get().websiteButtonEnabled) {
+            if (hasSecondRowButton) secondRow = secondRow.copy().append(Text.literal(" "));
+            secondRow = secondRow.copy().append(websiteButton(source));
+            hasSecondRowButton = true;
+        }
         if (RankBoardConfig.get().helpVisible(source)) {
             if (hasSecondRowButton) secondRow = secondRow.copy().append(Text.literal(" "));
             secondRow = secondRow.copy().append(clickable(
                     "[help]", Formatting.GREEN, "/leaderboard help", "查看 RankBoard 帮助"));
-            hasSecondRowButton = true;
-        }
-        if (RankBoardConfig.get().websiteButtonEnabled) {
-            if (hasSecondRowButton) secondRow = secondRow.copy().append(Text.literal(" "));
-            secondRow = secondRow.copy().append(websiteButton(source));
             hasSecondRowButton = true;
         }
         if (hasSecondRowButton) {
@@ -595,8 +625,9 @@ public final class RankBoardMod implements ModInitializer {
         int visible = 0;
         visible += sendMetricMenuRow(source, Metric.ELYTRA_DISTANCE, Metric.JUMPS, Metric.MINED, Metric.PLACED);
         visible += sendMetricMenuRow(source, Metric.FISHING, Metric.CRAFTED, Metric.TRADES, Metric.PLAY_TIME);
-        visible += sendMetricMenuRow(source, Metric.KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN, Metric.PICKED_UP);
-        visible += sendMetricMenuRow(source, Metric.FOOD, Metric.DROPPED, Metric.REDSTONE_PLACED);
+        visible += sendMetricMenuRow(source, Metric.KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN, Metric.DAMAGE_DEALT);
+        visible += sendMetricMenuRow(source, Metric.PICKED_UP, Metric.DROPPED, Metric.PVP_KILLS);
+        visible += sendMetricMenuRow(source, Metric.FOOD, Metric.REDSTONE_PLACED);
         if (visible == 0) {
             source.sendFeedback(() -> Text.literal("所有榜单显示均已被 OP 禁用。\n").formatted(Formatting.GRAY), false);
         }
@@ -754,9 +785,12 @@ public final class RankBoardMod implements ModInitializer {
         try {
             boolean webOption = RankBoardConfig.isWebOption(key);
             String normalized = RankBoardConfig.set(source.getServer(), key, value);
-            if (key.equals("history-files-per-second")) StatReader.startWarmup(source.getServer());
+            if (key.equals("history-files-per-second") || key.equals("history-scan-threads")) {
+                StatReader.startWarmup(source.getServer());
+            }
             if (key.equals("scoreboard-name-color-enabled") || key.equals("player-name-color-render-mode")
                     || key.startsWith("metric-color-")) refreshColors(source.getServer());
+            if (key.equals("scoreboard-recipient-filter")) BoardService.refreshAll(source.getServer());
             if (key.startsWith("metric-label-")) refreshMetricLabels(source.getServer());
             boolean webRunning = !webOption || WebDashboard.restart(source.getServer());
             source.sendFeedback(() -> Text.literal("已保存配置：" + key + " = "
@@ -778,6 +812,7 @@ public final class RankBoardMod implements ModInitializer {
         RankBoardConfig.load(source.getServer());
         StatReader.startWarmup(source.getServer());
         refreshColors(source.getServer());
+        BoardService.refreshAll(source.getServer());
         boolean webRunning = WebDashboard.restart(source.getServer());
         if (!webRunning) {
             source.sendError(Text.literal("配置已重载，但网页服务启动失败；请检查服务器日志和网页配置。"));
@@ -796,6 +831,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private void sendJoinExperience(ServerPlayerEntity player) {
+        if (PlayerCompat.isFake(player)) return;
         RankBoardConfig config = RankBoardConfig.get();
         if (config.welcomeEnabled) {
             player.sendMessage(Text.literal("欢迎来到 ").formatted(Formatting.GRAY)
@@ -811,6 +847,7 @@ public final class RankBoardMod implements ModInitializer {
     private void handleLookUpSneakMenu(net.minecraft.server.MinecraftServer server) {
         if (!RankBoardConfig.get().lookUpSneakMenuEnabled) return;
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (PlayerCompat.isFake(player)) continue;
             if (!LeaderboardState.get(server).isLookMenuEnabled(player.getUuid())) {
                 LOOK_MENU_HELD.remove(player.getUuid());
                 continue;
@@ -1132,6 +1169,7 @@ public final class RankBoardMod implements ModInitializer {
             boolean changed = add ? RankBoardWhitelist.add(source.getServer(), player)
                     : RankBoardWhitelist.remove(source.getServer(), player);
             if (changed && RankBoardConfig.get().modWhitelistEnabled) StatReader.startWarmup(source.getServer());
+            if (changed) BoardService.refreshAll(source.getServer());
             source.sendFeedback(() -> Text.literal(changed
                     ? (add ? "已添加到模组白名单：" : "已从模组白名单移除：") + player
                     : (add ? "模组白名单中已存在：" : "模组白名单中未找到：") + player), true);
@@ -1156,12 +1194,26 @@ public final class RankBoardMod implements ModInitializer {
         source.sendFeedback(() -> Text.literal("模组白名单已重新加载，共 "
                 + RankBoardWhitelist.entries().size() + " 项。"), true);
         if (RankBoardConfig.get().modWhitelistEnabled) StatReader.startWarmup(source.getServer());
+        BoardService.refreshAll(source.getServer());
+        return 1;
+    }
+
+    private int setRecipientFilter(ServerCommandSource source, String mode) {
+        return setConfig(source, "scoreboard-recipient-filter", mode);
+    }
+
+    private int recipientFilterStatus(ServerCommandSource source) {
+        String mode = RankBoardConfig.get().recipientFilter.serialized;
+        source.sendFeedback(() -> Text.literal("个人榜单接收过滤：" + mode
+                + "；whitelist/blacklist 使用 config/rankboard/rankboard-whitelist.json。")
+                .formatted(Formatting.GRAY), false);
         return 1;
     }
 
     private int cacheStatus(ServerCommandSource source) {
         String status = StatReader.isReady() ? "已完成" : "加载中";
-        source.sendFeedback(() -> Text.literal("历史统计缓存：" + status + "（" + StatReader.progress() + "）")
+        source.sendFeedback(() -> Text.literal("历史统计缓存：" + status + "（" + StatReader.progress()
+                        + "，扫描线程 " + StatReader.resolvedScanThreads() + "）")
                 .formatted(Formatting.GRAY), false);
         return 1;
     }
@@ -1173,11 +1225,41 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
 
+    private int cacheThreadsStatus(ServerCommandSource source) {
+        int configured = RankBoardConfig.get().historyScanThreads;
+        int resolved = StatReader.resolvedScanThreads();
+        source.sendFeedback(() -> Text.literal("历史扫描线程：配置 " + configured + "，实际使用 " + resolved
+                        + "（最多为逻辑处理器的 50%），总扫描上限 " + StatReader.effectiveScanRate() + " 文件/秒。")
+                .formatted(Formatting.GRAY), false);
+        return 1;
+    }
+
+    private int setCacheThreads(ServerCommandSource source, int requested) {
+        try {
+            String saved = RankBoardConfig.set(source.getServer(), "history-scan-threads", Integer.toString(requested));
+            StatReader.startWarmup(source.getServer());
+            int resolved = StatReader.resolvedScanThreads();
+            source.sendFeedback(() -> Text.literal("历史扫描线程已保存为 " + saved + "，实际使用 " + resolved
+                            + "（最多为逻辑处理器的 50%），总扫描上限 " + StatReader.effectiveScanRate()
+                            + " 文件/秒；已重新开始扫描。")
+                    .formatted(Formatting.GREEN), true);
+            return 1;
+        } catch (IllegalArgumentException | java.io.IOException exception) {
+            source.sendError(Text.literal("无法设置历史扫描线程：" + exception.getMessage()));
+            return 0;
+        }
+    }
+
     private int show(ServerCommandSource source, Period period, Metric metric, int limit) {
         try {
             if (!StatReader.isReady()) {
-                source.sendFeedback(() -> Text.literal("历史统计仍在加载（" + StatReader.progress()
-                        + "），当前榜单可能不完整。").formatted(Formatting.GRAY), false);
+                source.sendFeedback(() -> Text.literal("权威扫描进行中（" + StatReader.progress()
+                        + "），当前显示缓存预览，结果可能变化。").formatted(Formatting.YELLOW), false);
+            }
+            if (period != Period.ALL
+                    && !LeaderboardState.get(source.getServer()).isPeriodComplete(period, metric)) {
+                source.sendFeedback(() -> Text.literal(period.label + "统计为部分周期，从首次可信基线开始。")
+                        .formatted(Formatting.YELLOW), false);
             }
             List<Entry> entries = entries(source.getServer(), period, metric);
             source.sendFeedback(() -> RankBoardColors.text("=== " + period.label + " " + metric.label() + " ===", metric), false);
@@ -1210,6 +1292,7 @@ public final class RankBoardMod implements ModInitializer {
         state.rollPeriods(server);
         return StatReader.readAll(server, metric).stream()
                 .filter(snapshot -> isIncluded(server, state, snapshot.uuid(), snapshot.name()))
+                .filter(snapshot -> period == Period.ALL || state.hasBaseline(period, snapshot.uuid(), metric))
                 .map(snapshot -> new Entry(snapshot.name(), Math.max(0, snapshot.value(metric) - (period == Period.ALL ? 0 : state.getBaseline(period, snapshot.uuid(), metric)))))
                 .sorted(Comparator.comparingLong(Entry::value).reversed().thenComparing(Entry::name))
                 .toList();
@@ -1227,7 +1310,9 @@ public final class RankBoardMod implements ModInitializer {
     static String format(Metric metric, long value) {
         if (metric == Metric.PLAY_TIME) return (value / 72000) + "h " + ((value / 1200) % 60) + "m";
         if (metric == Metric.ELYTRA_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
-        if (metric == Metric.DAMAGE_TAKEN) return String.format(java.util.Locale.ROOT, "%.1f", value / 10.0);
+        if (metric == Metric.DAMAGE_TAKEN || metric == Metric.DAMAGE_DEALT) {
+            return String.format(java.util.Locale.ROOT, "%.1f", value / 10.0);
+        }
         return Long.toString(value);
     }
 
@@ -1249,12 +1334,14 @@ public final class RankBoardMod implements ModInitializer {
         MINED("mined", "挖掘榜", Formatting.BLUE, RankBoardMod::mined),
         PLACED("placed", "放置榜", Formatting.DARK_AQUA, RankBoardMod::placed),
         KILLS("kills", "击杀榜", Formatting.RED, p -> custom(p, Stats.MOB_KILLS) + custom(p, Stats.PLAYER_KILLS)),
+        PVP_KILLS("pvp", "PvP榜", Formatting.DARK_RED, p -> custom(p, Stats.PLAYER_KILLS)),
         DEATHS("deaths", "死亡榜", Formatting.DARK_RED, p -> custom(p, Stats.DEATHS)),
         TRADES("trades", "交易榜", Formatting.GREEN, p -> custom(p, Stats.TRADED_WITH_VILLAGER)),
         PLAY_TIME("playtime", "在线榜", Formatting.AQUA, p -> custom(p, Stats.PLAY_TIME)),
         ELYTRA_DISTANCE("elytra", "飞行榜", Formatting.LIGHT_PURPLE, p -> custom(p, Stats.AVIATE_ONE_CM)),
         FISHING("fishing", "钓鱼榜", Formatting.DARK_BLUE, p -> custom(p, Stats.FISH_CAUGHT)),
         DAMAGE_TAKEN("damage", "受伤榜", Formatting.RED, p -> custom(p, Stats.DAMAGE_TAKEN)),
+        DAMAGE_DEALT("dealt", "输出榜", Formatting.GOLD, p -> custom(p, Stats.DAMAGE_DEALT)),
         DROPPED("dropped", "丢垃圾榜", Formatting.DARK_GRAY, RankBoardMod::dropped),
         PICKED_UP("picked", "拾荒榜", Formatting.GREEN, RankBoardMod::pickedUp),
         CRAFTED("crafted", "合成榜", Formatting.GOLD, RankBoardMod::crafted),
@@ -1279,7 +1366,7 @@ public final class RankBoardMod implements ModInitializer {
         String key(LocalDate date) {
             return switch (this) {
                 case DAILY -> date.toString();
-                case WEEKLY -> date.getYear() + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
+                case WEEKLY -> date.get(WeekFields.ISO.weekBasedYear()) + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
                 case MONTHLY -> date.getYear() + "-" + date.getMonthValue();
                 case YEARLY -> Integer.toString(date.getYear());
                 case ALL -> "all";

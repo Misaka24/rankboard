@@ -8,6 +8,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.storage.LevelResource;
 import java.io.IOException;
@@ -18,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,11 +37,12 @@ final class StatReader {
     private static final Map<UUID, Long> SOURCE_MODIFIED = new ConcurrentHashMap<>();
     private static final Set<String> FOOD_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Set<String> BLOCK_ITEMS = ConcurrentHashMap.newKeySet();
+    private static final Set<String> BLOCK_IDS = ConcurrentHashMap.newKeySet();
     private static final Set<String> REDSTONE_COMPONENT_ITEMS = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 3;
+    private static final int PERSISTENT_CACHE_SCHEMA = 4;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -64,13 +65,7 @@ final class StatReader {
         SOURCE_MODIFIED.clear();
         prepareItemSets();
         persistentCacheLoaded = loadPersistentCache(server);
-        ready = persistentCacheLoaded;
-        if (persistentCacheLoaded) {
-            server.execute(() -> {
-                LeaderboardState.get(server).rollPeriods(server);
-                BoardService.refreshAll(server);
-            });
-        }
+        // Persisted values are preview-only until every source file is verified.
         int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
         warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond));
     }
@@ -84,6 +79,16 @@ final class StatReader {
         persistentCacheLoaded = false;
     }
 
+    static void capturePlayer(MinecraftServer server, ServerPlayer player) {
+        StatSnapshot snapshot = fromPlayer(player);
+        UUID uuid = player.getUUID();
+        CACHE.put(uuid, snapshot);
+        Path path = server.getWorldPath(LevelResource.PLAYER_STATS_DIR).resolve(uuid + ".json");
+        SOURCE_MODIFIED.put(uuid, modifiedTime(path));
+        savePersistentCache(server);
+        WebDashboard.invalidateRankings();
+    }
+
     static void reloadPlayer(MinecraftServer server, UUID uuid) {
         long generation = GENERATION.get();
         LOADER.submit(() -> {
@@ -91,10 +96,15 @@ final class StatReader {
             if (generation != GENERATION.get()) return;
             Map<UUID, String> names = readKnownNames(server);
             Path path = server.getWorldPath(LevelResource.PLAYER_STATS_DIR).resolve(uuid + ".json");
+            long modified = modifiedTime(path);
+            // Keep the disconnect-time in-memory snapshot until the vanilla file
+            // actually advances; an unchanged file is older than the captured value.
+            if (modified == SOURCE_MODIFIED.getOrDefault(uuid, -1L)) return;
             readSnapshot(path, names).ifPresent(snapshot -> {
                 CACHE.put(uuid, snapshot);
-                SOURCE_MODIFIED.put(uuid, modifiedTime(path));
+                SOURCE_MODIFIED.put(uuid, modified);
                 savePersistentCache(server);
+                WebDashboard.invalidateRankings();
             });
         });
     }
@@ -132,6 +142,7 @@ final class StatReader {
     }
 
     private static void warmup(MinecraftServer server, long generation, int filesPerSecond) {
+        ExecutorService scanPool = null;
         try {
             Map<UUID, String> names = readKnownNames(server);
             Set<UUID> whitelist = readWhitelistNames(server).keySet();
@@ -149,23 +160,46 @@ final class StatReader {
             files.sort(Comparator.comparing((Path path) -> !whitelist.contains(uuidFromPath(path))).thenComparing(Path::toString));
             TOTAL.set(files.size());
             long delayMillis = Math.max(1, 1000L / filesPerSecond);
-            RankBoardMod.LOGGER.info("Checking history cache: {} files at {} files/second (persistent cache: {})",
-                    files.size(), filesPerSecond, persistentCacheLoaded ? "loaded" : "not found");
-            Set<UUID> present = new HashSet<>();
+            int scanThreads = resolvedScanThreads();
+            RankBoardMod.LOGGER.info(
+                    "Checking history cache: {} files at up to {} files/second per thread using {} threads "
+                            + "({} files/second total, persistent cache: {})",
+                    files.size(), filesPerSecond, scanThreads, effectiveScanRate(),
+                    persistentCacheLoaded ? "loaded" : "not found");
+            Set<UUID> present = ConcurrentHashMap.newKeySet();
+            List<Future<?>> scans = new ArrayList<>(files.size());
+            scanPool = Executors.newFixedThreadPool(scanThreads, runnable -> {
+                Thread thread = new Thread(runnable, "RankBoard-HistoryScanner");
+                thread.setDaemon(true);
+                return thread;
+            });
             for (Path file : files) {
                 if (generation != GENERATION.get() || Thread.currentThread().isInterrupted()) return;
-                UUID uuid = uuidFromPath(file);
-                present.add(uuid);
-                long modified = modifiedTime(file);
-                if (!CACHE.containsKey(uuid) || SOURCE_MODIFIED.getOrDefault(uuid, -1L) != modified) {
-                    readSnapshot(file, names).ifPresent(snapshot -> {
-                        CACHE.put(snapshot.uuid(), snapshot);
-                        SOURCE_MODIFIED.put(snapshot.uuid(), modified);
-                    });
-                }
-                PROCESSED.incrementAndGet();
-                if (delayMillis > 0) Thread.sleep(delayMillis);
+                scans.add(scanPool.submit(() -> {
+                    if (generation != GENERATION.get() || Thread.currentThread().isInterrupted()) return;
+                    UUID uuid = uuidFromPath(file);
+                    present.add(uuid);
+                    try {
+                        long modified = modifiedTime(file);
+                        if (!CACHE.containsKey(uuid) || SOURCE_MODIFIED.getOrDefault(uuid, -1L) != modified) {
+                            readSnapshot(file, names).ifPresent(snapshot -> {
+                                CACHE.put(snapshot.uuid(), snapshot);
+                                SOURCE_MODIFIED.put(snapshot.uuid(), modified);
+                            });
+                        }
+                    } finally {
+                        if (generation == GENERATION.get()) PROCESSED.incrementAndGet();
+                    }
+                    if (generation == GENERATION.get() && !Thread.currentThread().isInterrupted()) {
+                        try {
+                            Thread.sleep(delayMillis);
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }));
             }
+            for (Future<?> scan : scans) scan.get();
             if (generation != GENERATION.get()) return;
             CACHE.keySet().removeIf(uuid -> !present.contains(uuid));
             SOURCE_MODIFIED.keySet().removeIf(uuid -> !present.contains(uuid));
@@ -175,13 +209,28 @@ final class StatReader {
             RankBoardMod.LOGGER.info("History cache ready: {} player files loaded", CACHE.size());
             server.execute(() -> {
                 LeaderboardState.get(server).rollPeriods(server);
+                BoardService.restoreGlobal(server);
+                for (var player : server.getPlayerList().getPlayers()) BoardService.restore(player);
                 BoardService.refreshAll(server);
+                WebDashboard.invalidateRankings();
             });
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
         } catch (Exception exception) {
             RankBoardMod.LOGGER.error("History cache warmup failed at {}", progress(), exception);
+        } finally {
+            if (scanPool != null) scanPool.shutdownNow();
         }
+    }
+
+    static int resolvedScanThreads() {
+        int processorLimit = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+        int configured = RankBoardConfig.get().historyScanThreads;
+        return configured <= 0 ? processorLimit : Math.min(configured, processorLimit);
+    }
+
+    static long effectiveScanRate() {
+        return (long) RankBoardConfig.get().historyFilesPerSecond * resolvedScanThreads();
     }
 
     private static boolean loadPersistentCache(MinecraftServer server) {
@@ -357,7 +406,11 @@ final class StatReader {
     private static void prepareItemSets() {
         FOOD_ITEMS.clear();
         BLOCK_ITEMS.clear();
+        BLOCK_IDS.clear();
         REDSTONE_COMPONENT_ITEMS.clear();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            BLOCK_IDS.add(BuiltInRegistries.BLOCK.getKey(block).toString());
+        }
         for (Item item : BuiltInRegistries.ITEM) {
             String id = BuiltInRegistries.ITEM.getKey(item).toString();
             if (item.components().get(DataComponents.FOOD) != null) FOOD_ITEMS.add(id);
@@ -395,15 +448,17 @@ final class StatReader {
         return switch (metric) {
             case FOOD -> sumMatching(stats, "minecraft:used", FOOD_ITEMS);
             case PLACED -> sumMatching(stats, "minecraft:used", BLOCK_ITEMS);
-            case MINED -> sum(stats, "minecraft:mined");
+            case MINED -> sumMatching(stats, "minecraft:mined", BLOCK_IDS);
             case JUMPS -> stat(stats, "minecraft:custom", "minecraft:jump");
             case KILLS -> stat(stats, "minecraft:custom", "minecraft:mob_kills") + stat(stats, "minecraft:custom", "minecraft:player_kills");
+            case PVP_KILLS -> stat(stats, "minecraft:custom", "minecraft:player_kills");
             case DEATHS -> stat(stats, "minecraft:custom", "minecraft:deaths");
             case TRADES -> stat(stats, "minecraft:custom", "minecraft:traded_with_villager");
             case PLAY_TIME -> stat(stats, "minecraft:custom", "minecraft:play_time");
             case ELYTRA_DISTANCE -> stat(stats, "minecraft:custom", "minecraft:aviate_one_cm");
             case FISHING -> stat(stats, "minecraft:custom", "minecraft:fish_caught");
             case DAMAGE_TAKEN -> stat(stats, "minecraft:custom", "minecraft:damage_taken");
+            case DAMAGE_DEALT -> stat(stats, "minecraft:custom", "minecraft:damage_dealt");
             case DROPPED -> sum(stats, "minecraft:dropped");
             case PICKED_UP -> sum(stats, "minecraft:picked_up");
             case CRAFTED -> sum(stats, "minecraft:crafted");

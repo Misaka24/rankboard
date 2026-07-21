@@ -25,13 +25,14 @@ final class RankBoardConfig {
     private static final String WEB_FILE = "rankboard-web.properties";
     private static final String READ_LEGACY_CONFIG = "read-legacy-config";
     private static final List<Option> OPTIONS = List.of(
-            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每秒检查的玩家统计文件数；默认 50，范围 1-1000，修改后下次缓存重载生效。"),
+            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每个扫描线程每秒检查的玩家统计文件数；默认 50，范围 1-1000；总上限为该值乘以实际扫描线程数。"),
+            option("history-scan-threads", "0", FileKind.MAIN, "历史统计", "历史统计扫描线程数；默认 0 自动使用最多 50% 可用处理器，手动值同样不会超过 50%。"),
             option("welcome-enabled", "true", FileKind.MAIN, "进服提示", "是否发送“欢迎来到”提示；默认 true。"),
             option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
-            option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
+            option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("restore-scoreboard-on-join", "true", FileKind.MAIN, "客户端计分板", "玩家进服时是否恢复上一次选择的计分板；默认 true。"),
             option("look-up-sneak-menu-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许抬头并按住 Shift 打开排行榜菜单；默认 true。"),
             option("carousel-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许玩家使用榜单轮播；默认 true。"),
@@ -47,12 +48,14 @@ final class RankBoardConfig {
             option("metric-label-mined", "挖掘榜", FileKind.MAIN, "榜单名称", "挖掘榜在游戏和网页结果中显示的名称。"),
             option("metric-label-placed", "放置榜", FileKind.MAIN, "榜单名称", "放置榜在游戏和网页结果中显示的名称。"),
             option("metric-label-kills", "击杀榜", FileKind.MAIN, "榜单名称", "击杀榜在游戏和网页结果中显示的名称。"),
+            option("metric-label-pvp", "PvP榜", FileKind.MAIN, "榜单名称", "击杀其他玩家数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-deaths", "死亡榜", FileKind.MAIN, "榜单名称", "死亡榜在游戏和网页结果中显示的名称。"),
             option("metric-label-trades", "交易榜", FileKind.MAIN, "榜单名称", "交易榜在游戏和网页结果中显示的名称。"),
             option("metric-label-playtime", "在线榜", FileKind.MAIN, "榜单名称", "在线榜在游戏和网页结果中显示的名称。"),
             option("metric-label-elytra", "飞行榜", FileKind.MAIN, "榜单名称", "飞行榜在游戏和网页结果中显示的名称。"),
             option("metric-label-fishing", "钓鱼榜", FileKind.MAIN, "榜单名称", "钓鱼榜在游戏和网页结果中显示的名称。"),
             option("metric-label-damage", "受伤榜", FileKind.MAIN, "榜单名称", "受伤榜在游戏和网页结果中显示的名称。"),
+            option("metric-label-dealt", "输出榜", FileKind.MAIN, "榜单名称", "累计造成伤害榜在游戏和网页结果中显示的名称。"),
             option("metric-label-dropped", "丢垃圾榜", FileKind.MAIN, "榜单名称", "丢弃物品数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-picked", "拾荒榜", FileKind.MAIN, "榜单名称", "捡起物品数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-crafted", "合成榜", FileKind.MAIN, "榜单名称", "合成物品数量榜在游戏和网页结果中显示的名称。"),
@@ -62,12 +65,14 @@ final class RankBoardConfig {
             option("metric-color-mined", "#5555FF", FileKind.MAIN, "榜单颜色", "挖掘榜颜色；默认蓝色，格式 #RRGGBB。"),
             option("metric-color-placed", "#00AAAA", FileKind.MAIN, "榜单颜色", "放置榜颜色；默认深青色，格式 #RRGGBB。"),
             option("metric-color-kills", "#FF5555", FileKind.MAIN, "榜单颜色", "击杀榜颜色；格式 #RRGGBB。"),
+            option("metric-color-pvp", "#AA0000", FileKind.MAIN, "榜单颜色", "PvP榜颜色；默认深红色，格式 #RRGGBB。"),
             option("metric-color-deaths", "#AA0000", FileKind.MAIN, "榜单颜色", "死亡榜颜色；格式 #RRGGBB。"),
             option("metric-color-trades", "#55FF55", FileKind.MAIN, "榜单颜色", "交易榜颜色；默认绿色，格式 #RRGGBB。"),
             option("metric-color-playtime", "#55FFFF", FileKind.MAIN, "榜单颜色", "在线榜颜色；默认青色，格式 #RRGGBB。"),
             option("metric-color-elytra", "#FF55FF", FileKind.MAIN, "榜单颜色", "飞行榜颜色；格式 #RRGGBB。"),
             option("metric-color-fishing", "#0000AA", FileKind.MAIN, "榜单颜色", "钓鱼榜颜色；默认深蓝色，格式 #RRGGBB。"),
             option("metric-color-damage", "#FF5555", FileKind.MAIN, "榜单颜色", "受伤榜颜色；默认红色，格式 #RRGGBB。"),
+            option("metric-color-dealt", "#FFAA00", FileKind.MAIN, "榜单颜色", "伤害输出榜颜色；默认金色，格式 #RRGGBB。"),
             option("metric-color-dropped", "#555555", FileKind.MAIN, "榜单颜色", "丢垃圾榜颜色；格式 #RRGGBB。"),
             option("metric-color-picked", "#55FF55", FileKind.MAIN, "榜单颜色", "拾荒榜颜色；格式 #RRGGBB。"),
             option("metric-color-crafted", "#FFAA00", FileKind.MAIN, "榜单颜色", "合成榜颜色；格式 #RRGGBB。"),
@@ -79,6 +84,7 @@ final class RankBoardConfig {
             option("scoreboard-live-update-throttle-seconds", "30", FileKind.MAIN, "客户端计分板", "高频榜单的最短刷新间隔秒数；默认 30，范围 1-3600。"),
             option("foreign-scoreboard-blocking-mode", "ask", FileKind.MAIN, "客户端计分板", "其他模组计分板屏蔽模式；默认 ask 不自动屏蔽并提示 OP 选择，可选 ask、enabled、disabled。"),
             option("mod-whitelist-enabled", "false", FileKind.MAIN, "玩家筛选", "是否只读取 config/rankboard/rankboard-whitelist.json 中的玩家；默认 false，保留原有服务器白名单逻辑。"),
+            option("scoreboard-recipient-filter", "fake-only", FileKind.MAIN, "客户端计分板", "个人榜单数据接收过滤；fake-only 不发送给假人，false 不过滤，whitelist 仅名单内接收，blacklist 仅名单外接收。"),
             option("help-visibility", "all", FileKind.MAIN, "权限与帮助", "帮助可见范围；默认 all，可选 all、op、hidden。"),
             option("avatar-cache-enabled", "true", FileKind.MAIN, "玩家头像缓存", "是否缓存进服玩家的皮肤头像；默认 true。"),
             option("avatar-cache-days", "7", FileKind.MAIN, "玩家头像缓存", "头像缓存有效天数；默认 7，范围 1-365。"),
@@ -88,24 +94,14 @@ final class RankBoardConfig {
             option("web-icon-request-interval-seconds", "3", FileKind.WEB, "请求限流", "图片基础请求间隔秒数；默认 3。30 秒内超过 6 次后，固定 30 分钟改为每 15 秒 1 次。"),
             option("web-ranking-refresh-interval-seconds", "30", FileKind.WEB, "网页数据", "网页排行榜数据快照刷新间隔秒数；默认 30，范围 1-3600。"),
             option("server-name", "auto", FileKind.WEB, "网页显示", "网页显示的服务器名称；默认 auto，自动读取服务器 MOTD。"),
-            option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标路径；默认 server-icon.png，优先读取 config/rankboard/，其次读取服务端根目录。"),
-            option("web-theme-follow-icon", "true", FileKind.WEB, "网页主题", "true 从网站图标提取网页配色；false 使用默认蓝色系；默认 true。"),
-            option("web-theme-base", "auto", FileKind.WEB, "网页主题", "主题基础色；图标取色模式会自动写入检测到的 #RRGGBB，也可手动设置。"),
-            option("web-theme-background", "auto", FileKind.WEB, "网页主题", "网页背景颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-surface", "auto", FileKind.WEB, "网页主题", "面板和卡片颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-primary", "auto", FileKind.WEB, "网页主题", "按钮、选中项和主要数值颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-secondary", "auto", FileKind.WEB, "网页主题", "排名、状态和辅助强调颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-text", "auto", FileKind.WEB, "网页主题", "主要文字颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-muted", "auto", FileKind.WEB, "网页主题", "说明、时间和 UUID 等次要文字颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-border", "auto", FileKind.WEB, "网页主题", "边框和分隔线颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-success", "auto", FileKind.WEB, "网页主题", "在线状态颜色；auto 自动生成，或填写 #RRGGBB。"),
-            option("web-theme-danger", "auto", FileKind.WEB, "网页主题", "错误和警告颜色；auto 自动生成，或填写 #RRGGBB。")
+            option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标文件名；只能使用 config/rankboard/ 目录内的文件，默认 server-icon.png。")
     );
     private static volatile RankBoardConfig current = defaults();
     private static volatile Properties mainProperties = defaultsFor(FileKind.MAIN);
     private static volatile Properties webProperties = defaultsFor(FileKind.WEB);
 
     final int historyFilesPerSecond;
+    final int historyScanThreads;
     final boolean welcomeEnabled;
     final boolean joinMenuEnabled;
     final boolean restoreBoardOnJoin;
@@ -124,6 +120,7 @@ final class RankBoardConfig {
     final int scoreboardLiveUpdateThrottleSeconds;
     final ForeignScoreboardPolicy foreignScoreboardPolicy;
     final boolean modWhitelistEnabled;
+    final RecipientFilter recipientFilter;
     final boolean joinWebHintEnabled;
     final boolean websiteButtonEnabled;
     final boolean avatarCacheEnabled;
@@ -134,6 +131,7 @@ final class RankBoardConfig {
 
     private RankBoardConfig(Properties properties) {
         historyFilesPerSecond = integer(properties, "history-files-per-second", 50, 1, 1000);
+        historyScanThreads = integer(properties, "history-scan-threads", 0, 0, 256);
         welcomeEnabled = bool(properties, "welcome-enabled", true);
         joinMenuEnabled = bool(properties, "join-menu-enabled", true);
         restoreBoardOnJoin = bool(properties, "restore-scoreboard-on-join", true);
@@ -152,6 +150,7 @@ final class RankBoardConfig {
         scoreboardLiveUpdateThrottleSeconds = integer(properties, "scoreboard-live-update-throttle-seconds", 30, 1, 3600);
         foreignScoreboardPolicy = ForeignScoreboardPolicy.parse(properties.getProperty("foreign-scoreboard-blocking-mode", "ask"));
         modWhitelistEnabled = bool(properties, "mod-whitelist-enabled", false);
+        recipientFilter = RecipientFilter.parse(properties.getProperty("scoreboard-recipient-filter", "fake-only"));
         joinWebHintEnabled = bool(properties, "join-web-hint-enabled", false);
         websiteButtonEnabled = bool(properties, "website-button-enabled", true);
         avatarCacheEnabled = bool(properties, "avatar-cache-enabled", true);
@@ -386,11 +385,9 @@ final class RankBoardConfig {
         String value = rawValue.strip();
         if (option.key.startsWith("metric-color-")) return normalizedColor(value);
         if (option.key.startsWith("metric-label-")) return normalizedLabel(value);
-        if (option.key.startsWith("web-theme-") && !option.key.equals("web-theme-follow-icon")) {
-            return value.equalsIgnoreCase("auto") ? "auto" : normalizedColor(value);
-        }
         return switch (option.key) {
             case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
+            case "history-scan-threads" -> normalizedInteger(value, 0, 256);
             case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);
             case "avatar-cache-days" -> normalizedInteger(value, 1, 365);
             case "port" -> normalizedInteger(value, 1, 65535);
@@ -400,12 +397,10 @@ final class RankBoardConfig {
             case "scoreboard-live-update-threshold" -> normalizedInteger(value, 1, 100000);
             case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);
             case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled", "website-button-enabled",
-                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled",
-                    "carousel-color-follow-metric",
+                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled", "carousel-color-follow-metric",
                     "client-scoreboard-show-zero", "scoreboard-switch-message-enabled",
                     "scoreboard-title-color-enabled",
-                    "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled",
-                    "web-theme-follow-icon" -> normalizedBoolean(value);
+                    "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled" -> normalizedBoolean(value);
             case "help-visibility" -> switch (value.toLowerCase(Locale.ROOT)) {
                 case "all" -> "all";
                 case "op", "ops" -> "op";
@@ -419,6 +414,7 @@ final class RankBoardConfig {
                 default -> throw new IllegalArgumentException("可用值：ask、enabled、disabled");
             };
             case "scoreboard-name-color-enabled" -> NameColorMode.parse(value).serialized;
+            case "scoreboard-recipient-filter" -> RecipientFilter.parse(value).serialized;
             case "player-name-color-render-mode" -> NameColorRenderMode.parse(value).serialized;
             case "host", "website-icon" -> {
                 if (value.isEmpty()) throw new IllegalArgumentException(option.key + " 不能为空");
@@ -546,6 +542,23 @@ final class RankBoardConfig {
                 case "op", "ops" -> OP;
                 case "hidden", "off", "none" -> HIDDEN;
                 default -> ALL;
+            };
+        }
+    }
+
+    enum RecipientFilter {
+        FAKE_ONLY("fake-only"), DISABLED("false"), WHITELIST("whitelist"), BLACKLIST("blacklist");
+
+        final String serialized;
+        RecipientFilter(String serialized) { this.serialized = serialized; }
+
+        static RecipientFilter parse(String value) {
+            return switch (value.strip().toLowerCase(Locale.ROOT)) {
+                case "fake-only", "fake", "bots" -> FAKE_ONLY;
+                case "false", "off", "disabled", "none" -> DISABLED;
+                case "whitelist", "allowlist" -> WHITELIST;
+                case "blacklist", "denylist" -> BLACKLIST;
+                default -> throw new IllegalArgumentException("可用值：fake-only、false、whitelist、blacklist");
             };
         }
     }
