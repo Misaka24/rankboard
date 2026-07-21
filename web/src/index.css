@@ -3,6 +3,15 @@
   background: #d7edff;
   font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
   letter-spacing: 0;
+  --theme-background: #b9e1ff;
+  --theme-surface: #f6fcff;
+  --theme-primary: #159ce5;
+  --theme-secondary: #8b63a7;
+  --theme-text: #173868;
+  --theme-muted: #6685ac;
+  --theme-border: #91c7e8;
+  --theme-success: #18a96d;
+  --theme-danger: #c94e73;
 }
 
 * { box-sizing: border-box; }
@@ -11,7 +20,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background: #b9e1ff url("/server-theme.jpg") center / cover fixed;
+  background: var(--theme-background);
 }
 
 button, input { font: inherit; }
@@ -44,9 +53,10 @@ button { cursor: pointer; }
 
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand img { width: 42px; height: 42px; object-fit: cover; border: 1px solid #53bffa; border-radius: 6px; image-rendering: pixelated; }
+.brand-icon-placeholder { display: grid; width: 42px; height: 42px; place-items: center; flex: none; color: #fff; border: 1px solid var(--theme-primary); border-radius: 6px; background: var(--theme-primary); font-size: 12px; font-weight: 800; }
 .brand-title { margin: 0; color: #12366e; font-size: 22px; font-weight: 800; line-height: 1; }
-.brand span { display: block; margin-top: 5px; color: #5d7aa5; font-size: 12px; }
 .top-status { display: flex; align-items: center; gap: 8px; color: #5575a2; font-size: 13px; }
+.top-status strong { margin-right: 10px; color: var(--theme-text); font-size: 14px; }
 .signal { width: 8px; height: 8px; border-radius: 50%; background: #b483d0; box-shadow: 0 0 12px rgba(180, 131, 208, 0.58); }
 .signal.online { background: #18a9ed; box-shadow: 0 0 12px rgba(24, 169, 237, 0.68); }
 
@@ -55,7 +65,10 @@ button { cursor: pointer; }
 .sidebar > section:last-of-type { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .section-label, .eyebrow { margin: 0 0 10px; color: #5374a1; font-size: 12px; font-weight: 700; }
 .period-list, .metric-list { display: grid; gap: 6px; }
-.metric-list { overflow-y: auto; scrollbar-color: rgba(69, 169, 238, 0.38) transparent; scrollbar-width: thin; }
+.metric-list { overflow-y: auto; scrollbar-color: color-mix(in srgb, var(--theme-primary) 48%, transparent) transparent; scrollbar-width: thin; }
+.metric-list::-webkit-scrollbar { width: 7px; }
+.metric-list::-webkit-scrollbar-thumb { border-radius: 4px; background: color-mix(in srgb, var(--theme-primary) 48%, transparent); }
+.metric-list::-webkit-scrollbar-track { background: transparent; }
 .period-list button, .metric-list button { display: flex; align-items: center; justify-content: space-between; min-height: 37px; padding: 8px 10px; color: #34527c; text-align: left; border: 1px solid transparent; border-radius: 5px; background: transparent; }
 .period-list button:hover, .metric-list button:hover { background: rgba(69, 169, 238, 0.14); }
 .period-list button.selected, .metric-list button.selected { color: #fff; border-color: rgba(54, 153, 226, 0.82); background: #159ce5; box-shadow: inset 0 -2px 0 #087cc3; }
@@ -103,6 +116,33 @@ button { cursor: pointer; }
 .player-info p { display: flex; flex-wrap: wrap; gap: 3px 8px; margin: 5px 0 0; color: #6685ac; font-size: 12px; }
 .player-info code { color: inherit; font: inherit; overflow-wrap: anywhere; }
 .player-value { color: #087fca; font-size: 19px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Theme tokens are populated from the server icon or web-theme.properties. */
+body { color: var(--theme-text); }
+.app-shell { background: color-mix(in srgb, var(--theme-background) 72%, white 28%); }
+.glass { border-color: color-mix(in srgb, var(--theme-border) 70%, white 30%); background: color-mix(in srgb, var(--theme-surface) 74%, transparent); box-shadow: 0 12px 28px color-mix(in srgb, var(--theme-primary) 18%, transparent), inset 0 1px color-mix(in srgb, white 72%, transparent); }
+.brand-title, .title-row h1, .player-info h2 { color: var(--theme-text); }
+.section-label, .eyebrow, .top-status, .search-field, .total-block span, .last-online, .player-info p, .metric-list small { color: var(--theme-muted); }
+.brand img { border-color: var(--theme-primary); }
+.signal { background: var(--theme-secondary); box-shadow: 0 0 12px color-mix(in srgb, var(--theme-secondary) 58%, transparent); }
+.signal.online, .last-online.online { color: var(--theme-success); background: var(--theme-success); }
+.period-list button, .metric-list button { color: var(--theme-text); }
+.period-list button:hover, .metric-list button:hover { background: color-mix(in srgb, var(--theme-primary) 14%, transparent); }
+.period-list button.selected, .metric-list button.selected { background: var(--theme-primary); border-color: var(--theme-primary); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--theme-primary) 72%, black 28%); }
+.online-toggle { color: var(--theme-muted); border-color: color-mix(in srgb, var(--theme-border) 45%, transparent); }
+.online-toggle input { accent-color: var(--theme-primary); }
+.mod-links { border-color: color-mix(in srgb, var(--theme-border) 45%, transparent); }
+.mod-links a { color: var(--theme-text); }
+.mod-links a:hover { color: var(--theme-primary); background: color-mix(in srgb, var(--theme-surface) 62%, transparent); }
+.toolbar, .date-range, .notice, .ranking-card { border-color: color-mix(in srgb, var(--theme-border) 52%, transparent); }
+.search-field input, .date-range input { color: var(--theme-text); border-color: color-mix(in srgb, var(--theme-border) 70%, transparent); background: color-mix(in srgb, var(--theme-surface) 72%, transparent); }
+.search-field input:focus { border-color: var(--theme-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 16%, transparent); }
+.total-block strong, .player-value { color: var(--theme-primary); }
+.title-row { border-color: color-mix(in srgb, var(--theme-border) 55%, transparent); }
+.sync-note, .rank-number { color: var(--theme-secondary); }
+.ranking-card:hover { background: color-mix(in srgb, var(--theme-surface) 86%, transparent); }
+.avatar { border-color: color-mix(in srgb, var(--theme-primary) 38%, transparent); background: color-mix(in srgb, var(--theme-primary) 55%, white 45%); }
+.avatar-fallback { background: var(--theme-primary); }
 
 @media (max-width: 800px) {
   .app-shell { padding: 12px 12px 30px; }

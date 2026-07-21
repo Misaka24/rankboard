@@ -23,14 +23,27 @@ final class RankBoardColors {
         return nearestLegacy(rgb(metric));
     }
 
+    static Formatting legacy(RankBoardMod.Metric metric, boolean carousel) {
+        return carousel && !RankBoardConfig.get().carouselColorFollowMetric ? Formatting.AQUA : legacy(metric);
+    }
+
     static int renderedRgb(RankBoardMod.Metric metric) {
         if (RankBoardConfig.get().nameColorRenderMode == RankBoardConfig.NameColorRenderMode.RGB) return rgb(metric);
         Integer value = legacy(metric).getColorValue();
         return value == null ? 0xFFFFFF : value;
     }
 
+    static int renderedRgb(RankBoardMod.Metric metric, boolean carousel) {
+        if (carousel && !RankBoardConfig.get().carouselColorFollowMetric) return 0x55FFFF;
+        return renderedRgb(metric);
+    }
+
     static MutableText text(String value, RankBoardMod.Metric metric) {
         return Text.literal(value).styled(style -> style.withColor(renderedRgb(metric)));
+    }
+
+    static MutableText text(String value, RankBoardMod.Metric metric, boolean carousel) {
+        return Text.literal(value).styled(style -> style.withColor(renderedRgb(metric, carousel)));
     }
 
     static Formatting nearestLegacy(int rgb) {

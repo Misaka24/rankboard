@@ -7,7 +7,14 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.saveddata.SavedData;
+
+import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -21,7 +28,8 @@ import java.util.UUID;
 
 /** Stores raw-stat baselines, allowing period ranks without modifying vanilla statistics. */
 public final class LeaderboardState extends SavedData {
-    private static final String STATE_ID = "rankboard_leaderboard";
+    private static final String LEGACY_STATE_ID = "rankboard_leaderboard";
+    private static final String STATE_ID = "rankboard/" + LEGACY_STATE_ID;
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
     private boolean whitelistOnly = true;
     private boolean botFilterEnabled = true;
@@ -36,7 +44,31 @@ public final class LeaderboardState extends SavedData {
     LeaderboardState() { }
 
     public static LeaderboardState get(MinecraftServer server) {
+        prepareStorage(server);
         return PersistentStateCompat.get(server, STATE_ID);
+    }
+
+    private static synchronized void prepareStorage(MinecraftServer server) {
+        Path dataDirectory = server.getWorldPath(LevelResource.ROOT).resolve("data");
+        Path rankBoardDirectory = dataDirectory.resolve("rankboard");
+        Path legacy = dataDirectory.resolve(LEGACY_STATE_ID + ".dat");
+        Path target = rankBoardDirectory.resolve(LEGACY_STATE_ID + ".dat");
+        try {
+            Files.createDirectories(rankBoardDirectory);
+            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) return;
+            Path temporary = target.resolveSibling(target.getFileName() + ".migrating");
+            Files.copy(legacy, temporary, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.delete(legacy);
+            RankBoardMod.LOGGER.info("Migrated RankBoard world data from {} to {}", legacy, target);
+        } catch (IOException exception) {
+            RankBoardMod.LOGGER.warn("Could not migrate RankBoard world data from {} to {}; the legacy file was kept",
+                    legacy, target, exception);
+        }
     }
     static LeaderboardState fromNbt(CompoundTag nbt, HolderLookup.Provider lookup) {
         LeaderboardState state = new LeaderboardState();

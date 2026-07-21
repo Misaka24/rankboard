@@ -298,7 +298,10 @@ final class BoardService {
     }
 
     private static void sendPrivate(ServerPlayerEntity player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
-        ScoreboardObjective objective = syncObjective(PlayerCompat.server(player), period, metric, true);
+        LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
+                .boardPreference(player.getUuid());
+        boolean carousel = preference != null && preference.carousel();
+        ScoreboardObjective objective = syncObjective(PlayerCompat.server(player), period, metric, true, carousel);
         sendPackets(player, objective, RankBoardMod.entries(PlayerCompat.server(player), period, metric), metric);
     }
 
@@ -371,7 +374,10 @@ final class BoardService {
             Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUuid());
             if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
                     && entryPlayer != null && entrySelection != null) {
-                displayName = Optional.of(RankBoardColors.text(entry.name(), entrySelection.metric));
+                LeaderboardState.BoardPreference entryPreference = LeaderboardState.get(PlayerCompat.server(player))
+                        .boardPreference(entryPlayer.getUuid());
+                boolean entryCarousel = entryPreference != null && entryPreference.carousel();
+                displayName = Optional.of(RankBoardColors.text(entry.name(), entrySelection.metric, entryCarousel));
             }
             player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
                     entry.name(), objective.getName(), value, displayName, scoreboardFormat(metric, value)));
@@ -488,13 +494,18 @@ final class BoardService {
 
     private static ScoreboardObjective syncObjective(MinecraftServer server, RankBoardMod.Period period,
                                                      RankBoardMod.Metric metric, boolean personal) {
+        return syncObjective(server, period, metric, personal, false);
+    }
+
+    private static ScoreboardObjective syncObjective(MinecraftServer server, RankBoardMod.Period period,
+                                                     RankBoardMod.Metric metric, boolean personal, boolean carousel) {
         String name = objectiveName(period, metric, personal);
         Scoreboard scoreboard = server.getScoreboard();
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
         String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
         Text title = Text.literal(period.label + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
-            title = title.copy().styled(style -> style.withColor(RankBoardColors.renderedRgb(metric)));
+            title = title.copy().styled(style -> style.withColor(RankBoardColors.renderedRgb(metric, carousel)));
         }
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
