@@ -152,8 +152,9 @@ final class BoardService {
         LeaderboardState state = LeaderboardState.get(server);
         LeaderboardState.BoardPreference preference = state.globalBoardPreference();
         if (preference == null || !preference.enabled() || !state.isMetricDisplayEnabled(preference.metric())) return;
-        globalSelection = new Selection(preference.period(), preference.metric());
-        ScoreboardObjective objective = syncObjective(server, globalSelection.period, globalSelection.metric, false);
+        Selection restored = new Selection(preference.period(), preference.metric());
+        ScoreboardObjective objective = syncObjective(server, restored.period, restored.metric, false);
+        globalSelection = restored;
         server.getScoreboard().setObjectiveSlot(ScoreboardDisplaySlot.SIDEBAR, objective);
     }
 
@@ -323,10 +324,12 @@ final class BoardService {
 
     private static void sendOverview(ServerPlayerEntity player, RankBoardMod.Period period) {
         MinecraftServer server = PlayerCompat.server(player);
+        LeaderboardState state = LeaderboardState.get(server);
         Scoreboard scoreboard = server.getScoreboard();
         String name = "rbo_" + period.command;
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
-        Text title = Text.literal(period.label + " 我的总览");
+        boolean partialPeriod = period != RankBoardMod.Period.ALL && !state.isPeriodComplete(period);
+        Text title = Text.literal(period.label + (partialPeriod ? "（部分）" : "") + " 我的总览");
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
                     ScoreboardCriterion.RenderType.INTEGER, false, null);
@@ -338,12 +341,12 @@ final class BoardService {
         player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(
                 objective, ScoreboardObjectiveUpdateS2CPacket.ADD_MODE));
         CLIENT_OBJECTIVES.put(player.getUuid(), name);
-        LeaderboardState state = LeaderboardState.get(server);
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);
-            long value = period == RankBoardMod.Period.ALL
-                    ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUuid(), metric));
+            java.util.OptionalLong delta = state.periodDelta(period, player.getUuid(), metric, raw);
+            if (delta.isEmpty()) continue;
+            long value = delta.getAsLong();
             if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
             int score = scoreboardValue(metric, value);
             player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
@@ -503,7 +506,10 @@ final class BoardService {
         Scoreboard scoreboard = server.getScoreboard();
         ScoreboardObjective objective = scoreboard.getNullableObjective(name);
         String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
-        Text title = Text.literal(period.label + " " + metric.label() + unit);
+        boolean partialPeriod = period != RankBoardMod.Period.ALL
+                && !LeaderboardState.get(server).isPeriodComplete(period, metric);
+        Text title = Text.literal(period.label + (partialPeriod ? "（部分）" : "")
+                + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
             title = title.copy().styled(style -> style.withColor(RankBoardColors.renderedRgb(metric, carousel)));
         }

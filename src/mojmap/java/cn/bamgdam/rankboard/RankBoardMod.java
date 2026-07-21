@@ -70,7 +70,6 @@ public final class RankBoardMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             RankBoardConfig.load(server);
             RankBoardWhitelist.load(server);
-            BoardService.restoreGlobal(server);
             BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.startWarmup(server);
             WebDashboard.start(server);
@@ -90,6 +89,7 @@ public final class RankBoardMod implements ModInitializer {
             sendJoinExperience(player);
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            StatReader.capturePlayer(server, handler.getPlayer());
             StatReader.reloadPlayer(server, handler.getPlayer().getUUID());
             LOOK_MENU_HELD.remove(handler.getPlayer().getUUID());
             BoardService.disconnect(handler.getPlayer());
@@ -128,11 +128,11 @@ public final class RankBoardMod implements ModInitializer {
                         .then(Commands.literal("web").executes(context -> helpGrouped(context.getSource(), "admin-web")))
                         .then(Commands.literal("config").executes(context -> helpGrouped(context.getSource(), "admin-config")))));
         root.then(Commands.literal("mine")
-                .executes(context -> showMyScores(context.getSource(), -1, "总计"))
-                .then(Commands.literal("all").executes(context -> showMyScores(context.getSource(), -1, "总计")))
-                .then(Commands.literal("day").executes(context -> showMyScores(context.getSource(), 1, "最近一日")))
-                .then(Commands.literal("week").executes(context -> showMyScores(context.getSource(), 7, "最近一周")))
-                .then(Commands.literal("month").executes(context -> showMyScores(context.getSource(), 30, "最近一月"))));
+                .executes(context -> showMyScores(context.getSource(), Period.ALL))
+                .then(Commands.literal("all").executes(context -> showMyScores(context.getSource(), Period.ALL)))
+                .then(Commands.literal("day").executes(context -> showMyScores(context.getSource(), Period.DAILY)))
+                .then(Commands.literal("week").executes(context -> showMyScores(context.getSource(), Period.WEEKLY)))
+                .then(Commands.literal("month").executes(context -> showMyScores(context.getSource(), Period.MONTHLY))));
         root.then(Commands.literal("carousel")
                 .then(Commands.literal("true").executes(context -> BoardService.setCarousel(context.getSource(), true)))
                 .then(Commands.literal("false").executes(context -> BoardService.setCarousel(context.getSource(), false)))
@@ -506,7 +506,7 @@ public final class RankBoardMod implements ModInitializer {
                 + "计分板标题颜色：scoreboard-title-color-enabled，默认 true，独立于玩家名字颜色。\n"
                 + "模组白名单：config/rankboard/rankboard-whitelist.json；由 mod-whitelist-enabled 控制，默认关闭。\n"
                 + "周期：daily 每日，weekly 每周，monthly 每月，yearly 每年，all 总计\n"
-                + "榜单：food 食物，jumps 跳跃，mined 挖掘，placed 放置，kills 击杀，deaths 死亡，"
+                + "榜单：food 食物，jumps 跳跃，mined 挖掘，placed 放置，kills 击杀，pvp 玩家击杀，deaths 死亡，"
                 + "trades 交易，playtime 在线，elytra 鞘翅，fishing 钓鱼，damage 受伤";
         source.sendSuccess(() -> Component.literal(help).withStyle(ChatFormatting.GRAY), false);
         if (op) {
@@ -600,11 +600,12 @@ public final class RankBoardMod implements ModInitializer {
             source.sendSuccess(() -> finalSecondRow, false);
         }
 
+        List<Metric> menuMetrics = orderedMenuMetrics();
         int visible = 0;
-        visible += sendMetricMenuRow(source, Metric.ELYTRA_DISTANCE, Metric.JUMPS, Metric.MINED, Metric.PLACED);
-        visible += sendMetricMenuRow(source, Metric.FISHING, Metric.CRAFTED, Metric.TRADES, Metric.PLAY_TIME);
-        visible += sendMetricMenuRow(source, Metric.KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN, Metric.PICKED_UP);
-        visible += sendMetricMenuRow(source, Metric.FOOD, Metric.DROPPED, Metric.REDSTONE_PLACED);
+        for (int start = 0; start < menuMetrics.size(); start += 4) {
+            visible += sendMetricMenuRow(source, menuMetrics.subList(
+                    start, Math.min(start + 4, menuMetrics.size())).toArray(Metric[]::new));
+        }
         if (visible == 0) {
             source.sendSuccess(() -> Component.literal("所有榜单显示均已被 OP 禁用。\n").withStyle(ChatFormatting.GRAY), false);
         }
@@ -614,7 +615,20 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
 
-    private int sendMetricMenuRow(CommandSourceStack source, RankBoardMod.Metric... metrics) {
+    private static List<Metric> orderedMenuMetrics() {
+        List<Metric> ordered = new java.util.ArrayList<>(List.of(
+                Metric.ELYTRA_DISTANCE, Metric.JUMPS, Metric.MINED, Metric.PLACED,
+                Metric.FISHING, Metric.CRAFTED, Metric.TRADES, Metric.PLAY_TIME,
+                Metric.KILLS, Metric.PVP_KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN,
+                Metric.DAMAGE_DEALT, Metric.PICKED_UP, Metric.FOOD, Metric.DROPPED,
+                Metric.REDSTONE_PLACED));
+        for (Metric metric : Metric.values()) {
+            if (!ordered.contains(metric)) ordered.add(metric);
+        }
+        return List.copyOf(ordered);
+    }
+
+    private int sendMetricMenuRow(CommandSourceStack source, Metric... metrics) {
         Component line = Component.empty();
         int visible = 0;
         for (Metric metric : metrics) {
@@ -633,29 +647,37 @@ public final class RankBoardMod implements ModInitializer {
         return visible;
     }
 
-    private int showMyScores(CommandSourceStack source, int days, String label) {
+    private int showMyScores(CommandSourceStack source, Period period) {
         try {
             ServerPlayer player = source.getPlayerOrException();
-            BoardService.enableOverview(source, days < 0 ? Period.ALL : (days <= 1 ? Period.DAILY : (days <= 7 ? Period.WEEKLY : Period.MONTHLY)));
             LeaderboardState state = LeaderboardState.get(source.getServer());
+            state.rollPeriods(source.getServer());
+            BoardService.enableOverview(source, period);
+            String label = period == Period.ALL ? "总计" : period.label;
             source.sendSuccess(() -> Component.literal("=== 我的分数 · " + label + " ===").withStyle(ChatFormatting.GOLD), false);
-            LocalDate today = LocalDate.now();
+            if (period != Period.ALL && !state.isPeriodComplete(period)) {
+                source.sendSuccess(() -> Component.literal("当前周期从首个可信基线开始，部分指标可能暂不可用。")
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
             for (Metric metric : Metric.values()) {
-                long value;
-                if (days < 0) value = metric.read(player);
-                else value = state.range(source.getServer(), today.minusDays(days - 1L), today, metric)
-                        .values().getOrDefault(player.getUUID(), 0L);
-                long score = value;
+                java.util.OptionalLong delta = state.periodDelta(
+                        period, player.getUUID(), metric, metric.read(player));
+                if (delta.isEmpty()) {
+                    source.sendSuccess(() -> RankBoardColors.text(metric.label() + "  ", metric)
+                            .append(Component.literal("暂无可信基线").withStyle(ChatFormatting.GRAY)), false);
+                    continue;
+                }
+                long score = delta.getAsLong();
                 source.sendSuccess(() -> RankBoardColors.text(metric.label() + "  ", metric)
                         .append(Component.literal(format(metric, score)).withStyle(ChatFormatting.AQUA)), false);
             }
             Component periods = clickable("[总计]", ChatFormatting.GOLD, "/leaderboard mine all", "查看累计分数")
                     .copy().append(Component.literal(" "))
-                    .append(clickable("[最近一日]", ChatFormatting.YELLOW, "/leaderboard mine day", "查看最近一日分数"))
+                    .append(clickable("[本日]", ChatFormatting.YELLOW, "/leaderboard mine day", "查看本日分数"))
                     .append(Component.literal(" "))
-                    .append(clickable("[最近一周]", ChatFormatting.AQUA, "/leaderboard mine week", "查看最近一周分数"))
+                    .append(clickable("[本周]", ChatFormatting.AQUA, "/leaderboard mine week", "查看本周分数"))
                     .append(Component.literal(" "))
-                    .append(clickable("[最近一月]", ChatFormatting.LIGHT_PURPLE, "/leaderboard mine month", "查看最近一月分数"));
+                    .append(clickable("[本月]", ChatFormatting.LIGHT_PURPLE, "/leaderboard mine month", "查看本月分数"));
             source.sendSuccess(() -> periods, false);
             return 1;
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
@@ -666,7 +688,6 @@ public final class RankBoardMod implements ModInitializer {
             return 0;
         }
     }
-
     private int listConfig(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal("=== RankBoard 配置 ===").withStyle(ChatFormatting.GOLD), false);
         for (String key : RankBoardConfig.optionKeys()) {
@@ -1171,6 +1192,12 @@ public final class RankBoardMod implements ModInitializer {
                 source.sendSuccess(() -> Component.literal("历史统计仍在加载（" + StatReader.progress()
                         + "），当前榜单可能不完整。").withStyle(ChatFormatting.GRAY), false);
             }
+            if (StatReader.isReady() && period != Period.ALL
+                    && !LeaderboardState.get(source.getServer()).isPeriodComplete(period, metric)) {
+                source.sendSuccess(() -> Component.literal(period.label
+                        + "统计为部分周期：从服务器本周期内首次建立可信基线时开始。")
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
             List<Entry> entries = entries(source.getServer(), period, metric);
             source.sendSuccess(() -> RankBoardColors.text("=== " + period.label + " " + metric.label() + " ===", metric), false);
             if (entries.isEmpty()) {
@@ -1198,11 +1225,18 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+        if (!StatReader.isReady()) throw new IllegalStateException("统计文件尚未完成权威扫描（" + StatReader.progress() + "）");
         LeaderboardState state = LeaderboardState.get(server);
         state.rollPeriods(server);
         return StatReader.readAll(server, metric).stream()
                 .filter(snapshot -> isIncluded(server, state, snapshot.uuid(), snapshot.name()))
-                .map(snapshot -> new Entry(snapshot.name(), Math.max(0, snapshot.value(metric) - (period == Period.ALL ? 0 : state.getBaseline(period, snapshot.uuid(), metric)))))
+                .flatMap(snapshot -> {
+                    java.util.OptionalLong delta = state.periodDelta(
+                            period, snapshot.uuid(), metric, snapshot.value(metric));
+                    return delta.isPresent()
+                            ? java.util.stream.Stream.of(new Entry(snapshot.name(), delta.getAsLong()))
+                            : java.util.stream.Stream.empty();
+                })
                 .sorted(Comparator.comparingLong(Entry::value).reversed().thenComparing(Entry::name))
                 .toList();
     }
@@ -1220,7 +1254,7 @@ public final class RankBoardMod implements ModInitializer {
     static String format(Metric metric, long value) {
         if (metric == Metric.PLAY_TIME) return (value / 72000) + "h " + ((value / 1200) % 60) + "m";
         if (metric == Metric.ELYTRA_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
-        if (metric == Metric.DAMAGE_TAKEN) return String.format(java.util.Locale.ROOT, "%.1f", value / 10.0);
+        if (metric == Metric.DAMAGE_TAKEN || metric == Metric.DAMAGE_DEALT) return String.format(java.util.Locale.ROOT, "%.1f", value / 10.0);
         return Long.toString(value);
     }
 
@@ -1242,12 +1276,14 @@ public final class RankBoardMod implements ModInitializer {
         MINED("mined", "挖掘榜", ChatFormatting.BLUE, RankBoardMod::mined),
         PLACED("placed", "放置榜", ChatFormatting.DARK_AQUA, RankBoardMod::placed),
         KILLS("kills", "击杀榜", ChatFormatting.RED, p -> custom(p, Stats.MOB_KILLS) + custom(p, Stats.PLAYER_KILLS)),
+        PVP_KILLS("pvp", "PvP榜", ChatFormatting.DARK_RED, p -> custom(p, Stats.PLAYER_KILLS)),
         DEATHS("deaths", "死亡榜", ChatFormatting.DARK_RED, p -> custom(p, Stats.DEATHS)),
         TRADES("trades", "交易榜", ChatFormatting.GREEN, p -> custom(p, Stats.TRADED_WITH_VILLAGER)),
         PLAY_TIME("playtime", "在线榜", ChatFormatting.AQUA, p -> custom(p, Stats.PLAY_TIME)),
         ELYTRA_DISTANCE("elytra", "飞行榜", ChatFormatting.LIGHT_PURPLE, p -> custom(p, Stats.AVIATE_ONE_CM)),
         FISHING("fishing", "钓鱼榜", ChatFormatting.DARK_BLUE, p -> custom(p, Stats.FISH_CAUGHT)),
         DAMAGE_TAKEN("damage", "受伤榜", ChatFormatting.RED, p -> custom(p, Stats.DAMAGE_TAKEN)),
+        DAMAGE_DEALT("dealt", "伤害输出榜", ChatFormatting.GOLD, p -> custom(p, Stats.DAMAGE_DEALT)),
         DROPPED("dropped", "丢垃圾榜", ChatFormatting.DARK_GRAY, RankBoardMod::dropped),
         PICKED_UP("picked", "拾荒榜", ChatFormatting.GREEN, RankBoardMod::pickedUp),
         CRAFTED("crafted", "合成榜", ChatFormatting.GOLD, RankBoardMod::crafted),
@@ -1272,7 +1308,7 @@ public final class RankBoardMod implements ModInitializer {
         String key(LocalDate date) {
             return switch (this) {
                 case DAILY -> date.toString();
-                case WEEKLY -> date.getYear() + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
+                case WEEKLY -> date.get(WeekFields.ISO.weekBasedYear()) + "-W" + date.get(WeekFields.ISO.weekOfWeekBasedYear());
                 case MONTHLY -> date.getYear() + "-" + date.getMonthValue();
                 case YEARLY -> Integer.toString(date.getYear());
                 case ALL -> "all";

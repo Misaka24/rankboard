@@ -284,12 +284,14 @@ final class WebDashboard {
             throw new IllegalArgumentException(metric.label() + " 已被 OP 禁止显示");
         }
         boolean effectiveOnlineOnly = requestOnlineOnly || state.isOnlineOnly();
-        if (!period.equals("all") && !StatReader.isReady()) {
-            throw new IllegalStateException("历史统计缓存仍在加载（" + StatReader.progress() + "），日期范围榜将在加载完成后可用。");
+        if (!StatReader.isReady()) {
+            throw new IllegalStateException("统计文件仍在进行权威扫描（" + StatReader.progress() + "），总榜和日期范围榜暂不可用。");
         }
         List<WebEntry> entries = new ArrayList<>();
         String actualStart;
         String actualEnd;
+        boolean complete = true;
+        List<String> warnings = List.of();
         if (period.equals("all")) {
             StatReader.readAll(server, metric).forEach(snapshot -> {
                 if (isIncluded(server, state, snapshot.uuid(), snapshot.name(), effectiveOnlineOnly)) {
@@ -299,7 +301,9 @@ final class WebDashboard {
             actualStart = "原版统计起始";
             actualEnd = LocalDate.now().toString();
         } else {
-            LeaderboardState.RangeData range = state.range(server, from, to, metric);
+            LeaderboardState.RangeData range = state.range(server, from, to, metric, true);
+            complete = range.complete();
+            warnings = range.warnings();
             Map<UUID, String> names = new HashMap<>();
             StatReader.readAll(server, metric).forEach(snapshot -> names.put(snapshot.uuid(), snapshot.name()));
             range.values().forEach((uuid, value) -> {
@@ -322,7 +326,11 @@ final class WebDashboard {
         root.addProperty("period", period);
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
-        root.addProperty("earliest", state.earliestSnapshotDate());
+        root.addProperty("earliest", state.earliestSnapshotDate(metric));
+        root.addProperty("complete", complete);
+        JsonArray warningArray = new JsonArray();
+        warnings.forEach(warningArray::add);
+        root.add("warnings", warningArray);
         root.addProperty("metric", metric.command); root.addProperty("label", metric.label());
         root.addProperty("total", total); root.addProperty("formattedTotal", formatWeb(metric, total));
         JsonArray players = new JsonArray();
@@ -383,7 +391,7 @@ final class WebDashboard {
         return switch (metric) {
             case PLAY_TIME -> String.format(java.util.Locale.ROOT, "%,dh %dm", value / 72000, (value / 1200) % 60);
             case ELYTRA_DISTANCE -> String.format(java.util.Locale.ROOT, "%,.1f km", value / 100000.0);
-            case DAMAGE_TAKEN -> String.format(java.util.Locale.ROOT, "%,.1f", value / 10.0);
+            case DAMAGE_TAKEN, DAMAGE_DEALT -> String.format(java.util.Locale.ROOT, "%,.1f", value / 10.0);
             default -> {
                 String exact = String.format(java.util.Locale.ROOT, "%,d", value);
                 yield value > 100_000 ? (value / 10_000) + "w · " + exact : exact;
