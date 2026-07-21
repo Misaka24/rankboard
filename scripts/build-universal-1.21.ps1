@@ -1,5 +1,8 @@
 param(
-    [string]$OutputDirectory = "build/libs"
+    [string]$OutputDirectory = "build/libs",
+    [string]$GradleInitScript = "",
+    [int]$MaxWorkers = 0,
+    [string]$GradleJvmArguments = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +70,15 @@ foreach ($variant in $variants) {
         "-Ploader_version=0.15.11",
         "-Pfabric_version=$($variant.Fabric)"
     )
+    if (-not [string]::IsNullOrWhiteSpace($GradleInitScript)) {
+        $arguments += @("--init-script", (Resolve-Path -LiteralPath $GradleInitScript).Path)
+    }
+    if ($MaxWorkers -gt 0) {
+        $arguments += @("--max-workers=$MaxWorkers", "--no-parallel")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GradleJvmArguments)) {
+        $arguments += "-Dorg.gradle.jvmargs=$GradleJvmArguments"
+    }
     & $gradle @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Minecraft $($variant.Minecraft) build failed with exit code $LASTEXITCODE."

@@ -23,6 +23,7 @@ wrapper-smoke/
 .tmp/
 gradle-*-bin.zip
 hs_err_pid*
+replay_pid*
 
 # Development Minecraft server data (contains player/world data)
 run/

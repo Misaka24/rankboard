@@ -8,6 +8,8 @@ param(
     [string]$LoaderVersion = "0.18.6",
     [string]$InstallerVersion = "1.1.1",
     [int]$TimeoutSeconds = 180,
+    [int]$BaseServerPort = 25600,
+    [int]$BaseWebPort = 28600,
     [string]$Java = "",
     [switch]$Offline
 )
@@ -67,8 +69,8 @@ foreach ($version in $Versions) {
     Copy-Item -LiteralPath $wrapper -Destination (Join-Path $mods "rankboard-wrapper.jar") -Force
     $versionParts = $version.Split(".")
     $patchVersion = if ($versionParts.Length -ge 3) { [int]$versionParts[2] } else { 0 }
-    $serverPort = 25600 + $patchVersion
-    $webPort = 28600 + $patchVersion
+    $serverPort = $BaseServerPort + $patchVersion
+    $webPort = $BaseWebPort + $patchVersion
     [System.IO.File]::WriteAllText((Join-Path $directory "eula.txt"), "eula=true`n")
     [System.IO.File]::WriteAllText(
         (Join-Path $directory "server.properties"),

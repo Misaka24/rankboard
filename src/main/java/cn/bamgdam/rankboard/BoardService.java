@@ -344,8 +344,9 @@ final class BoardService {
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);
-            long value = period == RankBoardMod.Period.ALL
-                    ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUuid(), metric));
+            java.util.OptionalLong delta = state.periodDelta(period, player.getUuid(), metric, raw);
+            if (delta.isEmpty()) continue;
+            long value = delta.getAsLong();
             if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
             int score = scoreboardValue(metric, value);
             player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
@@ -376,7 +377,10 @@ final class BoardService {
             Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUuid());
             if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
                     && entryPlayer != null && entrySelection != null) {
-                displayName = Optional.of(RankBoardColors.text(entry.name(), entrySelection.metric));
+                LeaderboardState.BoardPreference entryPreference = LeaderboardState.get(PlayerCompat.server(player))
+                        .boardPreference(entryPlayer.getUuid());
+                boolean entryCarousel = entryPreference != null && entryPreference.carousel();
+                displayName = Optional.of(RankBoardColors.text(entry.name(), entrySelection.metric, entryCarousel));
             }
             player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
                     entry.name(), objective.getName(), value, displayName, scoreboardFormat(metric, value)));
@@ -507,10 +511,7 @@ final class BoardService {
         Text title = Text.literal(period.label + (partialPeriod ? "（部分）" : "")
                 + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
-            int titleColor = carousel && !RankBoardConfig.get().carouselColorFollowMetric
-                    ? (Formatting.AQUA.getColorValue() == null ? 0x55FFFF : Formatting.AQUA.getColorValue())
-                    : RankBoardColors.renderedRgb(metric);
-            title = title.copy().styled(style -> style.withColor(titleColor));
+            title = title.copy().styled(style -> style.withColor(RankBoardColors.renderedRgb(metric, carousel)));
         }
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,

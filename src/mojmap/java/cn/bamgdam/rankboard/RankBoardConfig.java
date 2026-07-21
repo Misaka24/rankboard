@@ -30,6 +30,7 @@ final class RankBoardConfig {
             option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
+            option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
             option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("restore-scoreboard-on-join", "true", FileKind.MAIN, "客户端计分板", "玩家进服时是否恢复上一次选择的计分板；默认 true。"),
@@ -92,7 +93,18 @@ final class RankBoardConfig {
             option("web-icon-request-interval-seconds", "3", FileKind.WEB, "请求限流", "图片基础请求间隔秒数；默认 3。30 秒内超过 6 次后，固定 30 分钟改为每 15 秒 1 次。"),
             option("web-ranking-refresh-interval-seconds", "30", FileKind.WEB, "网页数据", "网页排行榜数据快照刷新间隔秒数；默认 30，范围 1-3600。"),
             option("server-name", "auto", FileKind.WEB, "网页显示", "网页显示的服务器名称；默认 auto，自动读取服务器 MOTD。"),
-            option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标文件名；只能使用 config/rankboard/ 目录内的文件，默认 server-icon.png。")
+            option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标路径；默认 server-icon.png，优先读取 config/rankboard/，其次读取服务端根目录。"),
+            option("web-theme-follow-icon", "true", FileKind.WEB, "网页主题", "true 从网站图标提取网页配色；false 使用默认蓝色系；默认 true。"),
+            option("web-theme-base", "auto", FileKind.WEB, "网页主题", "主题基础色；图标取色模式会自动写入检测到的 #RRGGBB，也可手动设置。"),
+            option("web-theme-background", "auto", FileKind.WEB, "网页主题", "网页背景颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-surface", "auto", FileKind.WEB, "网页主题", "面板和卡片颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-primary", "auto", FileKind.WEB, "网页主题", "按钮、选中项和主要数值颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-secondary", "auto", FileKind.WEB, "网页主题", "排名、状态和辅助强调颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-text", "auto", FileKind.WEB, "网页主题", "主要文字颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-muted", "auto", FileKind.WEB, "网页主题", "说明、时间和 UUID 等次要文字颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-border", "auto", FileKind.WEB, "网页主题", "边框和分隔线颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-success", "auto", FileKind.WEB, "网页主题", "在线状态颜色；auto 自动生成，或填写 #RRGGBB。"),
+            option("web-theme-danger", "auto", FileKind.WEB, "网页主题", "错误和警告颜色；auto 自动生成，或填写 #RRGGBB。")
     );
     private static volatile RankBoardConfig current = defaults();
     private static volatile Properties mainProperties = defaultsFor(FileKind.MAIN);
@@ -379,6 +391,9 @@ final class RankBoardConfig {
         String value = rawValue.strip();
         if (option.key.startsWith("metric-color-")) return normalizedColor(value);
         if (option.key.startsWith("metric-label-")) return normalizedLabel(value);
+        if (option.key.startsWith("web-theme-") && !option.key.equals("web-theme-follow-icon")) {
+            return value.equalsIgnoreCase("auto") ? "auto" : normalizedColor(value);
+        }
         return switch (option.key) {
             case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
             case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);
@@ -390,10 +405,12 @@ final class RankBoardConfig {
             case "scoreboard-live-update-threshold" -> normalizedInteger(value, 1, 100000);
             case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);
             case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled", "website-button-enabled",
-                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled", "carousel-color-follow-metric",
+                    "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled",
+                    "carousel-color-follow-metric",
                     "client-scoreboard-show-zero", "scoreboard-switch-message-enabled",
                     "scoreboard-title-color-enabled",
-                    "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled" -> normalizedBoolean(value);
+                    "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled",
+                    "web-theme-follow-icon" -> normalizedBoolean(value);
             case "help-visibility" -> switch (value.toLowerCase(Locale.ROOT)) {
                 case "all" -> "all";
                 case "op", "ops" -> "op";

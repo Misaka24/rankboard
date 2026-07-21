@@ -36,6 +36,92 @@ type RankingResponse = {
   warnings?: string[];
 };
 
+type ThemeColors = {
+  background: string;
+  surface: string;
+  primary: string;
+  secondary: string;
+  text: string;
+  muted: string;
+  border: string;
+  success: string;
+  danger: string;
+};
+
+type SiteTheme = {
+  followIcon: boolean;
+  base: string;
+  colors: ThemeColors;
+};
+
+const defaultTheme: SiteTheme = {
+  followIcon: true,
+  base: "auto",
+  colors: {
+    background: "auto", surface: "auto", primary: "auto", secondary: "auto", text: "auto",
+    muted: "auto", border: "auto", success: "auto", danger: "auto"
+  }
+};
+
+function parseHex(value: string) {
+  const match = /^#([0-9a-f]{6})$/i.exec(value);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 16);
+  return [(number >> 16) & 255, (number >> 8) & 255, number & 255] as const;
+}
+
+function hex(red: number, green: number, blue: number) {
+  return `#${[red, green, blue].map((value) => Math.round(value).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function mix(left: string, right: string, rightWeight: number) {
+  const a = parseHex(left) ?? [21, 156, 229];
+  const b = parseHex(right) ?? [255, 255, 255];
+  return hex(a[0] * (1 - rightWeight) + b[0] * rightWeight,
+    a[1] * (1 - rightWeight) + b[1] * rightWeight,
+    a[2] * (1 - rightWeight) + b[2] * rightWeight);
+}
+
+function iconAverage(image: HTMLImageElement) {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(image, 0, 0, 32, 32);
+    const pixels = context.getImageData(0, 0, 32, 32).data;
+    let red = 0, green = 0, blue = 0, count = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] < 48) continue;
+      red += pixels[index]; green += pixels[index + 1]; blue += pixels[index + 2]; count++;
+    }
+    return count ? hex(red / count, green / count, blue / count) : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyTheme(theme: SiteTheme, iconColor: string | null) {
+  const base = theme.followIcon && iconColor ? iconColor : (parseHex(theme.base) ? theme.base : "#159CE5");
+  const generated: ThemeColors = {
+    background: mix(base, "#FFFFFF", 0.78),
+    surface: mix(base, "#FFFFFF", 0.91),
+    primary: mix(base, "#159CE5", 0.22),
+    secondary: mix(base, "#8B63A7", 0.42),
+    text: mix(base, "#102A50", 0.68),
+    muted: mix(base, "#5575A2", 0.62),
+    border: mix(base, "#FFFFFF", 0.56),
+    success: mix(base, "#18A96D", 0.68),
+    danger: mix(base, "#C94E73", 0.72)
+  };
+  (Object.keys(generated) as Array<keyof ThemeColors>).forEach((key) => {
+    const configured = theme.colors[key];
+    document.documentElement.style.setProperty(`--theme-${key}`,
+      parseHex(configured) ? configured : generated[key]);
+  });
+}
+
 function PlayerAvatar({ player }: { player: Player }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const uuid = player.uuid.replaceAll("-", "");
@@ -77,7 +163,7 @@ const periods = [
   , { id: "custom", label: "自定义日期" }
 ];
 
-const metrics: Metric[] = [
+const defaultMetrics: Metric[] = [
   { id: "playtime", label: "在线时间", detail: "活跃度" },
   { id: "food", label: "大胃王", detail: "食物" },
   { id: "jumps", label: "跳跃榜", detail: "移动" },
@@ -89,8 +175,12 @@ const metrics: Metric[] = [
   { id: "trades", label: "交易榜", detail: "经济" },
   { id: "elytra", label: "鞘翅飞行榜", detail: "探索" },
   { id: "fishing", label: "钓鱼榜", detail: "休闲" },
-  { id: "damage", label: "受伤害榜", detail: "生存" },
-  { id: "dealt", label: "伤害输出榜", detail: "战斗" }
+  { id: "damage", label: "受伤榜", detail: "生存" },
+  { id: "dealt", label: "伤害输出榜", detail: "战斗" },
+  { id: "dropped", label: "丢垃圾榜", detail: "物品" },
+  { id: "picked", label: "拾荒榜", detail: "物品" },
+  { id: "crafted", label: "合成榜", detail: "制造" },
+  { id: "redstone", label: "红石大蛇榜", detail: "红石" }
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -103,6 +193,11 @@ export default function App() {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
+  const [metrics, setMetrics] = useState<Metric[]>(defaultMetrics);
+  const [siteTheme, setSiteTheme] = useState<SiteTheme>(defaultTheme);
+  const [iconColor, setIconColor] = useState<string | null>(null);
+  const [iconVersion, setIconVersion] = useState("");
+  const [iconSource, setIconSource] = useState<string | null>(null);
   const [rankingRefreshIntervalSeconds, setRankingRefreshIntervalSeconds] = useState(30);
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +223,12 @@ export default function App() {
           throw new Error("服务器排行榜服务返回了无效数据");
         }
         if (!response.ok || !payload) throw new Error(payload?.error ?? "服务器排行榜服务未启动或不可访问");
-        if (!cancelled) setRanking(payload);
+        if (!cancelled) {
+          setRanking(payload);
+          setMetrics((items) => items.map((item) => item.id === metric
+            ? { ...item, label: payload.label }
+            : item));
+        }
       } catch (requestError) {
         if (!cancelled) {
           setRanking(null);
@@ -148,16 +248,87 @@ export default function App() {
   }, [period, metric, onlineOnly, from, to, rankingRefreshIntervalSeconds]);
 
   useEffect(() => {
+    applyTheme(siteTheme, iconColor);
+  }, [siteTheme, iconColor]);
+
+  useEffect(() => {
     fetch("/api/site")
-      .then((response) => response.ok ? response.json() as Promise<{ name?: string; rankingRefreshIntervalSeconds?: number }> : null)
+      .then((response) => response.ok ? response.json() as Promise<{
+        name?: string;
+        rankingRefreshIntervalSeconds?: number;
+        metrics?: Array<{ id: string; label: string }>;
+        themeFollowIcon?: boolean;
+        themeBase?: string;
+        iconVersion?: string;
+        theme?: Partial<ThemeColors>;
+      }> : null)
       .then((site) => {
         if (site?.name) setServerName(site.name);
         if (site?.rankingRefreshIntervalSeconds) setRankingRefreshIntervalSeconds(site.rankingRefreshIntervalSeconds);
+        if (site?.metrics) {
+          const details = new Map(defaultMetrics.map((item) => [item.id, item.detail]));
+          const available = site.metrics.map((item) => ({
+            id: item.id, label: item.label, detail: details.get(item.id) ?? ""
+          }));
+          setMetrics(available);
+          setMetric((current) => available.some((item) => item.id === current)
+            ? current : (available[0]?.id ?? current));
+        }
+        if (site?.iconVersion) setIconVersion(site.iconVersion);
+        if (site?.theme) {
+          setSiteTheme({
+            followIcon: site.themeFollowIcon ?? true,
+            base: site.themeBase ?? "auto",
+            colors: { ...defaultTheme.colors, ...site.theme }
+          });
+        }
       })
       .catch(() => undefined);
   }, []);
 
-  const activeMetric = metrics.find((item) => item.id === metric) ?? metrics[0];
+  useEffect(() => {
+    if (!iconVersion || iconVersion === "none") return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    let retryTimer: number | null = null;
+    const iconUrl = `/site-icon/header?v=${encodeURIComponent(iconVersion)}`;
+
+    const loadIcon = async (attempt: number) => {
+      try {
+        const response = await fetch(iconUrl, { cache: "default" });
+        if (response.status === 429 && attempt < 4) {
+          const retryAfter = Math.max(1, Number.parseInt(response.headers.get("Retry-After") ?? "3", 10));
+          retryTimer = window.setTimeout(() => loadIcon(attempt + 1), retryAfter * 1000);
+          return;
+        }
+        if (!response.ok) return;
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setIconSource(objectUrl);
+      } catch {
+        if (!cancelled && attempt < 4) retryTimer = window.setTimeout(() => loadIcon(attempt + 1), 3000);
+      }
+    };
+
+    let favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!favicon) {
+      favicon = document.createElement("link");
+      favicon.rel = "icon";
+      document.head.appendChild(favicon);
+    }
+    favicon.href = `/site-icon/favicon?v=${encodeURIComponent(iconVersion)}`;
+    loadIcon(0);
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [iconVersion]);
+
+  const activeMetric = metrics.find((item) => item.id === metric) ?? metrics[0] ?? {
+    id: "none", label: "无可用榜单", detail: ""
+  };
   const visiblePlayers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return ranking?.players ?? [];
@@ -168,13 +339,12 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar glass">
         <div className="brand">
-          <img src="/site-icon" onError={(event) => (event.currentTarget.src = "/server-theme.jpg")} alt="服务器图标" />
-          <div>
-            <BlurText text={serverName} delay={35} animateBy="letters" direction="top" className="brand-title" />
-            <span>RankBoard · 服务器排行榜</span>
-          </div>
+          {iconSource ? <img src={iconSource} onLoad={(event) => setIconColor(iconAverage(event.currentTarget))}
+            alt="服务器图标" /> : <span className="brand-icon-placeholder">RB</span>}
+          <BlurText text={serverName} delay={35} animateBy="letters" direction="top" className="brand-title" />
         </div>
         <div className="top-status">
+          <strong>RankBoard排行榜模组</strong>
           <span className={ranking?.cacheReady ? "signal online" : "signal"} />
           {ranking?.onlineOnly ? "仅在线玩家" : "历史统计同步"}
         </div>

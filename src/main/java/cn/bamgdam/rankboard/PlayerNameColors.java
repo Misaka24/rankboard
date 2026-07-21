@@ -19,7 +19,10 @@ public final class PlayerNameColors {
         if (metric == null || RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.ENABLED) {
             return fallback;
         }
-        MutableText name = RankBoardColors.text(player.getName().getString(), metric);
+        LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
+                .boardPreference(player.getUuid());
+        boolean carousel = preference != null && preference.carousel();
+        MutableText name = RankBoardColors.text(player.getName().getString(), metric, carousel);
         Team team = PlayerCompat.server(player).getScoreboard().getScoreHolderTeam(player.getName().getString());
         if (team == null || isRankBoardTeam(team)) return name;
         return team.getPrefix().copy().append(name).append(team.getSuffix());
@@ -31,12 +34,14 @@ public final class PlayerNameColors {
         String holder = player.getName().getString();
         Team current = scoreboard.getScoreHolderTeam(holder);
         RankBoardMod.Metric metric = BoardService.selectedMetric(player.getUuid());
+        LeaderboardState.BoardPreference preference = LeaderboardState.get(server).boardPreference(player.getUuid());
+        boolean carousel = preference != null && preference.carousel();
         boolean active = metric != null && RankBoardConfig.get().nameColorMode == RankBoardConfig.NameColorMode.ENABLED;
 
         if (!active) {
             if (isRankBoardTeam(current)) scoreboard.removeScoreHolderFromTeam(holder, current);
         } else if (current == null || isRankBoardTeam(current)) {
-            Formatting color = RankBoardColors.legacy(metric);
+            Formatting color = RankBoardColors.legacy(metric, carousel);
             String teamName = TEAM_PREFIX + color.getColorIndex();
             Team target = scoreboard.getTeam(teamName);
             if (target == null) target = scoreboard.addTeam(teamName);

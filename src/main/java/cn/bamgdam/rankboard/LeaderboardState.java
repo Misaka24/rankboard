@@ -7,8 +7,14 @@ import net.minecraft.nbt.NbtString;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.WorldSavePath;
 import net.minecraft.world.PersistentState;
 
+import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.EnumMap;
@@ -19,11 +25,13 @@ import java.util.TreeMap;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /** Stores raw-stat baselines, allowing period ranks without modifying vanilla statistics. */
 public final class LeaderboardState extends PersistentState {
-    private static final String STATE_ID = "rankboard_leaderboard";
+    private static final String LEGACY_STATE_ID = "rankboard_leaderboard";
+    private static final String STATE_ID = "rankboard/" + LEGACY_STATE_ID;
     private static final int HISTORY_SCHEMA = 3;
     private static final LocalTime COMPLETE_BOUNDARY_LIMIT = LocalTime.of(0, 5);
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
@@ -41,7 +49,31 @@ public final class LeaderboardState extends PersistentState {
     LeaderboardState() { }
 
     public static LeaderboardState get(MinecraftServer server) {
+        prepareStorage(server);
         return PersistentStateCompat.get(server, STATE_ID);
+    }
+
+    private static synchronized void prepareStorage(MinecraftServer server) {
+        Path dataDirectory = server.getSavePath(WorldSavePath.ROOT).resolve("data");
+        Path rankBoardDirectory = dataDirectory.resolve("rankboard");
+        Path legacy = dataDirectory.resolve(LEGACY_STATE_ID + ".dat");
+        Path target = rankBoardDirectory.resolve(LEGACY_STATE_ID + ".dat");
+        try {
+            Files.createDirectories(rankBoardDirectory);
+            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) return;
+            Path temporary = target.resolveSibling(target.getFileName() + ".migrating");
+            Files.copy(legacy, temporary, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.delete(legacy);
+            RankBoardMod.LOGGER.info("Migrated RankBoard world data from {} to {}", legacy, target);
+        } catch (IOException exception) {
+            RankBoardMod.LOGGER.warn("Could not migrate RankBoard world data from {} to {}; the legacy file was kept",
+                    legacy, target, exception);
+        }
     }
     static LeaderboardState fromNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup lookup) {
         LeaderboardState state = new LeaderboardState();
@@ -200,9 +232,26 @@ public final class LeaderboardState extends PersistentState {
         for (PeriodData data : periods.values()) if (data.players.putIfAbsent(snapshot.uuid(), snapshot.values()) == null) changed = true;
         if (changed) markDirty();
     }
-    public long getBaseline(RankBoardMod.Period period, UUID uuid, RankBoardMod.Metric metric) {
+    public OptionalLong periodDelta(RankBoardMod.Period period, UUID uuid,
+                                    RankBoardMod.Metric metric, long currentValue) {
+        if (period == RankBoardMod.Period.ALL) return OptionalLong.of(Math.max(0L, currentValue));
         PeriodData data = periods.get(period);
-        return data == null ? 0 : data.players.getOrDefault(uuid, Map.of()).getOrDefault(metric, 0L);
+        if (data == null) return OptionalLong.empty();
+        Map<RankBoardMod.Metric, Long> values = data.players.get(uuid);
+        if (values == null || !values.containsKey(metric)) return OptionalLong.empty();
+        long baseline = values.get(metric);
+        if (currentValue < baseline) return OptionalLong.empty();
+        return OptionalLong.of(currentValue - baseline);
+    }
+    public boolean isPeriodComplete(RankBoardMod.Period period) {
+        if (period == RankBoardMod.Period.ALL) return true;
+        PeriodData data = periods.get(period);
+        return data != null && data.complete && data.partialMetrics.isEmpty();
+    }
+    public boolean isPeriodComplete(RankBoardMod.Period period, RankBoardMod.Metric metric) {
+        if (period == RankBoardMod.Period.ALL) return true;
+        PeriodData data = periods.get(period);
+        return data != null && data.complete && !data.partialMetrics.contains(metric);
     }
     public boolean isPeriodComplete(RankBoardMod.Period period) {
         if (period == RankBoardMod.Period.ALL) return true;
