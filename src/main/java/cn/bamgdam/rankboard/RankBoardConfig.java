@@ -34,7 +34,6 @@ final class RankBoardConfig {
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
             option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
-            option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("restore-scoreboard-on-join", "true", FileKind.MAIN, "客户端计分板", "玩家进服时是否恢复上一次选择的计分板；默认 true。"),
             option("look-up-sneak-menu-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许抬头并按住 Shift 打开排行榜菜单；默认 true。"),
             option("carousel-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许玩家使用榜单轮播；默认 true。"),

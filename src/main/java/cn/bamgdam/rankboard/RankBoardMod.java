@@ -474,7 +474,6 @@ public final class RankBoardMod implements ModInitializer {
                 configHelp(source, "join-web-hint-enabled");
                 configHelp(source, "website-button-enabled");
                 configHelp(source, "web-public-address");
-                configHelp(source, "website-button-enabled");
                 configHelp(source, "help-visibility");
                 configHelp(source, "mod-whitelist-enabled");
                 configHelp(source, "avatar-cache-enabled");

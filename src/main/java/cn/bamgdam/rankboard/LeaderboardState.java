@@ -253,16 +253,6 @@ public final class LeaderboardState extends PersistentState {
         PeriodData data = periods.get(period);
         return data != null && data.complete && !data.partialMetrics.contains(metric);
     }
-    public boolean isPeriodComplete(RankBoardMod.Period period) {
-        if (period == RankBoardMod.Period.ALL) return true;
-        PeriodData data = periods.get(period);
-        return data != null && data.complete && data.partialMetrics.isEmpty();
-    }
-    public boolean isPeriodComplete(RankBoardMod.Period period, RankBoardMod.Metric metric) {
-        if (period == RankBoardMod.Period.ALL) return true;
-        PeriodData data = periods.get(period);
-        return data != null && data.complete && !data.partialMetrics.contains(metric);
-    }
     public boolean isWhitelistOnly() { return whitelistOnly; }
     public void setWhitelistOnly(boolean whitelistOnly) {
         if (this.whitelistOnly != whitelistOnly) {
