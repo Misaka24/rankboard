@@ -42,7 +42,7 @@ final class StatReader {
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 4;
+    private static final int PERSISTENT_CACHE_SCHEMA = 5;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -463,6 +463,17 @@ final class StatReader {
             case PICKED_UP -> sum(stats, "minecraft:picked_up");
             case CRAFTED -> sum(stats, "minecraft:crafted");
             case REDSTONE_PLACED -> sumMatching(stats, "minecraft:used", REDSTONE_COMPONENT_ITEMS);
+            case ANIMALS_BRED -> stat(stats, "minecraft:custom", "minecraft:animals_bred");
+            case SHIELD_BLOCKED -> stat(stats, "minecraft:custom", "minecraft:damage_blocked_by_shield");
+            case ENCHANTED -> stat(stats, "minecraft:custom", "minecraft:enchant_item");
+            case SLEPT -> stat(stats, "minecraft:custom", "minecraft:sleep_in_bed");
+            case TOOLS_BROKEN -> sum(stats, "minecraft:broken");
+            case TRAVEL_DISTANCE -> sumMatching(stats, "minecraft:custom", MetricCatalog.TRAVEL_CUSTOM_STATS);
+            case ORES_MINED -> sumMatching(stats, "minecraft:mined", MetricCatalog.ORE_BLOCKS);
+            case TOTEM_USED -> stat(stats, "minecraft:used", "minecraft:totem_of_undying");
+            case MUSIC_PLAYED -> stat(stats, "minecraft:custom", "minecraft:play_record");
+            case TARGET_HITS -> stat(stats, "minecraft:custom", "minecraft:target_hit");
+            case VILLAGER_TALKS -> stat(stats, "minecraft:custom", "minecraft:talked_to_villager");
         };
     }
 

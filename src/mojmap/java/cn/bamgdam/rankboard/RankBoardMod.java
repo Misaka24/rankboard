@@ -1191,7 +1191,7 @@ public final class RankBoardMod implements ModInitializer {
 
     static String format(Metric metric, long value) {
         if (metric == Metric.PLAY_TIME) return (value / 72000) + "h " + ((value / 1200) % 60) + "m";
-        if (metric == Metric.ELYTRA_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
+        if (metric == Metric.ELYTRA_DISTANCE || metric == Metric.TRAVEL_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
 
         return Long.toString(value);
     }
@@ -1225,7 +1225,18 @@ public final class RankBoardMod implements ModInitializer {
         DROPPED("dropped", "丢垃圾榜", ChatFormatting.DARK_GRAY, RankBoardMod::dropped),
         PICKED_UP("picked", "拾荒榜", ChatFormatting.GREEN, RankBoardMod::pickedUp),
         CRAFTED("crafted", "合成榜", ChatFormatting.GOLD, RankBoardMod::crafted),
-        REDSTONE_PLACED("redstone", "红石大蛇榜", ChatFormatting.RED, RankBoardMod::redstonePlaced);
+        REDSTONE_PLACED("redstone", "红石大蛇榜", ChatFormatting.RED, RankBoardMod::redstonePlaced),
+        ANIMALS_BRED("bred", "动物繁育榜", ChatFormatting.GREEN, p -> custom(p, Stats.ANIMALS_BRED)),
+        SHIELD_BLOCKED("shield", "坚盾榜", ChatFormatting.AQUA, p -> custom(p, Stats.DAMAGE_BLOCKED_BY_SHIELD)),
+        ENCHANTED("enchanted", "附魔大师榜", ChatFormatting.DARK_PURPLE, p -> custom(p, Stats.ENCHANT_ITEM)),
+        SLEPT("slept", "睡神榜", ChatFormatting.BLUE, p -> custom(p, Stats.SLEEP_IN_BED)),
+        TOOLS_BROKEN("broken", "工具毁灭者榜", ChatFormatting.DARK_GRAY, RankBoardMod::toolsBroken),
+        TRAVEL_DISTANCE("travel", "旅行家榜", ChatFormatting.AQUA, RankBoardMod::travelDistance),
+        ORES_MINED("ores", "矿业大亨榜", ChatFormatting.GOLD, RankBoardMod::oresMined),
+        TOTEM_USED("totem", "死里逃生榜", ChatFormatting.YELLOW, RankBoardMod::totemsUsed),
+        MUSIC_PLAYED("music", "音乐家榜", ChatFormatting.LIGHT_PURPLE, p -> custom(p, Stats.PLAY_RECORD)),
+        TARGET_HITS("target", "神射手榜", ChatFormatting.RED, p -> custom(p, Stats.TARGET_HIT)),
+        VILLAGER_TALKS("social", "村民社交榜", ChatFormatting.GREEN, p -> custom(p, Stats.TALKED_TO_VILLAGER));
 
         final String command;
         final String label;
@@ -1262,6 +1273,10 @@ public final class RankBoardMod implements ModInitializer {
     private static long pickedUp(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_PICKED_UP.get(item))).sum(); }
     private static long crafted(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_CRAFTED.get(item))).sum(); }
     private static long redstonePlaced(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(RankBoardMod::isRedstoneComponent).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
+    private static long toolsBroken(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_BROKEN.get(item))).sum(); }
+    private static long travelDistance(ServerPlayer player) { return MetricCatalog.TRAVEL_CUSTOM_STATS.stream().mapToLong(id -> custom(player, net.minecraft.resources.Identifier.parse(id))).sum(); }
+    private static long oresMined(ServerPlayer player) { return BuiltInRegistries.BLOCK.stream().filter(block -> MetricCatalog.ORE_BLOCKS.contains(BuiltInRegistries.BLOCK.getKey(block).toString())).mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
+    private static long totemsUsed(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(item -> BuiltInRegistries.ITEM.getKey(item).toString().equals("minecraft:totem_of_undying")).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
     static boolean isRedstoneComponent(Item item) {
         String path = BuiltInRegistries.ITEM.getKey(item).getPath();
         return REDSTONE_COMPONENTS.contains(path) || path.endsWith("_button") || path.endsWith("_pressure_plate")

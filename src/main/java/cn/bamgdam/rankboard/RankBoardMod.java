@@ -1341,7 +1341,7 @@ public final class RankBoardMod implements ModInitializer {
 
     static String format(Metric metric, long value) {
         if (metric == Metric.PLAY_TIME) return (value / 72000) + "h " + ((value / 1200) % 60) + "m";
-        if (metric == Metric.ELYTRA_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
+        if (metric == Metric.ELYTRA_DISTANCE || metric == Metric.TRAVEL_DISTANCE) return String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
 
         return Long.toString(value);
     }
@@ -1375,7 +1375,18 @@ public final class RankBoardMod implements ModInitializer {
         DROPPED("dropped", "丢垃圾榜", Formatting.DARK_GRAY, RankBoardMod::dropped),
         PICKED_UP("picked", "拾荒榜", Formatting.GREEN, RankBoardMod::pickedUp),
         CRAFTED("crafted", "合成榜", Formatting.GOLD, RankBoardMod::crafted),
-        REDSTONE_PLACED("redstone", "红石大蛇榜", Formatting.RED, RankBoardMod::redstonePlaced);
+        REDSTONE_PLACED("redstone", "红石大蛇榜", Formatting.RED, RankBoardMod::redstonePlaced),
+        ANIMALS_BRED("bred", "动物繁育榜", Formatting.GREEN, p -> custom(p, Stats.ANIMALS_BRED)),
+        SHIELD_BLOCKED("shield", "坚盾榜", Formatting.AQUA, p -> custom(p, Stats.DAMAGE_BLOCKED_BY_SHIELD)),
+        ENCHANTED("enchanted", "附魔大师榜", Formatting.DARK_PURPLE, p -> custom(p, Stats.ENCHANT_ITEM)),
+        SLEPT("slept", "睡神榜", Formatting.BLUE, p -> custom(p, Stats.SLEEP_IN_BED)),
+        TOOLS_BROKEN("broken", "工具毁灭者榜", Formatting.DARK_GRAY, RankBoardMod::toolsBroken),
+        TRAVEL_DISTANCE("travel", "旅行家榜", Formatting.AQUA, RankBoardMod::travelDistance),
+        ORES_MINED("ores", "矿业大亨榜", Formatting.GOLD, RankBoardMod::oresMined),
+        TOTEM_USED("totem", "死里逃生榜", Formatting.YELLOW, RankBoardMod::totemsUsed),
+        MUSIC_PLAYED("music", "音乐家榜", Formatting.LIGHT_PURPLE, p -> custom(p, Stats.PLAY_RECORD)),
+        TARGET_HITS("target", "神射手榜", Formatting.RED, p -> custom(p, Stats.TARGET_HIT)),
+        VILLAGER_TALKS("social", "村民社交榜", Formatting.GREEN, p -> custom(p, Stats.TALKED_TO_VILLAGER));
 
         final String command;
         final String label;
@@ -1412,6 +1423,10 @@ public final class RankBoardMod implements ModInitializer {
     private static long pickedUp(ServerPlayerEntity player) { return Registries.ITEM.stream().mapToLong(item -> player.getStatHandler().getStat(Stats.PICKED_UP.getOrCreateStat(item))).sum(); }
     private static long crafted(ServerPlayerEntity player) { return Registries.ITEM.stream().mapToLong(item -> player.getStatHandler().getStat(Stats.CRAFTED.getOrCreateStat(item))).sum(); }
     private static long redstonePlaced(ServerPlayerEntity player) { return Registries.ITEM.stream().filter(RankBoardMod::isRedstoneComponent).mapToLong(item -> player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item))).sum(); }
+    private static long toolsBroken(ServerPlayerEntity player) { return Registries.ITEM.stream().mapToLong(item -> player.getStatHandler().getStat(Stats.BROKEN.getOrCreateStat(item))).sum(); }
+    private static long travelDistance(ServerPlayerEntity player) { return MetricCatalog.TRAVEL_CUSTOM_STATS.stream().mapToLong(id -> custom(player, net.minecraft.util.Identifier.of(id))).sum(); }
+    private static long oresMined(ServerPlayerEntity player) { return Registries.BLOCK.stream().filter(block -> MetricCatalog.ORE_BLOCKS.contains(Registries.BLOCK.getId(block).toString())).mapToLong(block -> player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block))).sum(); }
+    private static long totemsUsed(ServerPlayerEntity player) { return Registries.ITEM.stream().filter(item -> Registries.ITEM.getId(item).toString().equals("minecraft:totem_of_undying")).mapToLong(item -> player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item))).sum(); }
     static boolean isRedstoneComponent(Item item) {
         String path = Registries.ITEM.getId(item).getPath();
         return REDSTONE_COMPONENTS.contains(path)

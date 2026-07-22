@@ -15,6 +15,7 @@ public final class HistorySnapshotStoreTest {
             check("456".equals(RankBoardMod.format(RankBoardMod.Metric.DAMAGE_DEALT, 456L)),
                     "Damage dealt was scaled instead of keeping the vanilla value");
             checkRanges();
+            checkNewMetrics();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
             store.put(LocalDate.of(2026, 8, 1), players(player, RankBoardMod.Metric.JUMPS, 20), true);
@@ -103,6 +104,52 @@ public final class HistorySnapshotStoreTest {
         check(custom.from().equals(LocalDate.of(2026, 1, 2))
                         && custom.to().equals(LocalDate.of(2026, 3, 4)),
                 "Custom date range was not preserved");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void checkNewMetrics() throws Exception {
+        com.google.gson.JsonObject stats = new com.google.gson.JsonObject();
+        com.google.gson.JsonObject custom = new com.google.gson.JsonObject();
+        custom.addProperty("minecraft:animals_bred", 2);
+        custom.addProperty("minecraft:damage_blocked_by_shield", 30);
+        custom.addProperty("minecraft:enchant_item", 4);
+        custom.addProperty("minecraft:sleep_in_bed", 5);
+        custom.addProperty("minecraft:walk_one_cm", 100_000);
+        custom.addProperty("minecraft:boat_one_cm", 200_000);
+        custom.addProperty("minecraft:play_record", 6);
+        custom.addProperty("minecraft:target_hit", 7);
+        custom.addProperty("minecraft:talked_to_villager", 8);
+        stats.add("minecraft:custom", custom);
+        com.google.gson.JsonObject broken = new com.google.gson.JsonObject();
+        broken.addProperty("minecraft:diamond_pickaxe", 2);
+        broken.addProperty("minecraft:elytra", 1);
+        stats.add("minecraft:broken", broken);
+        com.google.gson.JsonObject mined = new com.google.gson.JsonObject();
+        mined.addProperty("minecraft:diamond_ore", 9);
+        mined.addProperty("minecraft:deepslate_diamond_ore", 10);
+        mined.addProperty("minecraft:stone", 999);
+        stats.add("minecraft:mined", mined);
+        com.google.gson.JsonObject used = new com.google.gson.JsonObject();
+        used.addProperty("minecraft:totem_of_undying", 11);
+        stats.add("minecraft:used", used);
+
+        var method = StatReader.class.getDeclaredMethod("readValues", com.google.gson.JsonObject.class);
+        method.setAccessible(true);
+        Map<RankBoardMod.Metric, Long> values =
+                (Map<RankBoardMod.Metric, Long>) method.invoke(null, stats);
+        check(values.get(RankBoardMod.Metric.ANIMALS_BRED) == 2L, "Animals bred metric mismatch");
+        check(values.get(RankBoardMod.Metric.SHIELD_BLOCKED) == 30L, "Shield metric mismatch");
+        check(values.get(RankBoardMod.Metric.ENCHANTED) == 4L, "Enchanted metric mismatch");
+        check(values.get(RankBoardMod.Metric.SLEPT) == 5L, "Sleep metric mismatch");
+        check(values.get(RankBoardMod.Metric.TOOLS_BROKEN) == 3L, "Broken tools aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.TRAVEL_DISTANCE) == 300_000L, "Travel aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.ORES_MINED) == 19L, "Ore aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.TOTEM_USED) == 11L, "Totem metric mismatch");
+        check(values.get(RankBoardMod.Metric.MUSIC_PLAYED) == 6L, "Music metric mismatch");
+        check(values.get(RankBoardMod.Metric.TARGET_HITS) == 7L, "Target metric mismatch");
+        check(values.get(RankBoardMod.Metric.VILLAGER_TALKS) == 8L, "Villager social metric mismatch");
+        check("3.0 km".equals(RankBoardMod.format(RankBoardMod.Metric.TRAVEL_DISTANCE, 300_000L)),
+                "Travel formatting mismatch");
     }
 
     private static void checkRange(String period, LocalDate today, LocalDate from, LocalDate to) {

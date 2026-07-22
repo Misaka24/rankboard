@@ -286,7 +286,7 @@ final class WebDashboard {
     private static String formatWeb(RankBoardMod.Metric metric, long value) {
         return switch (metric) {
             case PLAY_TIME -> String.format(java.util.Locale.ROOT, "%,dh %dm", value / 72000, (value / 1200) % 60);
-            case ELYTRA_DISTANCE -> String.format(java.util.Locale.ROOT, "%,.1f km", value / 100000.0);
+            case ELYTRA_DISTANCE, TRAVEL_DISTANCE -> String.format(java.util.Locale.ROOT, "%,.1f km", value / 100000.0);
             case DAMAGE_TAKEN, DAMAGE_DEALT -> String.format(java.util.Locale.ROOT, "%,d", value);
             default -> {
                 String exact = String.format(java.util.Locale.ROOT, "%,d", value);

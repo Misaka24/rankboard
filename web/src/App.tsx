@@ -182,7 +182,18 @@ const defaultMetrics: Metric[] = [
   { id: "dropped", label: "丢垃圾榜", detail: "物品" },
   { id: "picked", label: "拾荒榜", detail: "物品" },
   { id: "crafted", label: "合成榜", detail: "制造" },
-  { id: "redstone", label: "红石大蛇榜", detail: "红石" }
+  { id: "redstone", label: "红石大蛇榜", detail: "红石" },
+  { id: "bred", label: "动物繁育榜", detail: "农业" },
+  { id: "shield", label: "坚盾榜", detail: "战斗" },
+  { id: "enchanted", label: "附魔大师榜", detail: "制造" },
+  { id: "slept", label: "睡神榜", detail: "生存" },
+  { id: "broken", label: "工具毁灭者榜", detail: "耐久" },
+  { id: "travel", label: "旅行家榜", detail: "探索" },
+  { id: "ores", label: "矿业大亨榜", detail: "资源" },
+  { id: "totem", label: "死里逃生榜", detail: "生存" },
+  { id: "music", label: "音乐家榜", detail: "休闲" },
+  { id: "target", label: "神射手榜", detail: "战斗" },
+  { id: "social", label: "村民社交榜", detail: "社交" }
 ];
 
 const today = new Date().toISOString().slice(0, 10);
