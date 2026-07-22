@@ -131,11 +131,15 @@ public final class HistorySnapshotStoreTest {
         var root = dispatcher.getRoot().getChild("leaderboard");
         check(root != null, "leaderboard command root missing");
         checkCommandPath(root, "menu", "core", "placed");
+        checkCommandPath(root, "menu", "core", "placed", "week");
+        checkCommandPath(root, "menu", "core", "placed", "week", "players", "player");
         checkCommandPath(root, "menu", "home");
         checkCommandPath(root, "menu", "quick");
         checkCommandPath(root, "menu", "ranking", "week");
-        checkCommandPath(root, "menu", "personal", "month");
-        checkCommandPath(root, "menu", "server", "yearly");
+        var quickRanking = checkCommandPath(root, "menu", "ranking", "week", "all", "placed");
+        check(quickRanking.getChild("players") == null, "Quick ranking unexpectedly exposes sidebar actions");
+        checkCommandPath(root, "menu", "personal", "month", "all", "placed");
+        checkCommandPath(root, "menu", "server", "yearly", "all", "placed");
         checkCommandPath(root, "display", "show", "weekly", "placed");
         checkCommandPath(root, "display", "show", "weekly", "placed", "player");
         checkCommandPath(root, "display", "off", "player");
@@ -143,12 +147,14 @@ public final class HistorySnapshotStoreTest {
         checkCommandPath(root, "scoreboard", "clear");
     }
 
-    private static void checkCommandPath(com.mojang.brigadier.tree.CommandNode<?> root, String... path) {
+    private static com.mojang.brigadier.tree.CommandNode<?> checkCommandPath(
+            com.mojang.brigadier.tree.CommandNode<?> root, String... path) {
         com.mojang.brigadier.tree.CommandNode<?> node = root;
         for (String segment : path) {
             node = node.getChild(segment);
             check(node != null, "Command completion path missing: " + String.join(" ", path));
         }
+        return node;
     }
     @SuppressWarnings("unchecked")
     private static void checkNewMetrics() throws Exception {

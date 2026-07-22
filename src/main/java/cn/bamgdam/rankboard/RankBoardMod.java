@@ -295,16 +295,35 @@ public final class RankBoardMod implements ModInitializer {
         LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(group)
                 .executes(context -> menu(context.getSource(), group));
         for (Metric metric : menuMetrics(group)) {
-            node.then(CommandManager.literal(metric.command)
-                    .executes(context -> BoardService.enable(context.getSource(), Period.ALL, metric)));
+            LiteralArgumentBuilder<ServerCommandSource> metricNode = CommandManager.literal(metric.command)
+                    .executes(context -> browseMetricMenu(context.getSource(), group, metric));
+            for (Period period : Period.values()) {
+                metricNode.then(browsePeriodNode(period.shortCommand, group, metric, period));
+                if (!period.shortCommand.equals(period.command)) {
+                    metricNode.then(browsePeriodNode(period.command, group, metric, period));
+                }
+            }
+            node.then(metricNode);
         }
         return node;
     }
 
+    private LiteralArgumentBuilder<ServerCommandSource> browsePeriodNode(String command, String group,
+                                                                          Metric metric, Period period) {
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
+                .executes(context -> browseMetricActionMenu(context.getSource(), group, metric, period));
+        node.then(CommandManager.literal("players")
+                .requires(source -> CommandPermissionCompat.has(source, 2))
+                .executes(context -> browsePlayersMenu(context.getSource(), group, metric, period))
+                .then(CommandManager.argument("player", EntityArgumentType.player())
+                        .executes(context -> browsePlayerMenu(context.getSource(), group, metric, period,
+                                EntityArgumentType.getPlayer(context, "player")))));
+        return node;
+    }
     private LiteralArgumentBuilder<ServerCommandSource> buildPeriodMenuCommands(String command, int mode) {
         LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
                 .requires(source -> mode != 2 || CommandPermissionCompat.has(source, 2))
-                .executes(context -> openPeriodMenu(context.getSource(), mode, Period.ALL));
+                .executes(context -> periodPickerMenu(context.getSource(), mode));
         for (Period period : Period.values()) {
             node.then(periodMenuNode(period.shortCommand, mode, period));
             if (!period.shortCommand.equals(period.command)) node.then(periodMenuNode(period.command, mode, period));
@@ -313,17 +332,30 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private LiteralArgumentBuilder<ServerCommandSource> periodMenuNode(String command, int mode, Period period) {
-        return CommandManager.literal(command).executes(context -> openPeriodMenu(context.getSource(), mode, period));
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
+                .executes(context -> categoryPickerMenu(context.getSource(), mode, period));
+        for (String group : MENU_GROUPS) node.then(periodGroupMenuNode(group, mode, period));
+        return node;
     }
 
-    private int openPeriodMenu(ServerCommandSource source, int mode, Period period) {
+    private LiteralArgumentBuilder<ServerCommandSource> periodGroupMenuNode(String group, int mode, Period period) {
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(group)
+                .executes(context -> metricPickerMenu(context.getSource(), mode, period, group));
+        for (Metric metric : menuMetrics(group)) {
+            LiteralArgumentBuilder<ServerCommandSource> metricNode = CommandManager.literal(metric.command)
+                    .executes(context -> completeMenuAction(context.getSource(), mode, period, metric));
+            node.then(metricNode);
+        }
+        return node;
+    }
+
+    private int completeMenuAction(ServerCommandSource source, int mode, Period period, Metric metric) {
         return switch (mode) {
-            case 0 -> rankingMenu(source, period);
-            case 1 -> boardSelectionMenu(source, period, false);
-            default -> boardSelectionMenu(source, period, true);
+            case 0 -> show(source, period, metric, 10);
+            case 1 -> BoardService.enable(source, period, metric);
+            default -> BoardService.writeVanilla(source, period, metric);
         };
     }
-
     private LiteralArgumentBuilder<ServerCommandSource> buildMineCommands(String command) {
         LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
                 .executes(context -> showMyScores(context.getSource(), Period.ALL));
@@ -630,12 +662,14 @@ public final class RankBoardMod implements ModInitializer {
 
     private int menu(ServerCommandSource source) {
         source.sendFeedback(() -> Text.literal("=== RankBoard 功能菜单 ===").formatted(Formatting.GOLD), false);
-        Text playerRow = clickable("[分类浏览榜单]", Formatting.AQUA, "/leaderboard menu core", "进入榜单分类目录")
+        Text playerRow = clickable("[查询排行榜]", Formatting.YELLOW, "/leaderboard menu ranking", "选择时间、分类和榜单后，直接在聊天框显示排名")
                 .copy().append(Text.literal(" "))
-                .append(clickable("[查询排行榜]", Formatting.YELLOW, "/leaderboard menu ranking all", "选择周期和榜单，在聊天栏查看排名"))
+                .append(clickable("[分类浏览榜单]", Formatting.AQUA, "/leaderboard menu core", "浏览榜单并进入查询、个人、全服或指定玩家操作"))
                 .append(Text.literal(" "))
-                .append(clickable("[个人侧边栏]", Formatting.GREEN, "/leaderboard menu personal all", "选择自己的侧边栏榜单"));
+                .append(clickable("[查询我的统计]", Formatting.GOLD, "/leaderboard mine all", "只查看自己的全部统计，不与其他玩家排名"));
         source.sendFeedback(() -> playerRow, false);
+        source.sendFeedback(() -> Text.literal("查询排行榜＝聊天框快速看排名；分类浏览＝进入榜单操作；查询我的统计＝只看自己的各项数据。")
+                .formatted(Formatting.DARK_GRAY), false);
         boolean boardEnabled = false;
         boolean lookMenuEnabled = true;
         try {
@@ -645,7 +679,7 @@ public final class RankBoardMod implements ModInitializer {
             boardEnabled = preference != null && preference.enabled();
             lookMenuEnabled = state.isLookMenuEnabled(uuid);
         } catch (RuntimeException ignored) { }
-        Text actionRow = clickable("[查询我的统计]", Formatting.GOLD, "/leaderboard mine all", "查看自己的全部统计")
+        Text actionRow = clickable("[个人侧边栏]", Formatting.GREEN, "/leaderboard menu personal", "选择时间、分类和榜单，设置自己的侧边栏")
                 .copy().append(Text.literal(" "))
                 .append(clickable(boardEnabled ? "[关闭侧边栏]" : "[恢复侧边栏]",
                         boardEnabled ? Formatting.RED : Formatting.GREEN,
@@ -673,7 +707,7 @@ public final class RankBoardMod implements ModInitializer {
         Text finalUtilityRow = utilityRow;
         source.sendFeedback(() -> finalUtilityRow, false);
         if (CommandPermissionCompat.has(source, 2)) {
-            Text adminRow = clickable("[全服侧边栏]", Formatting.GOLD, "/leaderboard menu server all", "设置或清除全服共享侧边栏")
+            Text adminRow = clickable("[全服侧边栏]", Formatting.GOLD, "/leaderboard menu server", "设置或清除全服共享侧边栏")
                     .copy().append(Text.literal(" "))
                     .append(clickable("[清除全服侧边栏]", Formatting.RED, "/leaderboard scoreboard clear", "立即关闭全服共享侧边栏"));
             source.sendFeedback(() -> adminRow, false);
@@ -689,7 +723,7 @@ public final class RankBoardMod implements ModInitializer {
                 .copy().append(Text.literal(" "))
                 .append(clickable("[关闭个人侧边栏]", Formatting.RED, "/leaderboard display off", "关闭自己的个人侧边栏"))
                 .append(Text.literal(" "))
-                .append(clickable("[选择个人榜单]", Formatting.AQUA, "/leaderboard menu personal all", "进入个人侧边栏选择菜单"));
+                .append(clickable("[选择个人榜单]", Formatting.AQUA, "/leaderboard menu personal", "进入个人侧边栏选择菜单"));
         source.sendFeedback(() -> display, false);
         Text carousel = clickable("[开启轮播]", Formatting.GREEN, "/leaderboard carousel on", "开启榜单轮播")
                 .copy().append(Text.literal(" "))
@@ -746,7 +780,7 @@ public final class RankBoardMod implements ModInitializer {
         Text secondRow = Text.empty();
         boolean hasSecondRowButton = false;
         if (CommandPermissionCompat.has(source, 2)) {
-            secondRow = clickable("[设置全局榜单]", Formatting.GOLD, "/leaderboard menu server all", "进入全服侧边栏设置菜单")
+            secondRow = clickable("[设置全局榜单]", Formatting.GOLD, "/leaderboard menu server", "进入全服侧边栏设置菜单")
                     .copy().append(Text.literal(" "))
                     .append(clickable("[清除全局榜单]", Formatting.RED, "/leaderboard scoreboard clear", "清除原版全局侧边栏"));
             hasSecondRowButton = true;
@@ -777,64 +811,63 @@ public final class RankBoardMod implements ModInitializer {
         List<Metric> menuMetrics = menuMetrics(group);
         int visible = 0;
         for (int start = 0; start < menuMetrics.size(); start += 4) {
-            visible += sendMetricMenuRow(source, menuMetrics.subList(
+            visible += sendMetricMenuRow(source, group, menuMetrics.subList(
                     start, Math.min(start + 4, menuMetrics.size())).toArray(Metric[]::new));
         }
         if (visible == 0) {
             source.sendFeedback(() -> Text.literal("所有榜单显示均已被 OP 禁用。\n").formatted(Formatting.GRAY), false);
         }
-        source.sendFeedback(() -> Text.literal("点击榜单即可切换自己的原版侧边栏。")
+        source.sendFeedback(() -> Text.literal("点击榜单后可选择时间，并进行查询或侧边栏操作。")
                 .formatted(Formatting.GRAY), false);
         BoardService.sendForeignScoreboardPrompt(source);
         return 1;
     }
 
-    private int rankingMenu(ServerCommandSource source, Period period) {
-        source.sendFeedback(() -> Text.literal("=== 查询排行榜 · " + period.label + " ===").formatted(Formatting.GOLD), false);
-        Text periods = Text.literal("统计周期 ").formatted(Formatting.GRAY);
-        for (Period candidate : Period.values()) {
-            periods = periods.copy().append(clickable("[" + candidate.menuLabel + "]",
-                    candidate == period ? Formatting.GOLD : Formatting.AQUA,
-                    "/leaderboard menu ranking " + candidate.shortCommand,
-                    "切换到" + candidate.label + "排行榜")).append(Text.literal(" "));
+    private int periodPickerMenu(ServerCommandSource source, int mode) {
+        String command = menuModeCommand(mode);
+        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · 选择时间 ===").formatted(Formatting.GOLD), false);
+        Text line = Text.empty();
+        boolean added = false;
+        for (Period period : Period.values()) {
+            if (added) line = line.copy().append(Text.literal(" "));
+            line = line.copy().append(clickable("[" + period.menuLabel + "]", Formatting.AQUA,
+                    "/leaderboard menu " + command + " " + period.shortCommand, "选择" + period.label + "统计"));
+            added = true;
         }
-        Text finalPeriods = periods;
-        source.sendFeedback(() -> finalPeriods, false);
-        List<Metric> metrics = orderedMenuMetrics();
-        for (int start = 0; start < metrics.size(); start += 4) {
-            Text line = Text.empty();
-            int visible = 0;
-            for (Metric metric : metrics.subList(start, Math.min(start + 4, metrics.size()))) {
-                if (!LeaderboardState.get(source.getServer()).isMetricDisplayEnabled(metric)) continue;
-                if (visible++ > 0) line = line.copy().append(Text.literal(" "));
-                line = line.copy().append(clickable("[" + metric.label() + "]", metric,
-                        "/leaderboard " + period.command + " " + metric.command,
-                        "在聊天栏查看" + period.label + metric.label()));
-            }
-            if (visible > 0) {
-                Text finalLine = line;
-                source.sendFeedback(() -> finalLine, false);
-            }
-        }
-        source.sendFeedback(() -> clickable("[返回功能菜单]", Formatting.GRAY,
-                "/leaderboard menu home", "返回 RankBoard 功能菜单"), false);
+        Text finalLine = line;
+        source.sendFeedback(() -> finalLine, false);
+        source.sendFeedback(() -> clickable("[返回功能菜单]", Formatting.GRAY, "/leaderboard menu home", "返回功能菜单"), false);
         return 1;
     }
 
-    private int boardSelectionMenu(ServerCommandSource source, Period period, boolean global) {
-        String menuCommand = global ? "server" : "personal";
-        String title = global ? "设置全局榜单" : "切换个人侧边栏";
-        source.sendFeedback(() -> Text.literal("=== " + title + " · " + period.label + " ===").formatted(Formatting.GOLD), false);
-        Text periods = Text.literal("统计周期 ").formatted(Formatting.GRAY);
-        for (Period candidate : Period.values()) {
-            periods = periods.copy().append(clickable("[" + candidate.menuLabel + "]",
-                    candidate == period ? Formatting.GOLD : Formatting.AQUA,
-                    "/leaderboard menu " + menuCommand + " " + candidate.shortCommand,
-                    "选择" + candidate.label + "并显示可设置的榜单")).append(Text.literal(" "));
+    private int categoryPickerMenu(ServerCommandSource source, int mode, Period period) {
+        String command = menuModeCommand(mode);
+        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择分类 ===")
+                .formatted(Formatting.GOLD), false);
+        Text line = Text.empty();
+        boolean added = false;
+        String[][] groups = {{"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
+                {"life", "生存"}, {"explore", "探索"}, {"all", "全部"}};
+        for (String[] group : groups) {
+            if (added) line = line.copy().append(Text.literal(" "));
+            line = line.copy().append(clickable("[" + group[1] + "]",
+                    group[0].equals("all") ? Formatting.GOLD : Formatting.AQUA,
+                    "/leaderboard menu " + command + " " + period.shortCommand + " " + group[0],
+                    "显示" + group[1] + "分类榜单"));
+            added = true;
         }
-        Text finalPeriods = periods;
-        source.sendFeedback(() -> finalPeriods, false);
-        List<Metric> metrics = orderedMenuMetrics();
+        Text finalLine = line;
+        source.sendFeedback(() -> finalLine, false);
+        source.sendFeedback(() -> clickable("[返回时间选择]", Formatting.GRAY,
+                "/leaderboard menu " + command, "重新选择统计时间"), false);
+        return 1;
+    }
+
+    private int metricPickerMenu(ServerCommandSource source, int mode, Period period, String group) {
+        String command = menuModeCommand(mode);
+        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择榜单 ===")
+                .formatted(Formatting.GOLD), false);
+        List<Metric> metrics = menuMetrics(group);
         for (int start = 0; start < metrics.size(); start += 4) {
             Text line = Text.empty();
             int visible = 0;
@@ -842,23 +875,112 @@ public final class RankBoardMod implements ModInitializer {
                 if (!LeaderboardState.get(source.getServer()).isMetricDisplayEnabled(metric)) continue;
                 if (visible++ > 0) line = line.copy().append(Text.literal(" "));
                 line = line.copy().append(clickable("[" + metric.label() + "]", metric,
-                        global ? "/leaderboard scoreboard show " + period.command + " " + metric.command
-                                : "/leaderboard display show " + period.command + " " + metric.command,
-                        global ? "点击把全服原版侧边栏切换为" + period.label + metric.label()
-                                : "点击把自己的侧边栏切换为" + period.label + metric.label()));
+                        "/leaderboard menu " + command + " " + period.shortCommand + " " + group + " " + metric.command,
+                        mode == 0 ? "直接在聊天框显示该排行榜前 10 名"
+                                : mode == 1 ? "设为自己的个人侧边栏" : "设为全服共享侧边栏"));
             }
             if (visible > 0) {
                 Text finalLine = line;
                 source.sendFeedback(() -> finalLine, false);
             }
         }
-        Text actions = (global
-                ? clickable("[清除全局榜单]", Formatting.RED, "/leaderboard scoreboard clear", "清除原版全局侧边栏")
-                : clickable("[关闭个人侧边栏]", Formatting.RED, "/leaderboard display off", "关闭自己的侧边栏"))
-                .copy().append(Text.literal(" "))
-                .append(clickable("[返回功能菜单]", Formatting.GRAY, "/leaderboard menu home", "返回 RankBoard 功能菜单"));
-        source.sendFeedback(() -> actions, false);
+        source.sendFeedback(() -> clickable("[返回分类选择]", Formatting.GRAY,
+                "/leaderboard menu " + command + " " + period.shortCommand, "重新选择分类"), false);
         return 1;
+    }
+
+    private int browseMetricMenu(ServerCommandSource source, String group, Metric metric) {
+        source.sendFeedback(() -> Text.literal("=== " + metric.label() + " · 选择时间 ===").formatted(Formatting.GOLD), false);
+        Text line = Text.empty();
+        boolean added = false;
+        for (Period period : Period.values()) {
+            if (added) line = line.copy().append(Text.literal(" "));
+            line = line.copy().append(clickable("[" + period.menuLabel + "]", Formatting.AQUA,
+                    "/leaderboard menu " + group + " " + metric.command + " " + period.shortCommand,
+                    "打开" + period.label + metric.label() + "操作页"));
+            added = true;
+        }
+        Text finalLine = line;
+        source.sendFeedback(() -> finalLine, false);
+        source.sendFeedback(() -> clickable("[返回分类榜单]", Formatting.GRAY,
+                "/leaderboard menu " + group, "返回当前榜单分类"), false);
+        return 1;
+    }
+    private int browseMetricActionMenu(ServerCommandSource source, String group, Metric metric, Period period) {
+        source.sendFeedback(() -> Text.literal("=== " + period.label + metric.label() + " · 选择操作 ===")
+                .formatted(Formatting.GOLD), false);
+        Text limits = clickable("[查看 Top 5]", Formatting.AQUA,
+                        "/leaderboard " + period.command + " " + metric.command + " 5", "显示前 5 名")
+                .copy().append(Text.literal(" ")).append(clickable("[Top 10]", Formatting.AQUA,
+                        "/leaderboard " + period.command + " " + metric.command + " 10", "显示前 10 名"))
+                .append(Text.literal(" ")).append(clickable("[Top 20]", Formatting.AQUA,
+                        "/leaderboard " + period.command + " " + metric.command + " 20", "显示前 20 名"))
+                .append(Text.literal(" ")).append(clickable("[Top 50]", Formatting.AQUA,
+                        "/leaderboard " + period.command + " " + metric.command + " 50", "显示前 50 名"));
+        source.sendFeedback(() -> limits, false);
+        Text actions = clickable("[设为个人侧边栏]", Formatting.GREEN,
+                "/leaderboard display show " + period.command + " " + metric.command, "把自己的侧边栏切换为该榜单");
+        if (CommandPermissionCompat.has(source, 2)) {
+            actions = actions.copy().append(Text.literal(" ")).append(clickable("[设为全服侧边栏]", Formatting.GOLD,
+                            "/leaderboard scoreboard show " + period.command + " " + metric.command, "设为全服共享侧边栏"))
+                    .append(Text.literal(" ")).append(clickable("[指定玩家侧边栏]", Formatting.LIGHT_PURPLE,
+                            "/leaderboard menu " + group + " " + metric.command + " " + period.shortCommand + " players",
+                            "选择在线玩家，为其显示该榜单或关闭其侧边栏"));
+        }
+        Text finalActions = actions;
+        source.sendFeedback(() -> finalActions, false);
+        source.sendFeedback(() -> clickable("[返回时间选择]", Formatting.GRAY,
+                "/leaderboard menu " + group + " " + metric.command, "重新选择统计时间"), false);
+        return 1;
+    }
+
+    private int browsePlayersMenu(ServerCommandSource source, String group, Metric metric, Period period) {
+        List<ServerPlayerEntity> players = source.getServer().getPlayerManager().getPlayerList().stream()
+                .sorted(Comparator.comparing(player -> player.getName().getString(), String.CASE_INSENSITIVE_ORDER)).toList();
+        source.sendFeedback(() -> Text.literal("=== 指定玩家 · " + period.label + metric.label() + " ===")
+                .formatted(Formatting.GOLD), false);
+        if (players.isEmpty()) source.sendFeedback(() -> Text.literal("当前没有在线玩家。").formatted(Formatting.GRAY), false);
+        for (int start = 0; start < players.size(); start += 4) {
+            Text line = Text.empty();
+            for (int index = start; index < Math.min(start + 4, players.size()); index++) {
+                ServerPlayerEntity player = players.get(index);
+                if (index > start) line = line.copy().append(Text.literal(" "));
+                String name = player.getName().getString();
+                line = line.copy().append(clickable("[" + name + "]", Formatting.AQUA,
+                        "/leaderboard menu " + group + " " + metric.command + " " + period.shortCommand + " players " + name,
+                        "管理 " + name + " 的个人侧边栏"));
+            }
+            Text finalLine = line;
+            source.sendFeedback(() -> finalLine, false);
+        }
+        source.sendFeedback(() -> clickable("[返回榜单操作]", Formatting.GRAY,
+                "/leaderboard menu " + group + " " + metric.command + " " + period.shortCommand,
+                "返回榜单操作页"), false);
+        return 1;
+    }
+
+    private int browsePlayerMenu(ServerCommandSource source, String group, Metric metric, Period period,
+                                  ServerPlayerEntity player) {
+        String name = player.getName().getString();
+        source.sendFeedback(() -> Text.literal("=== " + name + " · 侧边栏操作 ===").formatted(Formatting.GOLD), false);
+        Text actions = clickable("[显示该榜单]", Formatting.GREEN,
+                        "/leaderboard display show " + period.command + " " + metric.command + " " + name,
+                        "为 " + name + " 显示" + period.label + metric.label())
+                .copy().append(Text.literal(" ")).append(clickable("[关闭个人侧边栏]", Formatting.RED,
+                        "/leaderboard display off " + name, "关闭 " + name + " 的个人侧边栏"));
+        source.sendFeedback(() -> actions, false);
+        source.sendFeedback(() -> clickable("[返回玩家列表]", Formatting.GRAY,
+                "/leaderboard menu " + group + " " + metric.command + " " + period.shortCommand + " players",
+                "返回在线玩家列表"), false);
+        return 1;
+    }
+
+    private static String menuModeCommand(int mode) {
+        return mode == 0 ? "ranking" : mode == 1 ? "personal" : "server";
+    }
+
+    private static String menuModeTitle(int mode) {
+        return mode == 0 ? "查询排行榜" : mode == 1 ? "个人侧边栏" : "全服侧边栏";
     }
     private void sendMenuCategories(ServerCommandSource source, String selected) {
         Text line = clickable("[主菜单]", Formatting.GRAY, "/leaderboard menu home", "返回功能菜单")
@@ -905,14 +1027,14 @@ public final class RankBoardMod implements ModInitializer {
         return List.copyOf(ordered);
     }
 
-    private int sendMetricMenuRow(ServerCommandSource source, Metric... metrics) {
+    private int sendMetricMenuRow(ServerCommandSource source, String group, Metric... metrics) {
         Text line = Text.empty();
         int visible = 0;
         for (Metric metric : metrics) {
             if (!LeaderboardState.get(source.getServer()).isMetricDisplayEnabled(metric)) continue;
             Text button = clickable("[" + metric.label() + "]", metric,
-                    "/leaderboard display show all " + metric.command,
-                    "点击显示总计 " + metric.label() + " 侧边栏");
+                    "/leaderboard menu " + group + " " + metric.command,
+                    "打开 " + metric.label() + " 的时间与显示操作");
             if (visible > 0) line = line.copy().append(Text.literal(" "));
             line = line.copy().append(button);
             visible++;
