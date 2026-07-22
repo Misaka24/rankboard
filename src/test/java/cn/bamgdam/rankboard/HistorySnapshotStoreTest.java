@@ -134,17 +134,27 @@ public final class HistorySnapshotStoreTest {
         checkCommandPath(root, "menu", "core", "placed", "week");
         checkCommandPath(root, "menu", "core", "placed", "week", "players", "player");
         checkCommandPath(root, "menu", "home");
-        checkCommandPath(root, "menu", "quick");
+        checkCommandPath(root, "menu", "carousel");
+        checkCommandPath(root, "menu", "lookmenu");
         checkCommandPath(root, "menu", "ranking", "week");
         var quickRanking = checkCommandPath(root, "menu", "ranking", "week", "all", "placed");
         check(quickRanking.getChild("players") == null, "Quick ranking unexpectedly exposes sidebar actions");
         checkCommandPath(root, "menu", "personal", "month", "all", "placed");
         checkCommandPath(root, "menu", "server", "yearly", "all", "placed");
-        checkCommandPath(root, "display", "show", "weekly", "placed");
-        checkCommandPath(root, "display", "show", "weekly", "placed", "player");
+        checkCommandPath(root, "weekly", "core", "placed");
+        checkCommandPath(root, "weekly", "core", "placed", "limit");
+        checkCommandPath(root, "display", "show", "weekly", "core", "placed");
+        checkCommandPath(root, "display", "show", "weekly", "core", "placed", "player");
         checkCommandPath(root, "display", "off", "player");
-        checkCommandPath(root, "scoreboard", "show", "monthly", "placed");
+        checkCommandPath(root, "scoreboard", "show", "monthly", "core", "placed");
         checkCommandPath(root, "scoreboard", "clear");
+        check(root.getChild("core") == null, "Removed top-level category alias unexpectedly exists");
+        check(root.getChild("weekly").getChild("placed") == null,
+                "Legacy ranking syntax without category unexpectedly exists");
+        check(root.getChild("display").getChild("show").getChild("weekly").getChild("placed") == null,
+                "Legacy display syntax without category unexpectedly exists");
+        check(dispatcher.getRoot().getChild("lb") == null && dispatcher.getRoot().getChild("rankboard") == null,
+                "Removed root command alias unexpectedly exists");
     }
 
     private static com.mojang.brigadier.tree.CommandNode<?> checkCommandPath(
