@@ -130,16 +130,17 @@ public final class HistorySnapshotStoreTest {
         register.invoke(new RankBoardMod(), dispatcher, null, null);
         var root = dispatcher.getRoot().getChild("leaderboard");
         check(root != null, "leaderboard command root missing");
-        check(dispatcher.getRoot().getChild("lb").getRedirect() == root, "lb alias does not share command completion");
-        check(dispatcher.getRoot().getChild("rankboard").getRedirect() == root,
-                "rankboard alias does not share command completion");
         checkCommandPath(root, "menu", "core", "placed");
-        checkCommandPath(root, "core", "placed");
-        checkCommandPath(root, "show", "placed", "week");
-        checkCommandPath(root, "show", "week", "placed");
-        checkCommandPath(root, "global", "placed", "month");
-        checkCommandPath(root, "global", "month", "placed");
-        checkCommandPath(root, "me", "yearly");
+        checkCommandPath(root, "menu", "home");
+        checkCommandPath(root, "menu", "quick");
+        checkCommandPath(root, "menu", "ranking", "week");
+        checkCommandPath(root, "menu", "personal", "month");
+        checkCommandPath(root, "menu", "server", "yearly");
+        checkCommandPath(root, "display", "show", "weekly", "placed");
+        checkCommandPath(root, "display", "show", "weekly", "placed", "player");
+        checkCommandPath(root, "display", "off", "player");
+        checkCommandPath(root, "scoreboard", "show", "monthly", "placed");
+        checkCommandPath(root, "scoreboard", "clear");
     }
 
     private static void checkCommandPath(com.mojang.brigadier.tree.CommandNode<?> root, String... path) {
