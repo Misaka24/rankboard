@@ -196,6 +196,15 @@ const defaultMetrics: Metric[] = [
   { id: "social", label: "村民社交榜", detail: "社交" }
 ];
 
+const metricGroups = [
+  { id: "core", label: "常用", metrics: ["playtime", "mined", "placed", "kills", "deaths", "travel", "ores", "trades"] },
+  { id: "combat", label: "战斗", metrics: ["kills", "pvp", "deaths", "damage", "dealt", "shield", "totem", "target"] },
+  { id: "build", label: "建造", metrics: ["mined", "placed", "ores", "crafted", "redstone", "broken", "enchanted"] },
+  { id: "life", label: "生存", metrics: ["food", "fishing", "bred", "slept", "trades", "social", "totem"] },
+  { id: "explore", label: "探索", metrics: ["travel", "elytra", "jumps", "picked", "dropped", "music"] },
+  { id: "all", label: "全部", metrics: [] as string[] }
+];
+
 const today = new Date().toISOString().slice(0, 10);
 
 function initialUiMode(): "classic" | "modern" {
@@ -209,6 +218,8 @@ function initialUiMode(): "classic" | "modern" {
 export default function App() {
   const [period, setPeriod] = useState("all");
   const [metric, setMetric] = useState("playtime");
+  const [metricGroup, setMetricGroup] = useState("core");
+  const [metricQuery, setMetricQuery] = useState("");
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [from, setFrom] = useState(today);
@@ -353,6 +364,14 @@ export default function App() {
     };
   }, [iconVersion]);
 
+  const filteredMetrics = useMemo(() => {
+    const group = metricGroups.find((item) => item.id === metricGroup);
+    const keyword = metricQuery.trim().toLowerCase();
+    return metrics.filter((item) =>
+      (!group || group.id === "all" || group.metrics.includes(item.id))
+      && (!keyword || item.label.toLowerCase().includes(keyword) || item.detail.toLowerCase().includes(keyword)));
+  }, [metricGroup, metricQuery, metrics]);
+
   const activeMetric = metrics.find((item) => item.id === metric) ?? metrics[0] ?? {
     id: "none", label: "无可用榜单", detail: ""
   };
@@ -406,15 +425,27 @@ export default function App() {
             <span>仅显示当前在线玩家</span>
           </label>
 
-          <section>
+          <section className="metric-section">
             <p className="section-label">榜单分类</p>
+            <div className="metric-groups" role="tablist" aria-label="榜单分类">
+              {metricGroups.map((group) => (
+                <button key={group.id} className={group.id === metricGroup ? "selected" : ""}
+                  onClick={() => setMetricGroup(group.id)}>{group.label}</button>
+              ))}
+            </div>
+            <label className="metric-search">
+              <span className="sr-only">搜索榜单</span>
+              <input value={metricQuery} onChange={(event) => setMetricQuery(event.target.value)}
+                placeholder="搜索榜单名称或分类" />
+            </label>
             <div className="metric-list">
-              {metrics.map((item) => (
+              {filteredMetrics.map((item) => (
                 <button key={item.id} className={item.id === metric ? "selected" : ""} onClick={() => setMetric(item.id)}>
                   <span>{item.label}</span>
                   <small>{item.detail}</small>
                 </button>
               ))}
+              {filteredMetrics.length === 0 && <p className="metric-empty">没有匹配的榜单</p>}
             </div>
           </section>
 

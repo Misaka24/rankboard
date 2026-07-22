@@ -406,3 +406,65 @@ body { color: var(--theme-text); }
   .ui-modern .ranking-card[data-rank="1"] .avatar { width: 44px; height: 44px; }
   .ui-modern .player-value { grid-column: 3; margin-top: -6px; font-size: 16px; }
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.metric-section { gap: 8px; }
+.metric-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.metric-groups button {
+  min-height: 30px;
+  padding: 4px 5px;
+  color: var(--theme-muted);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 48%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--theme-surface) 52%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+}
+.metric-groups button:hover { color: var(--theme-primary); border-color: color-mix(in srgb, var(--theme-primary) 40%, transparent); }
+.metric-groups button.selected { color: #fff; border-color: var(--theme-primary); background: var(--theme-primary); }
+.metric-search { display: block; }
+.metric-search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  color: var(--theme-text);
+  border: 1px solid color-mix(in srgb, var(--theme-border) 64%, transparent);
+  border-radius: 5px;
+  outline: none;
+  background: color-mix(in srgb, var(--theme-surface) 70%, transparent);
+  font-size: 11px;
+}
+.metric-search input:focus { border-color: var(--theme-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 14%, transparent); }
+.metric-search input::placeholder { color: var(--theme-muted); }
+.metric-empty { margin: 10px 4px; color: var(--theme-muted); font-size: 11px; text-align: center; }
+
+.ui-modern .metric-groups { gap: 6px; }
+.ui-modern .metric-groups button {
+  min-height: 32px;
+  color: #87a397;
+  border-color: rgba(105, 229, 167, .13);
+  border-radius: 9px;
+  background: rgba(105, 229, 167, .035);
+}
+.ui-modern .metric-groups button:hover { color: #82efb9; border-color: rgba(105, 229, 167, .3); }
+.ui-modern .metric-groups button.selected {
+  color: #07130f;
+  border-color: #69e5a7;
+  background: #69e5a7;
+}
+.ui-modern .metric-search input {
+  height: 37px;
+  color: #effbf5;
+  border-color: rgba(114, 178, 151, .18);
+  border-radius: 10px;
+  background: rgba(4, 13, 10, .5);
+}

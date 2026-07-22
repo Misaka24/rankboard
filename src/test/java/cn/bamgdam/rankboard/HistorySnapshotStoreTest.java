@@ -16,6 +16,7 @@ public final class HistorySnapshotStoreTest {
                     "Damage dealt was scaled instead of keeping the vanilla value");
             checkRanges();
             checkNewMetrics();
+            checkMenuCoverage();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
             store.put(LocalDate.of(2026, 8, 1), players(player, RankBoardMod.Metric.JUMPS, 20), true);
@@ -104,6 +105,18 @@ public final class HistorySnapshotStoreTest {
         check(custom.from().equals(LocalDate.of(2026, 1, 2))
                         && custom.to().equals(LocalDate.of(2026, 3, 4)),
                 "Custom date range was not preserved");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void checkMenuCoverage() throws Exception {
+        var method = RankBoardMod.class.getDeclaredMethod("menuMetrics", String.class);
+        method.setAccessible(true);
+        Set<RankBoardMod.Metric> covered = EnumSet.noneOf(RankBoardMod.Metric.class);
+        for (String group : List.of("core", "combat", "build", "life", "explore")) {
+            covered.addAll((List<RankBoardMod.Metric>) method.invoke(null, group));
+        }
+        check(covered.equals(EnumSet.allOf(RankBoardMod.Metric.class)),
+                "Categorized menu does not cover every metric: " + covered);
     }
 
     @SuppressWarnings("unchecked")

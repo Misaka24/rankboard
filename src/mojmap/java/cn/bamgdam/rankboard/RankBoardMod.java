@@ -122,6 +122,14 @@ public final class RankBoardMod implements ModInitializer {
                         .then(Commands.literal("scoreboard").executes(context -> helpGrouped(context.getSource(), "admin-scoreboard")))
                         .then(Commands.literal("web").executes(context -> helpGrouped(context.getSource(), "admin-web")))
                         .then(Commands.literal("config").executes(context -> helpGrouped(context.getSource(), "admin-config")))));
+        root.then(Commands.literal("menu")
+                .executes(context -> menu(context.getSource(), "core"))
+                .then(Commands.literal("core").executes(context -> menu(context.getSource(), "core")))
+                .then(Commands.literal("combat").executes(context -> menu(context.getSource(), "combat")))
+                .then(Commands.literal("build").executes(context -> menu(context.getSource(), "build")))
+                .then(Commands.literal("life").executes(context -> menu(context.getSource(), "life")))
+                .then(Commands.literal("explore").executes(context -> menu(context.getSource(), "explore")))
+                .then(Commands.literal("all").executes(context -> menu(context.getSource(), "all"))));
         root.then(Commands.literal("mine")
                 .executes(context -> showMyScores(context.getSource(), Period.ALL))
                 .then(Commands.literal("all").executes(context -> showMyScores(context.getSource(), Period.ALL)))
@@ -482,6 +490,10 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int menu(CommandSourceStack source) {
+        return menu(source, "core");
+    }
+
+    private int menu(CommandSourceStack source, String group) {
         boolean boardEnabled = false;
         try {
             LeaderboardState.BoardPreference preference = LeaderboardState.get(source.getServer())
@@ -529,18 +541,50 @@ public final class RankBoardMod implements ModInitializer {
             source.sendSuccess(() -> finalSecondRow, false);
         }
 
+        sendMenuCategories(source, group);
+        List<Metric> menuMetrics = menuMetrics(group);
         int visible = 0;
-        visible += sendMetricMenuRow(source, Metric.ELYTRA_DISTANCE, Metric.JUMPS, Metric.MINED, Metric.PLACED);
-        visible += sendMetricMenuRow(source, Metric.FISHING, Metric.CRAFTED, Metric.TRADES, Metric.PLAY_TIME);
-        visible += sendMetricMenuRow(source, Metric.KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN, Metric.DAMAGE_DEALT);
-        visible += sendMetricMenuRow(source, Metric.PICKED_UP, Metric.DROPPED, Metric.PVP_KILLS);
-        visible += sendMetricMenuRow(source, Metric.FOOD, Metric.REDSTONE_PLACED);
+        for (int start = 0; start < menuMetrics.size(); start += 4) {
+            visible += sendMetricMenuRow(source, menuMetrics.subList(
+                    start, Math.min(start + 4, menuMetrics.size())).toArray(Metric[]::new));
+        }
         if (visible == 0) {
             source.sendSuccess(() -> Component.literal("所有榜单显示均已被 OP 禁用。\n").withStyle(ChatFormatting.GRAY), false);
         }
         source.sendSuccess(() -> Component.literal("点击榜单即可切换自己的原版侧边栏。").withStyle(ChatFormatting.GRAY), false);
         BoardService.sendForeignScoreboardPrompt(source);
         return 1;
+    }
+
+    private void sendMenuCategories(CommandSourceStack source, String selected) {
+        Component line = Component.literal("分类 ").withStyle(ChatFormatting.GRAY);
+        String[][] groups = {
+                {"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
+                {"life", "生存"}, {"explore", "探索"}, {"all", "全部"}
+        };
+        for (String[] group : groups) {
+            line = line.copy().append(clickable("[" + group[1] + "]",
+                    group[0].equals(selected) ? ChatFormatting.GOLD : ChatFormatting.AQUA,
+                    "/leaderboard menu " + group[0], "只显示" + group[1] + "分类榜单")).append(Component.literal(" "));
+        }
+        Component finalLine = line;
+        source.sendSuccess(() -> finalLine, false);
+    }
+
+    private static List<Metric> menuMetrics(String group) {
+        return switch (group) {
+            case "combat" -> List.of(Metric.KILLS, Metric.PVP_KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN,
+                    Metric.DAMAGE_DEALT, Metric.SHIELD_BLOCKED, Metric.TOTEM_USED, Metric.TARGET_HITS);
+            case "build" -> List.of(Metric.MINED, Metric.PLACED, Metric.ORES_MINED, Metric.CRAFTED,
+                    Metric.REDSTONE_PLACED, Metric.TOOLS_BROKEN);
+            case "life" -> List.of(Metric.FOOD, Metric.FISHING, Metric.ANIMALS_BRED, Metric.SLEPT,
+                    Metric.TRADES, Metric.VILLAGER_TALKS, Metric.ENCHANTED);
+            case "explore" -> List.of(Metric.TRAVEL_DISTANCE, Metric.ELYTRA_DISTANCE, Metric.JUMPS,
+                    Metric.PICKED_UP, Metric.DROPPED, Metric.MUSIC_PLAYED);
+            case "all" -> orderedMenuMetrics();
+            default -> List.of(Metric.PLAY_TIME, Metric.MINED, Metric.PLACED, Metric.KILLS,
+                    Metric.DEATHS, Metric.TRAVEL_DISTANCE, Metric.ORES_MINED, Metric.TRADES);
+        };
     }
 
     private static List<Metric> orderedMenuMetrics() {

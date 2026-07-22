@@ -126,6 +126,14 @@ public final class RankBoardMod implements ModInitializer {
                         .then(CommandManager.literal("scoreboard").executes(context -> helpGrouped(context.getSource(), "admin-scoreboard")))
                         .then(CommandManager.literal("web").executes(context -> helpGrouped(context.getSource(), "admin-web")))
                         .then(CommandManager.literal("config").executes(context -> helpGrouped(context.getSource(), "admin-config")))));
+        root.then(CommandManager.literal("menu")
+                .executes(context -> menu(context.getSource(), "core"))
+                .then(CommandManager.literal("core").executes(context -> menu(context.getSource(), "core")))
+                .then(CommandManager.literal("combat").executes(context -> menu(context.getSource(), "combat")))
+                .then(CommandManager.literal("build").executes(context -> menu(context.getSource(), "build")))
+                .then(CommandManager.literal("life").executes(context -> menu(context.getSource(), "life")))
+                .then(CommandManager.literal("explore").executes(context -> menu(context.getSource(), "explore")))
+                .then(CommandManager.literal("all").executes(context -> menu(context.getSource(), "all"))));
         root.then(CommandManager.literal("mine")
                 .executes(context -> showMyScores(context.getSource(), Period.ALL))
                 .then(CommandManager.literal("all").executes(context -> showMyScores(context.getSource(), Period.ALL)))
@@ -575,6 +583,10 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int menu(ServerCommandSource source) {
+        return menu(source, "core");
+    }
+
+    private int menu(ServerCommandSource source, String group) {
         boolean boardEnabled = false;
         try {
             LeaderboardState.BoardPreference preference = LeaderboardState.get(source.getServer())
@@ -622,7 +634,8 @@ public final class RankBoardMod implements ModInitializer {
             source.sendFeedback(() -> finalSecondRow, false);
         }
 
-        List<Metric> menuMetrics = orderedMenuMetrics();
+        sendMenuCategories(source, group);
+        List<Metric> menuMetrics = menuMetrics(group);
         int visible = 0;
         for (int start = 0; start < menuMetrics.size(); start += 4) {
             visible += sendMetricMenuRow(source, menuMetrics.subList(
@@ -635,6 +648,37 @@ public final class RankBoardMod implements ModInitializer {
                 .formatted(Formatting.GRAY), false);
         BoardService.sendForeignScoreboardPrompt(source);
         return 1;
+    }
+
+    private void sendMenuCategories(ServerCommandSource source, String selected) {
+        Text line = Text.literal("分类 ").formatted(Formatting.GRAY);
+        String[][] groups = {
+                {"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
+                {"life", "生存"}, {"explore", "探索"}, {"all", "全部"}
+        };
+        for (String[] group : groups) {
+            line = line.copy().append(clickable("[" + group[1] + "]",
+                    group[0].equals(selected) ? Formatting.GOLD : Formatting.AQUA,
+                    "/leaderboard menu " + group[0], "只显示" + group[1] + "分类榜单")).append(Text.literal(" "));
+        }
+        Text finalLine = line;
+        source.sendFeedback(() -> finalLine, false);
+    }
+
+    private static List<Metric> menuMetrics(String group) {
+        return switch (group) {
+            case "combat" -> List.of(Metric.KILLS, Metric.PVP_KILLS, Metric.DEATHS, Metric.DAMAGE_TAKEN,
+                    Metric.DAMAGE_DEALT, Metric.SHIELD_BLOCKED, Metric.TOTEM_USED, Metric.TARGET_HITS);
+            case "build" -> List.of(Metric.MINED, Metric.PLACED, Metric.ORES_MINED, Metric.CRAFTED,
+                    Metric.REDSTONE_PLACED, Metric.TOOLS_BROKEN);
+            case "life" -> List.of(Metric.FOOD, Metric.FISHING, Metric.ANIMALS_BRED, Metric.SLEPT,
+                    Metric.TRADES, Metric.VILLAGER_TALKS, Metric.ENCHANTED);
+            case "explore" -> List.of(Metric.TRAVEL_DISTANCE, Metric.ELYTRA_DISTANCE, Metric.JUMPS,
+                    Metric.PICKED_UP, Metric.DROPPED, Metric.MUSIC_PLAYED);
+            case "all" -> orderedMenuMetrics();
+            default -> List.of(Metric.PLAY_TIME, Metric.MINED, Metric.PLACED, Metric.KILLS,
+                    Metric.DEATHS, Metric.TRAVEL_DISTANCE, Metric.ORES_MINED, Metric.TRADES);
+        };
     }
 
     private static List<Metric> orderedMenuMetrics() {
