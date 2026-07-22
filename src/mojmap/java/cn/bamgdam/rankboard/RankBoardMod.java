@@ -1283,7 +1283,7 @@ public final class RankBoardMod implements ModInitializer {
         ELYTRA_DISTANCE("elytra", "飞行榜", ChatFormatting.LIGHT_PURPLE, p -> custom(p, Stats.AVIATE_ONE_CM)),
         FISHING("fishing", "钓鱼榜", ChatFormatting.DARK_BLUE, p -> custom(p, Stats.FISH_CAUGHT)),
         DAMAGE_TAKEN("damage", "受伤榜", ChatFormatting.RED, p -> custom(p, Stats.DAMAGE_TAKEN)),
-        DAMAGE_DEALT("dealt", "伤害输出榜", ChatFormatting.GOLD, p -> custom(p, Stats.DAMAGE_DEALT)),
+        DAMAGE_DEALT("dealt", "近战伤害输出榜", ChatFormatting.GOLD, p -> custom(p, Stats.DAMAGE_DEALT)),
         DROPPED("dropped", "丢垃圾榜", ChatFormatting.DARK_GRAY, RankBoardMod::dropped),
         PICKED_UP("picked", "拾荒榜", ChatFormatting.GREEN, RankBoardMod::pickedUp),
         CRAFTED("crafted", "合成榜", ChatFormatting.GOLD, RankBoardMod::crafted),

@@ -176,7 +176,7 @@ const defaultMetrics: Metric[] = [
   { id: "elytra", label: "鞘翅飞行榜", detail: "探索" },
   { id: "fishing", label: "钓鱼榜", detail: "休闲" },
   { id: "damage", label: "受伤榜", detail: "生存" },
-  { id: "dealt", label: "伤害输出榜", detail: "战斗" },
+  { id: "dealt", label: "近战伤害输出榜", detail: "战斗" },
   { id: "dropped", label: "丢垃圾榜", detail: "物品" },
   { id: "picked", label: "拾荒榜", detail: "物品" },
   { id: "crafted", label: "合成榜", detail: "制造" },

@@ -26,8 +26,10 @@ def usesLateApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts
 def usesLatestApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts[1] == 21 && versionParts.size() > 2 && versionParts[2] >= 11)
 
 sourceSets.main.java {
+    srcDir 'src/common/java'
     if (versionParts[0] >= 26) {
         setSrcDirs(['src/mojmap/java'])
+        srcDir 'src/common/java'
     } else if (usesModernApi) {
         exclude 'cn/bamgdam/rankboard/NbtCompat.java'
         exclude 'cn/bamgdam/rankboard/PersistentStateCompat.java'
@@ -111,4 +113,14 @@ java {
     def targetJava = usesLatestApi && versionParts[0] >= 26 ? JavaVersion.VERSION_25 : JavaVersion.VERSION_21
     sourceCompatibility = targetJava
     targetCompatibility = targetJava
+}
+tasks.register('historyStoreTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'cn.bamgdam.rankboard.HistorySnapshotStoreTest'
+}
+
+tasks.named('test') {
+    dependsOn tasks.named('historyStoreTest')
+    failOnNoDiscoveredTests = false
 }

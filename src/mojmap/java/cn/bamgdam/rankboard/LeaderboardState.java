@@ -32,7 +32,7 @@ import java.util.UUID;
 public final class LeaderboardState extends SavedData {
     private static final String LEGACY_STATE_ID = "rankboard_leaderboard";
     private static final String STATE_ID = "rankboard/" + LEGACY_STATE_ID;
-    private static final int HISTORY_SCHEMA = 3;
+    private static final int HISTORY_SCHEMA = 5;
     private static final LocalTime COMPLETE_BOUNDARY_LIMIT = LocalTime.of(0, 5);
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
     private boolean whitelistOnly = true;
@@ -46,13 +46,32 @@ public final class LeaderboardState extends SavedData {
     private BoardPreference globalBoardPreference;
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
     private final Set<LocalDate> partialSnapshotDates = new HashSet<>();
+    private HistorySnapshotStore historyStore;
     LeaderboardState() { }
 
     public static LeaderboardState get(MinecraftServer server) {
         prepareStorage(server);
-        return PersistentStateCompat.get(server, STATE_ID);
+        LeaderboardState state = PersistentStateCompat.get(server, STATE_ID);
+        state.attachHistoryStore(server.getWorldPath(LevelResource.ROOT).resolve("data/rankboard/history"));
+        return state;
     }
 
+    private synchronized void attachHistoryStore(Path directory) {
+        if (historyStore != null) return;
+        historyStore = new HistorySnapshotStore(directory);
+        if (dailySnapshots.isEmpty()) return;
+        try {
+            historyStore.importLegacy(dailySnapshots, partialSnapshotDates);
+            int migrated = dailySnapshots.size();
+            dailySnapshots.clear();
+            partialSnapshotDates.clear();
+            setDirty();
+            RankBoardMod.LOGGER.info("Migrated {} RankBoard daily snapshots to monthly files in {}", migrated, directory);
+        } catch (IOException exception) {
+            RankBoardMod.LOGGER.error("Could not migrate RankBoard history to {}; legacy snapshots remain in the main data file",
+                    directory, exception);
+        }
+    }
     private static synchronized void prepareStorage(MinecraftServer server) {
         Path dataDirectory = server.getWorldPath(LevelResource.ROOT).resolve("data");
         Path rankBoardDirectory = dataDirectory.resolve("rankboard");
@@ -93,7 +112,9 @@ public final class LeaderboardState extends SavedData {
             try { state.lookMenuDisabledPlayers.add(UUID.fromString(NbtCompat.asString(element))); }
             catch (IllegalArgumentException ignored) { }
         }
-        if (Integer.toString(HISTORY_SCHEMA).equals(NbtCompat.getString(nbt, "historySchema"))) {
+        String historySchema = NbtCompat.getString(nbt, "historySchema");
+        if ("3".equals(historySchema) || "4".equals(historySchema)
+                || Integer.toString(HISTORY_SCHEMA).equals(historySchema)) {
             for (Tag element : NbtCompat.getList(nbt, "periods", Tag.TAG_COMPOUND)) {
                 PeriodData data = PeriodData.fromNbt((CompoundTag) element);
                 state.periods.put(data.period, data);
@@ -199,28 +220,30 @@ public final class LeaderboardState extends SavedData {
                 changed = true;
             }
         }
-        if (!dailySnapshots.containsKey(now)) {
-            Map<UUID, Map<RankBoardMod.Metric, Long>> values = new HashMap<>();
-            snapshots.forEach(snapshot -> values.put(snapshot.uuid(), new EnumMap<>(snapshot.values())));
-            dailySnapshots.put(now, values);
-            if (LocalTime.now().isAfter(COMPLETE_BOUNDARY_LIMIT)) partialSnapshotDates.add(now);
-            else partialSnapshotDates.remove(now);
-            changed = true;
-        } else {
-            Map<UUID, Map<RankBoardMod.Metric, Long>> values = dailySnapshots.get(now);
-            boolean activatedMetric = false;
-            for (StatSnapshot snapshot : snapshots) {
-                Map<RankBoardMod.Metric, Long> playerValues = values.get(snapshot.uuid());
-                if (playerValues == null) continue;
-                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
-                    if (!playerValues.containsKey(metric)) {
-                        playerValues.put(metric, snapshot.value(metric));
-                        activatedMetric = true;
-                        changed = true;
+        try {
+            HistorySnapshotStore.Snapshot daily = historyStore.get(now).orElse(null);
+            if (daily == null) {
+                Map<UUID, Map<RankBoardMod.Metric, Long>> values = new HashMap<>();
+                snapshots.forEach(snapshot -> values.put(snapshot.uuid(), new EnumMap<>(snapshot.values())));
+                historyStore.put(now, values, boundaryTime.isAfter(COMPLETE_BOUNDARY_LIMIT));
+            } else {
+                Map<UUID, Map<RankBoardMod.Metric, Long>> values = new HashMap<>();
+                daily.players().forEach((uuid, playerValues) -> values.put(uuid, new EnumMap<>(playerValues)));
+                boolean activatedMetric = false;
+                for (StatSnapshot snapshot : snapshots) {
+                    Map<RankBoardMod.Metric, Long> playerValues = values.get(snapshot.uuid());
+                    if (playerValues == null) continue;
+                    for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                        if (!playerValues.containsKey(metric)) {
+                            playerValues.put(metric, snapshot.value(metric));
+                            activatedMetric = true;
+                        }
                     }
                 }
+                if (activatedMetric) historyStore.put(now, values, true);
             }
-            if (activatedMetric) partialSnapshotDates.add(now);
+        } catch (IOException exception) {
+            RankBoardMod.LOGGER.error("Could not update RankBoard history snapshot in {}", historyStore.directory(), exception);
         }
         if (changed) setDirty();
     }
@@ -355,7 +378,8 @@ public final class LeaderboardState extends SavedData {
                         + " 快照；最早快照为 " + earliestSnapshotDate(metric));
             }
         } else {
-            Map<UUID, Map<RankBoardMod.Metric, Long>> exact = dailySnapshots.get(from);
+            HistorySnapshotStore.Snapshot exactSnapshot = historySnapshot(from);
+            Map<UUID, Map<RankBoardMod.Metric, Long>> exact = exactSnapshot == null ? null : exactSnapshot.players();
             if (exact == null) {
                 throw new IllegalArgumentException("开始日期没有真实边界快照；最早快照为 " + earliestSnapshotDate(metric));
             }
@@ -363,7 +387,7 @@ public final class LeaderboardState extends SavedData {
                 throw new IllegalArgumentException("开始日期 " + from + " 尚未记录 " + metric.label()
                         + "；最早快照为 " + earliestSnapshotDate(metric));
             }
-            if (partialSnapshotDates.contains(from)) {
+            if (exactSnapshot.partial()) {
                 throw new IllegalArgumentException("开始日期 " + from + " 不是零点建立的完整快照");
             }
             startEntry = new java.util.AbstractMap.SimpleImmutableEntry<>(from, exact);
@@ -372,7 +396,7 @@ public final class LeaderboardState extends SavedData {
         LocalDate actualStart = startEntry.getKey();
         Map<UUID, Map<RankBoardMod.Metric, Long>> start = startEntry.getValue();
         List<String> warnings = new java.util.ArrayList<>();
-        if (!actualStart.equals(from) || partialSnapshotDates.contains(actualStart)) {
+        if (!actualStart.equals(from) || isPartialSnapshot(actualStart)) {
             warnings.add("请求周期缺少完整零点起点，实际从 " + actualStart + " 当日首次可信快照开始");
         }
 
@@ -381,12 +405,13 @@ public final class LeaderboardState extends SavedData {
             StatReader.readAll(server, metric).forEach(snapshot -> endValues.put(snapshot.uuid(), snapshot.value(metric)));
         } else {
             LocalDate requiredEnd = to.plusDays(1);
-            Map<UUID, Map<RankBoardMod.Metric, Long>> end = dailySnapshots.get(requiredEnd);
+            HistorySnapshotStore.Snapshot endSnapshot = historySnapshot(requiredEnd);
+            Map<UUID, Map<RankBoardMod.Metric, Long>> end = endSnapshot == null ? null : endSnapshot.players();
             if (end == null) throw new IllegalArgumentException("结束日期缺少次日零点快照：" + requiredEnd);
             if (!snapshotHasMetric(end, metric)) {
                 throw new IllegalArgumentException("结束边界 " + requiredEnd + " 尚未记录 " + metric.label());
             }
-            if (partialSnapshotDates.contains(requiredEnd)) throw new IllegalArgumentException("结束边界 " + requiredEnd + " 不是完整零点快照");
+            if (endSnapshot.partial()) throw new IllegalArgumentException("结束边界 " + requiredEnd + " 不是完整零点快照");
             end.forEach((uuid, values) -> {
                 Long value = values.get(metric);
                 if (value != null) endValues.put(uuid, value);
@@ -414,30 +439,47 @@ public final class LeaderboardState extends SavedData {
     }
 
     public String earliestSnapshotDate() {
-        if (dailySnapshots.isEmpty()) return "暂无历史快照";
-        LocalDate first = dailySnapshots.firstKey();
-        return first + (partialSnapshotDates.contains(first) ? "（部分）" : "");
+        Map.Entry<LocalDate, HistorySnapshotStore.Snapshot> entry = earliestHistorySnapshot(null);
+        if (entry == null) return "暂无历史快照";
+        return entry.getKey() + (entry.getValue().partial() ? "（部分）" : "");
     }
 
     public String earliestSnapshotDate(RankBoardMod.Metric metric) {
-        for (Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> entry : dailySnapshots.entrySet()) {
-            if (snapshotHasMetric(entry.getValue(), metric)) {
-                return entry.getKey() + (partialSnapshotDates.contains(entry.getKey()) ? "（部分）" : "");
-            }
-        }
-        return "暂无 " + metric.label() + " 快照";
+        Map.Entry<LocalDate, HistorySnapshotStore.Snapshot> entry = earliestHistorySnapshot(metric);
+        if (entry == null) return "暂无 " + metric.label() + " 快照";
+        return entry.getKey() + (entry.getValue().partial() ? "（部分）" : "");
     }
 
     private Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> firstSnapshotWithMetric(
             LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
-        Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> entry = dailySnapshots.ceilingEntry(from);
-        while (entry != null && !entry.getKey().isAfter(to)) {
-            if (snapshotHasMetric(entry.getValue(), metric)) return entry;
-            entry = dailySnapshots.higherEntry(entry.getKey());
+        try {
+            Map.Entry<LocalDate, HistorySnapshotStore.Snapshot> entry = historyStore.firstWithMetric(from, to, metric);
+            return entry == null ? null : new java.util.AbstractMap.SimpleImmutableEntry<>(
+                    entry.getKey(), entry.getValue().players());
+        } catch (IOException exception) {
+            throw historyReadFailure(exception);
         }
-        return null;
     }
 
+    private HistorySnapshotStore.Snapshot historySnapshot(LocalDate date) {
+        try { return historyStore.get(date).orElse(null); }
+        catch (IOException exception) { throw historyReadFailure(exception); }
+    }
+
+    private boolean isPartialSnapshot(LocalDate date) {
+        HistorySnapshotStore.Snapshot snapshot = historySnapshot(date);
+        return snapshot != null && snapshot.partial();
+    }
+
+    private Map.Entry<LocalDate, HistorySnapshotStore.Snapshot> earliestHistorySnapshot(RankBoardMod.Metric metric) {
+        try { return historyStore.earliest(metric); }
+        catch (IOException exception) { throw historyReadFailure(exception); }
+    }
+
+    private IllegalStateException historyReadFailure(IOException exception) {
+        RankBoardMod.LOGGER.error("Could not read RankBoard history snapshots from {}", historyStore.directory(), exception);
+        return new IllegalStateException("历史快照文件读取失败，请检查服务器日志", exception);
+    }
     private static boolean snapshotHasMetric(Map<UUID, Map<RankBoardMod.Metric, Long>> snapshot,
                                              RankBoardMod.Metric metric) {
         return snapshot.values().stream().anyMatch(values -> values.containsKey(metric));
