@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Github, LayoutDashboard, PackageOpen, Rows3 } from "lucide-react";
+import { ExternalLink, Github, PackageOpen } from "lucide-react";
 import BlurText from "@/components/BlurText/BlurText";
 
 type Metric = {
@@ -273,14 +273,6 @@ const metricGroups = [
 
 const today = new Date().toISOString().slice(0, 10);
 
-function initialUiMode(): "classic" | "modern" {
-  try {
-    return window.localStorage.getItem("rankboard-ui") === "modern" ? "modern" : "classic";
-  } catch {
-    return "classic";
-  }
-}
-
 export default function App() {
   const [period, setPeriod] = useState("all");
   const [metric, setMetric] = useState("playtime");
@@ -301,13 +293,6 @@ export default function App() {
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [uiMode, setUiMode] = useState<"classic" | "modern">(initialUiMode);
-
-  useEffect(() => {
-    try { window.localStorage.setItem("rankboard-ui", uiMode); }
-    catch { /* Storage may be disabled; switching still works for the current page. */ }
-  }, [uiMode]);
-
   useEffect(() => {
     let cancelled = false;
     const loadRanking = async () => {
@@ -449,7 +434,7 @@ export default function App() {
   }, [query, ranking]);
 
   return (
-    <div className={"app-shell ui-" + uiMode}>
+    <div className="app-shell">
       <header className="topbar glass">
         <div className="brand">
           {iconSource ? <img src={iconSource} onLoad={(event) => setIconColor(iconAverage(event.currentTarget))}
@@ -462,15 +447,6 @@ export default function App() {
             <span className={ranking?.cacheReady ? "signal online" : "signal"} />
             {ranking?.onlineOnly ? "仅在线玩家" : "历史统计同步"}
           </div>
-          <button
-            className="ui-switch"
-            type="button"
-            onClick={() => setUiMode((current) => current === "classic" ? "modern" : "classic")}
-            aria-label={"切换到" + (uiMode === "classic" ? "现代" : "经典") + "界面"}
-          >
-            {uiMode === "classic" ? <LayoutDashboard aria-hidden="true" /> : <Rows3 aria-hidden="true" />}
-            <span>{uiMode === "classic" ? "现代界面" : "经典界面"}</span>
-          </button>
         </div>
       </header>
 
