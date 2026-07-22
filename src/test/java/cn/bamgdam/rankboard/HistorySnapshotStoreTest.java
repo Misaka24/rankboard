@@ -14,6 +14,7 @@ public final class HistorySnapshotStoreTest {
                     "Damage taken was scaled instead of keeping the vanilla value");
             check("456".equals(RankBoardMod.format(RankBoardMod.Metric.DAMAGE_DEALT, 456L)),
                     "Damage dealt was scaled instead of keeping the vanilla value");
+            checkRanges();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
             store.put(LocalDate.of(2026, 8, 1), players(player, RankBoardMod.Metric.JUMPS, 20), true);
@@ -88,6 +89,26 @@ public final class HistorySnapshotStoreTest {
                 });
             }
         }
+    }
+
+    private static void checkRanges() {
+        LocalDate today = LocalDate.of(2026, 7, 22);
+        checkRange("day", today, LocalDate.of(2026, 7, 22), today);
+        checkRange("week", today, LocalDate.of(2026, 7, 16), today);
+        checkRange("month", today, LocalDate.of(2026, 6, 23), today);
+        checkRange("quarter", today, LocalDate.of(2026, 4, 24), today);
+        checkRange("year", today, LocalDate.of(2025, 7, 23), today);
+        RankingDateRanges.DateRange custom = RankingDateRanges.resolve(
+                "custom", today, "2026-01-02", "2026-03-04");
+        check(custom.from().equals(LocalDate.of(2026, 1, 2))
+                        && custom.to().equals(LocalDate.of(2026, 3, 4)),
+                "Custom date range was not preserved");
+    }
+
+    private static void checkRange(String period, LocalDate today, LocalDate from, LocalDate to) {
+        RankingDateRanges.DateRange range = RankingDateRanges.resolve(period, today, null, null);
+        check(range.from().equals(from) && range.to().equals(to),
+                "Unexpected " + period + " date range: " + range);
     }
 
     private static Map<UUID, Map<RankBoardMod.Metric, Long>> players(

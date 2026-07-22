@@ -244,19 +244,10 @@ final class WebDashboard {
             Map<String, String> query = query(exchange.getRequestURI().getRawQuery());
             String period = query.getOrDefault("period", "day");
             LocalDate today = LocalDate.now();
-            LocalDate from;
-            LocalDate to;
-            switch (period) {
-                case "day" -> { from = today; to = today; }
-                case "week" -> { from = today.minusDays(6); to = today; }
-                case "month" -> { from = today.minusDays(29); to = today; }
-                case "all" -> { from = today; to = today; }
-                case "custom" -> {
-                    from = LocalDate.parse(query.getOrDefault("from", today.toString()));
-                    to = LocalDate.parse(query.getOrDefault("to", from.toString()));
-                }
-                default -> throw new IllegalArgumentException("未知时间范围：" + period);
-            }
+            RankingDateRanges.DateRange dateRange = RankingDateRanges.resolve(
+                    period, today, query.get("from"), query.get("to"));
+            LocalDate from = dateRange.from();
+            LocalDate to = dateRange.to();
             RankBoardMod.Metric metric = metric(query.getOrDefault("metric", "playtime"));
             boolean onlineOnly = Boolean.parseBoolean(query.getOrDefault("online", "false"));
             CompletableFuture<String> result = new CompletableFuture<>();

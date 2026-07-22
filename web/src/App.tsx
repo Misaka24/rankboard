@@ -157,10 +157,12 @@ function formatLastOnline(player: Player) {
 
 const periods = [
   { id: "all", label: "总榜" },
-  { id: "day", label: "最近一日" },
+  { id: "day", label: "最近一天" },
   { id: "week", label: "最近一周" },
-  { id: "month", label: "最近一月" }
-  , { id: "custom", label: "自定义日期" }
+  { id: "month", label: "最近一月" },
+  { id: "quarter", label: "最近一季度" },
+  { id: "year", label: "最近一年" },
+  { id: "custom", label: "自定义日期" }
 ];
 
 const defaultMetrics: Metric[] = [
@@ -422,7 +424,7 @@ export default function App() {
 
           <div className="title-row">
             <div>
-              <p className="eyebrow">{period === "custom" && ranking ? `${ranking.actualStart ?? ranking.from} 至 ${ranking.actualEnd ?? ranking.to}` : periods.find((item) => item.id === period)?.label}</p>
+              <p className="eyebrow">{period !== "all" && ranking ? `${ranking.actualStart ?? ranking.from} 至 ${ranking.actualEnd ?? ranking.to}` : periods.find((item) => item.id === period)?.label}</p>
               <h1>{ranking?.label ?? activeMetric.label}</h1>
             </div>
             {ranking?.cacheChecking && (
