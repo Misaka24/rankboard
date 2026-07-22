@@ -192,15 +192,14 @@ const defaultMetrics: Metric[] = [
   { id: "ores", label: "矿业大亨榜", detail: "资源" },
   { id: "totem", label: "死里逃生榜", detail: "生存" },
   { id: "music", label: "音乐家榜", detail: "休闲" },
-  { id: "target", label: "神射手榜", detail: "战斗" },
-  { id: "social", label: "村民社交榜", detail: "社交" }
+  { id: "target", label: "神射手榜", detail: "战斗" }
 ];
 
 const metricGroups = [
   { id: "core", label: "常用", metrics: ["playtime", "mined", "placed", "kills", "deaths", "travel", "ores", "trades"] },
   { id: "combat", label: "战斗", metrics: ["kills", "pvp", "deaths", "damage", "dealt", "shield", "totem", "target"] },
   { id: "build", label: "建造", metrics: ["mined", "placed", "ores", "crafted", "redstone", "broken", "enchanted"] },
-  { id: "life", label: "生存", metrics: ["food", "fishing", "bred", "slept", "trades", "social", "totem"] },
+  { id: "life", label: "生存", metrics: ["food", "fishing", "bred", "slept", "trades", "totem"] },
   { id: "explore", label: "探索", metrics: ["travel", "elytra", "jumps", "picked", "dropped", "music"] },
   { id: "all", label: "全部", metrics: [] as string[] }
 ];

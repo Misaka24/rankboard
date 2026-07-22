@@ -44,6 +44,7 @@ public final class RankBoardMod implements ModInitializer {
     static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final int REFRESH_INTERVAL_TICKS = 600;
     private static final Set<UUID> LOOK_MENU_HELD = new HashSet<>();
+    private static final List<String> MENU_GROUPS = List.of("core", "combat", "build", "life", "explore", "all");
     private static final Set<String> REDSTONE_COMPONENTS = Set.of(
             "redstone", "redstone_torch", "repeater", "comparator", "observer", "piston", "sticky_piston",
             "dispenser", "dropper", "hopper", "lever", "tripwire_hook", "target", "daylight_detector",
@@ -126,20 +127,18 @@ public final class RankBoardMod implements ModInitializer {
                         .then(CommandManager.literal("scoreboard").executes(context -> helpGrouped(context.getSource(), "admin-scoreboard")))
                         .then(CommandManager.literal("web").executes(context -> helpGrouped(context.getSource(), "admin-web")))
                         .then(CommandManager.literal("config").executes(context -> helpGrouped(context.getSource(), "admin-config")))));
-        root.then(CommandManager.literal("menu")
-                .executes(context -> menu(context.getSource(), "core"))
-                .then(CommandManager.literal("core").executes(context -> menu(context.getSource(), "core")))
-                .then(CommandManager.literal("combat").executes(context -> menu(context.getSource(), "combat")))
-                .then(CommandManager.literal("build").executes(context -> menu(context.getSource(), "build")))
-                .then(CommandManager.literal("life").executes(context -> menu(context.getSource(), "life")))
-                .then(CommandManager.literal("explore").executes(context -> menu(context.getSource(), "explore")))
-                .then(CommandManager.literal("all").executes(context -> menu(context.getSource(), "all"))));
-        root.then(CommandManager.literal("mine")
-                .executes(context -> showMyScores(context.getSource(), Period.ALL))
-                .then(CommandManager.literal("all").executes(context -> showMyScores(context.getSource(), Period.ALL)))
-                .then(CommandManager.literal("day").executes(context -> showMyScores(context.getSource(), Period.DAILY)))
-                .then(CommandManager.literal("week").executes(context -> showMyScores(context.getSource(), Period.WEEKLY)))
-                .then(CommandManager.literal("month").executes(context -> showMyScores(context.getSource(), Period.MONTHLY))));
+        LiteralArgumentBuilder<ServerCommandSource> menuRoot = CommandManager.literal("menu")
+                .executes(context -> menu(context.getSource(), "core"));
+        for (String group : MENU_GROUPS) menuRoot.then(buildMenuGroupCommand(group));
+        root.then(menuRoot);
+        for (String group : MENU_GROUPS) {
+            if (!group.equals("all")) root.then(buildMenuGroupCommand(group));
+        }
+        root.then(CommandManager.literal("open").executes(context -> menu(context.getSource())));
+        root.then(buildMineCommands("mine"));
+        root.then(buildMineCommands("me"));
+        root.then(buildQuickSelectionCommands(false));
+        root.then(buildQuickSelectionCommands(true));
         root.then(CommandManager.literal("carousel")
                 .then(CommandManager.literal("true").executes(context -> BoardService.setCarousel(context.getSource(), true)))
                 .then(CommandManager.literal("false").executes(context -> BoardService.setCarousel(context.getSource(), false)))
@@ -291,9 +290,75 @@ public final class RankBoardMod implements ModInitializer {
             }
             root.then(periodNode);
         }
-        dispatcher.register(root);
+        var rootNode = dispatcher.register(root);
+        dispatcher.register(CommandManager.literal("lb").requires(source -> CommandPermissionCompat.has(source, 0))
+                .executes(context -> menu(context.getSource())).redirect(rootNode));
+        dispatcher.register(CommandManager.literal("rankboard").requires(source -> CommandPermissionCompat.has(source, 0))
+                .executes(context -> menu(context.getSource())).redirect(rootNode));
     }
 
+    private LiteralArgumentBuilder<ServerCommandSource> buildMenuGroupCommand(String group) {
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(group)
+                .executes(context -> menu(context.getSource(), group));
+        for (Metric metric : menuMetrics(group)) {
+            node.then(CommandManager.literal(metric.command)
+                    .executes(context -> BoardService.enable(context.getSource(), Period.ALL, metric)));
+        }
+        return node;
+    }
+
+    private LiteralArgumentBuilder<ServerCommandSource> buildMineCommands(String command) {
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
+                .executes(context -> showMyScores(context.getSource(), Period.ALL));
+        for (Period period : Period.values()) {
+            node.then(CommandManager.literal(period.shortCommand)
+                    .executes(context -> showMyScores(context.getSource(), period)));
+            if (!period.shortCommand.equals(period.command)) {
+                node.then(CommandManager.literal(period.command)
+                        .executes(context -> showMyScores(context.getSource(), period)));
+            }
+        }
+        return node;
+    }
+
+    private LiteralArgumentBuilder<ServerCommandSource> buildQuickSelectionCommands(boolean global) {
+        String command = global ? "global" : "show";
+        LiteralArgumentBuilder<ServerCommandSource> node = CommandManager.literal(command)
+                .requires(source -> !global || CommandPermissionCompat.has(source, 2))
+                .executes(context -> global ? boardSelectionMenu(context.getSource(), Period.ALL, true) : menu(context.getSource()));
+        for (Metric metric : Metric.values()) {
+            LiteralArgumentBuilder<ServerCommandSource> metricNode = CommandManager.literal(metric.command)
+                    .executes(context -> selectBoard(context.getSource(), global, Period.ALL, metric));
+            for (Period period : Period.values()) {
+                metricNode.then(CommandManager.literal(period.shortCommand)
+                        .executes(context -> selectBoard(context.getSource(), global, period, metric)));
+            }
+            node.then(metricNode);
+        }
+        for (Period period : Period.values()) {
+            LiteralArgumentBuilder<ServerCommandSource> periodNode = CommandManager.literal(period.shortCommand)
+                    .executes(context -> global ? boardSelectionMenu(context.getSource(), period, true) : boardSelectionMenu(context.getSource(), period, false));
+            for (Metric metric : Metric.values()) {
+                periodNode.then(CommandManager.literal(metric.command)
+                        .executes(context -> selectBoard(context.getSource(), global, period, metric)));
+            }
+            node.then(periodNode);
+            if (!period.shortCommand.equals(period.command)) {
+                LiteralArgumentBuilder<ServerCommandSource> longPeriodNode = CommandManager.literal(period.command)
+                        .executes(context -> global ? boardSelectionMenu(context.getSource(), period, true) : boardSelectionMenu(context.getSource(), period, false));
+                for (Metric metric : Metric.values()) {
+                    longPeriodNode.then(CommandManager.literal(metric.command)
+                            .executes(context -> selectBoard(context.getSource(), global, period, metric)));
+                }
+                node.then(longPeriodNode);
+            }
+        }
+        return node;
+    }
+
+    private int selectBoard(ServerCommandSource source, boolean global, Period period, Metric metric) {
+        return global ? BoardService.writeVanilla(source, period, metric) : BoardService.enable(source, period, metric);
+    }
     private LiteralArgumentBuilder<ServerCommandSource> buildSelectionCommands(boolean vanilla) {
         LiteralArgumentBuilder<ServerCommandSource> periods = CommandManager.literal("show");
         for (Period period : Period.values()) {
@@ -372,6 +437,10 @@ public final class RankBoardMod implements ModInitializer {
         switch (group) {
             case "player" -> {
                 helpCommand(source, "/leaderboard", "/leaderboard", "打开排行榜菜单");
+                helpCommand(source, "/lb | /rankboard", "/lb", "快捷打开排行榜菜单；支持完整 Tab 补全");
+                helpCommand(source, "/leaderboard me <周期>", "/leaderboard me ", "快捷查看个人统计");
+                helpCommand(source, "/leaderboard show <榜单> [周期]", "/leaderboard show ", "快捷切换个人侧边栏");
+                helpCommand(source, "/leaderboard <分类> <榜单>", "/leaderboard core ", "从分类补全并切换榜单");
                 helpCommand(source, "/leaderboard mine", "/leaderboard mine", "查询所有个人统计并显示总览");
                 helpCommand(source, "/leaderboard mine <all|day|week|month>", "/leaderboard mine ", "查询指定周期的个人统计");
                 helpCommand(source, "/leaderboard <周期> <榜单> [数量]", "/leaderboard all playtime ", "查看排行榜");
@@ -434,6 +503,7 @@ public final class RankBoardMod implements ModInitializer {
             case "admin-scoreboard" -> {
                 if (!op) return 0;
                 helpCommand(source, "/leaderboard displayfilter <榜单> <true|false|status>", "/leaderboard displayfilter ", "管理榜单显示");
+                helpCommand(source, "/leaderboard global <榜单> [周期]", "/leaderboard global ", "快捷设置全服共享侧边栏");
                 helpCommand(source, "/leaderboard scoreboard show <周期> <榜单>", "/leaderboard scoreboard show ", "显示全服共享原版侧边栏；不会改变玩家名字颜色");
                 helpCommand(source, "/leaderboard scoreboard clear", "/leaderboard scoreboard clear", "关闭 RankBoard 全服共享侧边栏");
                 helpCommand(source, "/leaderboard scoreboard cleanup", "/leaderboard scoreboard cleanup", "检测并关闭当前其他模组计分板显示槽");
@@ -593,12 +663,17 @@ public final class RankBoardMod implements ModInitializer {
                     .boardPreference(source.getEntity() == null ? null : source.getEntity().getUuid());
             boardEnabled = preference != null && preference.enabled();
         } catch (RuntimeException ignored) { }
-        Text firstRow = clickable("[查询分数]", Formatting.GOLD, "/leaderboard mine all", "查看自己的全部统计分数")
+        source.sendFeedback(() -> Text.literal("=== RankBoard 快捷菜单 ===").formatted(Formatting.GOLD), false);
+        Text statsRow = clickable("[我的总计]", Formatting.GOLD, "/leaderboard me all", "查看自己的全部统计分数")
                 .copy().append(Text.literal(" "))
-                .append(clickable(boardEnabled ? "[关闭榜单]" : "[开启榜单]",
-                        boardEnabled ? Formatting.RED : Formatting.GREEN,
-                        boardEnabled ? "/leaderboard display off" : "/leaderboard display on",
-                        boardEnabled ? "关闭自己的客户端计分板" : "恢复关闭前的客户端计分板"));
+                .append(clickable("[今日]", Formatting.YELLOW, "/leaderboard me day", "查看自己的今日统计"))
+                .append(Text.literal(" ")).append(clickable("[本周]", Formatting.AQUA, "/leaderboard me week", "查看自己的本周统计"))
+                .append(Text.literal(" ")).append(clickable("[本月]", Formatting.LIGHT_PURPLE, "/leaderboard me month", "查看自己的本月统计"));
+        source.sendFeedback(() -> statsRow, false);
+        Text firstRow = clickable(boardEnabled ? "[关闭侧边栏]" : "[恢复侧边栏]",
+                boardEnabled ? Formatting.RED : Formatting.GREEN,
+                boardEnabled ? "/leaderboard display off" : "/leaderboard display on",
+                boardEnabled ? "关闭自己的客户端计分板" : "恢复关闭前的客户端计分板");
         try {
             boolean enabled = LeaderboardState.get(source.getServer()).isLookMenuEnabled(source.getEntity() == null
                     ? null : source.getEntity().getUuid());
@@ -613,7 +688,14 @@ public final class RankBoardMod implements ModInitializer {
 
         Text secondRow = Text.empty();
         boolean hasSecondRowButton = false;
+        if (CommandPermissionCompat.has(source, 2)) {
+            secondRow = clickable("[设置全局榜单]", Formatting.GOLD, "/leaderboard global all", "为全服设置原版侧边栏榜单")
+                    .copy().append(Text.literal(" "))
+                    .append(clickable("[清除全局榜单]", Formatting.RED, "/leaderboard scoreboard clear", "清除原版全局侧边栏"));
+            hasSecondRowButton = true;
+        }
         if (RankBoardConfig.get().carouselEnabled) {
+            if (hasSecondRowButton) secondRow = secondRow.copy().append(Text.literal(" "));
             secondRow = secondRow.copy().append(clickable(
                     "[轮播]", Formatting.AQUA, "/leaderboard carousel on", "自动轮播当前周期的榜单"));
             hasSecondRowButton = true;
@@ -650,6 +732,41 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
 
+    private int boardSelectionMenu(ServerCommandSource source, Period period, boolean global) {
+        String command = global ? "global" : "show";
+        String title = global ? "设置全局榜单" : "切换个人侧边栏";
+        source.sendFeedback(() -> Text.literal("=== " + title + " · " + period.label + " ===").formatted(Formatting.GOLD), false);
+        Text periods = Text.literal("统计周期 ").formatted(Formatting.GRAY);
+        for (Period candidate : Period.values()) {
+            periods = periods.copy().append(clickable("[" + candidate.menuLabel + "]",
+                    candidate == period ? Formatting.GOLD : Formatting.AQUA,
+                    "/leaderboard " + command + " " + candidate.shortCommand,
+                    "选择" + candidate.label + "并显示可设置的榜单")).append(Text.literal(" "));
+        }
+        Text finalPeriods = periods;
+        source.sendFeedback(() -> finalPeriods, false);
+        List<Metric> metrics = orderedMenuMetrics();
+        for (int start = 0; start < metrics.size(); start += 4) {
+            Text line = Text.empty();
+            int visible = 0;
+            for (Metric metric : metrics.subList(start, Math.min(start + 4, metrics.size()))) {
+                if (!LeaderboardState.get(source.getServer()).isMetricDisplayEnabled(metric)) continue;
+                if (visible++ > 0) line = line.copy().append(Text.literal(" "));
+                line = line.copy().append(clickable("[" + metric.label() + "]", metric,
+                        "/leaderboard " + command + " " + period.shortCommand + " " + metric.command,
+                        global ? "点击把全服原版侧边栏切换为" + period.label + metric.label()
+                                : "点击把自己的侧边栏切换为" + period.label + metric.label()));
+            }
+            if (visible > 0) {
+                Text finalLine = line;
+                source.sendFeedback(() -> finalLine, false);
+            }
+        }
+        source.sendFeedback(() -> global
+                ? clickable("[清除全局榜单]", Formatting.RED, "/leaderboard scoreboard clear", "清除原版全局侧边栏")
+                : clickable("[关闭个人侧边栏]", Formatting.RED, "/leaderboard display off", "关闭自己的侧边栏"), false);
+        return 1;
+    }
     private void sendMenuCategories(ServerCommandSource source, String selected) {
         Text line = Text.literal("分类 ").formatted(Formatting.GRAY);
         String[][] groups = {
@@ -672,7 +789,7 @@ public final class RankBoardMod implements ModInitializer {
             case "build" -> List.of(Metric.MINED, Metric.PLACED, Metric.ORES_MINED, Metric.CRAFTED,
                     Metric.REDSTONE_PLACED, Metric.TOOLS_BROKEN);
             case "life" -> List.of(Metric.FOOD, Metric.FISHING, Metric.ANIMALS_BRED, Metric.SLEPT,
-                    Metric.TRADES, Metric.VILLAGER_TALKS, Metric.ENCHANTED);
+                    Metric.TRADES, Metric.ENCHANTED);
             case "explore" -> List.of(Metric.TRAVEL_DISTANCE, Metric.ELYTRA_DISTANCE, Metric.JUMPS,
                     Metric.PICKED_UP, Metric.DROPPED, Metric.MUSIC_PLAYED);
             case "all" -> orderedMenuMetrics();
@@ -1429,8 +1546,7 @@ public final class RankBoardMod implements ModInitializer {
         ORES_MINED("ores", "矿业大亨榜", Formatting.GOLD, RankBoardMod::oresMined),
         TOTEM_USED("totem", "死里逃生榜", Formatting.YELLOW, RankBoardMod::totemsUsed),
         MUSIC_PLAYED("music", "音乐家榜", Formatting.LIGHT_PURPLE, p -> custom(p, Stats.PLAY_RECORD)),
-        TARGET_HITS("target", "神射手榜", Formatting.RED, p -> custom(p, Stats.TARGET_HIT)),
-        VILLAGER_TALKS("social", "村民社交榜", Formatting.GREEN, p -> custom(p, Stats.TALKED_TO_VILLAGER));
+        TARGET_HITS("target", "神射手榜", Formatting.RED, p -> custom(p, Stats.TARGET_HIT));
 
         final String command;
         final String label;
@@ -1444,10 +1560,16 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     public enum Period {
-        DAILY("daily", "每日"), WEEKLY("weekly", "每周"), MONTHLY("monthly", "每月"), YEARLY("yearly", "每年"), ALL("all", "总计");
+        DAILY("daily", "day", "每日", "今日"), WEEKLY("weekly", "week", "每周", "本周"),
+        MONTHLY("monthly", "month", "每月", "本月"), YEARLY("yearly", "year", "每年", "本年"),
+        ALL("all", "all", "总计", "总计");
         final String command;
+        final String shortCommand;
         final String label;
-        Period(String command, String label) { this.command = command; this.label = label; }
+        final String menuLabel;
+        Period(String command, String shortCommand, String label, String menuLabel) {
+            this.command = command; this.shortCommand = shortCommand; this.label = label; this.menuLabel = menuLabel;
+        }
         String key(LocalDate date) {
             return switch (this) {
                 case DAILY -> date.toString();

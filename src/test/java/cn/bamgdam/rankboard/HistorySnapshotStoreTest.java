@@ -17,6 +17,7 @@ public final class HistorySnapshotStoreTest {
             checkRanges();
             checkNewMetrics();
             checkMenuCoverage();
+            checkCommandTree();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
             store.put(LocalDate.of(2026, 8, 1), players(player, RankBoardMod.Metric.JUMPS, 20), true);
@@ -119,6 +120,35 @@ public final class HistorySnapshotStoreTest {
                 "Categorized menu does not cover every metric: " + covered);
     }
 
+    private static void checkCommandTree() throws Exception {
+        var dispatcher = new com.mojang.brigadier.CommandDispatcher<net.minecraft.server.command.ServerCommandSource>();
+        var register = RankBoardMod.class.getDeclaredMethod("registerCommands",
+                com.mojang.brigadier.CommandDispatcher.class,
+                net.minecraft.command.CommandRegistryAccess.class,
+                net.minecraft.server.command.CommandManager.RegistrationEnvironment.class);
+        register.setAccessible(true);
+        register.invoke(new RankBoardMod(), dispatcher, null, null);
+        var root = dispatcher.getRoot().getChild("leaderboard");
+        check(root != null, "leaderboard command root missing");
+        check(dispatcher.getRoot().getChild("lb").getRedirect() == root, "lb alias does not share command completion");
+        check(dispatcher.getRoot().getChild("rankboard").getRedirect() == root,
+                "rankboard alias does not share command completion");
+        checkCommandPath(root, "menu", "core", "placed");
+        checkCommandPath(root, "core", "placed");
+        checkCommandPath(root, "show", "placed", "week");
+        checkCommandPath(root, "show", "week", "placed");
+        checkCommandPath(root, "global", "placed", "month");
+        checkCommandPath(root, "global", "month", "placed");
+        checkCommandPath(root, "me", "yearly");
+    }
+
+    private static void checkCommandPath(com.mojang.brigadier.tree.CommandNode<?> root, String... path) {
+        com.mojang.brigadier.tree.CommandNode<?> node = root;
+        for (String segment : path) {
+            node = node.getChild(segment);
+            check(node != null, "Command completion path missing: " + String.join(" ", path));
+        }
+    }
     @SuppressWarnings("unchecked")
     private static void checkNewMetrics() throws Exception {
         com.google.gson.JsonObject stats = new com.google.gson.JsonObject();
@@ -131,7 +161,6 @@ public final class HistorySnapshotStoreTest {
         custom.addProperty("minecraft:boat_one_cm", 200_000);
         custom.addProperty("minecraft:play_record", 6);
         custom.addProperty("minecraft:target_hit", 7);
-        custom.addProperty("minecraft:talked_to_villager", 8);
         stats.add("minecraft:custom", custom);
         com.google.gson.JsonObject broken = new com.google.gson.JsonObject();
         broken.addProperty("minecraft:diamond_pickaxe", 2);
@@ -160,7 +189,6 @@ public final class HistorySnapshotStoreTest {
         check(values.get(RankBoardMod.Metric.TOTEM_USED) == 11L, "Totem metric mismatch");
         check(values.get(RankBoardMod.Metric.MUSIC_PLAYED) == 6L, "Music metric mismatch");
         check(values.get(RankBoardMod.Metric.TARGET_HITS) == 7L, "Target metric mismatch");
-        check(values.get(RankBoardMod.Metric.VILLAGER_TALKS) == 8L, "Villager social metric mismatch");
         check("3.0 km".equals(RankBoardMod.format(RankBoardMod.Metric.TRAVEL_DISTANCE, 300_000L)),
                 "Travel formatting mismatch");
     }

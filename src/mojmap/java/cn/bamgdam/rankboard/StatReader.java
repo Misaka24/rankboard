@@ -42,7 +42,7 @@ final class StatReader {
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 5;
+    private static final int PERSISTENT_CACHE_SCHEMA = 6;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -473,7 +473,6 @@ final class StatReader {
             case TOTEM_USED -> stat(stats, "minecraft:used", "minecraft:totem_of_undying");
             case MUSIC_PLAYED -> stat(stats, "minecraft:custom", "minecraft:play_record");
             case TARGET_HITS -> stat(stats, "minecraft:custom", "minecraft:target_hit");
-            case VILLAGER_TALKS -> stat(stats, "minecraft:custom", "minecraft:talked_to_villager");
         };
     }
 
