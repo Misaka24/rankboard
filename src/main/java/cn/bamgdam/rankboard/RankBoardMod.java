@@ -419,7 +419,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(CommandManager.literal("list").executes(context -> listMetricColors(context.getSource())));
         LiteralArgumentBuilder<ServerCommandSource> reset = CommandManager.literal("reset")
                 .then(CommandManager.literal("all").executes(context -> resetAllMetricColors(context.getSource())));
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             root.then(CommandManager.literal(metric.command)
                     .executes(context -> showColorPresets(context.getSource(), metric))
                     .then(CommandManager.argument("value", StringArgumentType.word())
@@ -438,7 +438,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(CommandManager.literal("list").executes(context -> listMetricLabels(context.getSource())));
         LiteralArgumentBuilder<ServerCommandSource> reset = CommandManager.literal("reset")
                 .then(CommandManager.literal("all").executes(context -> resetAllMetricLabels(context.getSource())));
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             root.then(CommandManager.literal(metric.command)
                     .executes(context -> showMetricLabel(context.getSource(), metric))
                     .then(CommandManager.argument("name", StringArgumentType.greedyString())
@@ -617,8 +617,8 @@ public final class RankBoardMod implements ModInitializer {
                 configHelp(source, "scoreboard-switch-message-enabled");
                 configHelp(source, "scoreboard-name-color-enabled");
                 configHelp(source, "player-name-color-render-mode");
-                for (Metric metric : Metric.values()) configHelp(source, "metric-label-" + metric.command);
-                for (Metric metric : Metric.values()) configHelp(source, "metric-color-" + metric.command);
+                for (Metric metric : orderedMenuMetrics()) configHelp(source, "metric-label-" + metric.command);
+                for (Metric metric : orderedMenuMetrics()) configHelp(source, "metric-color-" + metric.command);
                 configHelp(source, "scoreboard-title-color-enabled");
                 configHelp(source, "scoreboard-live-update-enabled");
                 configHelp(source, "scoreboard-live-update-window-seconds");
@@ -680,8 +680,12 @@ public final class RankBoardMod implements ModInitializer {
                 "/leaderboard config set " + key + " ", RankBoardConfig.description(key) + effect);
     }
 
+    private void beginMenu(ServerCommandSource source, String title) {
+        source.sendFeedback(() -> Text.literal("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n◆ " + title
+                + " ◆\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━").formatted(Formatting.GOLD), false);
+    }
     private int menu(ServerCommandSource source) {
-        source.sendFeedback(() -> Text.literal("=== RankBoard 功能菜单 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "RankBoard 功能菜单");
         Text playerRow = clickable("[查询排行榜]", Formatting.YELLOW, "/leaderboard menu ranking", "选择时间、分类和榜单后，直接在聊天框显示排名")
                 .copy().append(Text.literal(" "))
                 .append(clickable("[分类浏览榜单]", Formatting.AQUA, "/leaderboard menu core", "浏览榜单并进入个人、全服或指定玩家侧边栏操作"))
@@ -728,7 +732,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int carouselMenu(ServerCommandSource source) {
-        source.sendFeedback(() -> Text.literal("=== 轮播 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "轮播");
         Text actions = clickable("[开启轮播]", Formatting.GREEN, "/leaderboard carousel on", "立即开启自己的榜单轮播")
                 .copy().append(Text.literal(" "))
                 .append(clickable("[关闭轮播]", Formatting.RED, "/leaderboard carousel off", "立即关闭自己的榜单轮播"))
@@ -740,7 +744,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int lookMenu(ServerCommandSource source) {
-        source.sendFeedback(() -> Text.literal("=== 抬头蹲起菜单 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "抬头蹲起菜单");
         Text actions = clickable("[开启]", Formatting.GREEN, "/leaderboard lookmenu true", "开启抬头+蹲起打开菜单")
                 .copy().append(Text.literal(" "))
                 .append(clickable("[关闭]", Formatting.RED, "/leaderboard lookmenu false", "关闭抬头+蹲起打开菜单"))
@@ -757,7 +761,7 @@ public final class RankBoardMod implements ModInitializer {
                     .boardPreference(source.getEntity() == null ? null : source.getEntity().getUuid());
             boardEnabled = preference != null && preference.enabled();
         } catch (RuntimeException ignored) { }
-        source.sendFeedback(() -> Text.literal("=== RankBoard 快捷菜单 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "RankBoard 快捷菜单");
         Text statsRow = clickable("[我的总计]", Formatting.GOLD, "/leaderboard mine all", "查看自己的全部统计分数")
                 .copy().append(Text.literal(" "))
                 .append(clickable("[今日]", Formatting.YELLOW, "/leaderboard mine day", "查看自己的今日统计"))
@@ -840,7 +844,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int periodPickerMenu(ServerCommandSource source, int mode) {
         String command = menuModeCommand(mode);
-        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · 选择时间 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · 选择时间");
         Text line = Text.empty();
         boolean added = false;
         for (Period period : Period.values()) {
@@ -857,8 +861,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int categoryPickerMenu(ServerCommandSource source, int mode, Period period) {
         String command = menuModeCommand(mode);
-        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择分类 ===")
-                .formatted(Formatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · 选择分类");
         Text line = Text.empty();
         boolean added = false;
         String[][] groups = {{"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
@@ -880,8 +883,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int metricPickerMenu(ServerCommandSource source, int mode, Period period, String group) {
         String command = menuModeCommand(mode);
-        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择榜单 ===")
-                .formatted(Formatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · 选择榜单");
         if (group.equals("fun")) {
             Text subgroups = clickable("[综合受害榜]", Formatting.GOLD,
                             "/leaderboard menu " + command + " " + period.shortCommand + " fun overview",
@@ -919,7 +921,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int funBrowseMetricsMenu(ServerCommandSource source, boolean victims) {
         String title = victims ? "单种生物受害榜" : "综合受害榜";
-        source.sendFeedback(() -> Text.literal("=== 生物受害 · " + title + " ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "生物受害 · " + title);
         List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
         for (int start = 0; start < metrics.size(); start += 4) {
             sendMetricMenuRow(source, "fun", metrics.subList(start, Math.min(start + 4, metrics.size())).toArray(Metric[]::new));
@@ -932,8 +934,7 @@ public final class RankBoardMod implements ModInitializer {
     private int funWizardMetricsMenu(ServerCommandSource source, int mode, Period period, boolean victims) {
         String command = menuModeCommand(mode);
         String title = victims ? "单种生物受害榜" : "综合受害榜";
-        source.sendFeedback(() -> Text.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · " + title + " ===")
-                .formatted(Formatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · " + title);
         List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
         for (int start = 0; start < metrics.size(); start += 4) {
             Text line = Text.empty();
@@ -957,7 +958,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int browseMetricMenu(ServerCommandSource source, String group, Metric metric) {
-        source.sendFeedback(() -> Text.literal("=== " + metric.label() + " · 选择时间 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, metric.label() + " · 选择时间");
         Text line = Text.empty();
         boolean added = false;
         for (Period period : Period.values()) {
@@ -974,8 +975,7 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
     private int browseMetricActionMenu(ServerCommandSource source, String group, Metric metric, Period period) {
-        source.sendFeedback(() -> Text.literal("=== " + period.label + metric.label() + " · 选择操作 ===")
-                .formatted(Formatting.GOLD), false);
+        beginMenu(source, period.label + metric.label() + " · 选择操作");
         Text actions = clickable("[设为个人侧边栏]", Formatting.GREEN,
                 "/leaderboard display show " + period.command + " " + group + " " + metric.command,
                 "把自己的侧边栏切换为该榜单");
@@ -997,8 +997,7 @@ public final class RankBoardMod implements ModInitializer {
     private int browsePlayersMenu(ServerCommandSource source, String group, Metric metric, Period period) {
         List<ServerPlayerEntity> players = source.getServer().getPlayerManager().getPlayerList().stream()
                 .sorted(Comparator.comparing(player -> player.getName().getString(), String.CASE_INSENSITIVE_ORDER)).toList();
-        source.sendFeedback(() -> Text.literal("=== 指定玩家 · " + period.label + metric.label() + " ===")
-                .formatted(Formatting.GOLD), false);
+        beginMenu(source, "指定玩家 · " + period.label + metric.label());
         if (players.isEmpty()) source.sendFeedback(() -> Text.literal("当前没有在线玩家。").formatted(Formatting.GRAY), false);
         for (int start = 0; start < players.size(); start += 4) {
             Text line = Text.empty();
@@ -1022,7 +1021,7 @@ public final class RankBoardMod implements ModInitializer {
     private int browsePlayerMenu(ServerCommandSource source, String group, Metric metric, Period period,
                                   ServerPlayerEntity player) {
         String name = player.getName().getString();
-        source.sendFeedback(() -> Text.literal("=== " + name + " · 侧边栏操作 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, name + " · 侧边栏操作");
         Text actions = clickable("[显示该榜单]", Formatting.GREEN,
                         "/leaderboard display show " + period.command + " " + group + " " + metric.command + " " + name,
                         "为 " + name + " 显示" + period.label + metric.label())
@@ -1130,7 +1129,7 @@ public final class RankBoardMod implements ModInitializer {
             state.rollPeriods(source.getServer());
             BoardService.enableOverview(source, period);
             String label = period == Period.ALL ? "总计" : period.label;
-            source.sendFeedback(() -> Text.literal("=== 我的分数 · " + label + " ===").formatted(Formatting.GOLD), false);
+            beginMenu(source, "我的分数 · " + label);
             if (period != Period.ALL && !state.isPeriodComplete(period)) {
                 source.sendFeedback(() -> Text.literal("当前周期从首个可信基线开始，部分指标可能暂不可用。")
                         .formatted(Formatting.YELLOW), false);
@@ -1165,7 +1164,7 @@ public final class RankBoardMod implements ModInitializer {
         }
     }
     private int listConfig(ServerCommandSource source) {
-        source.sendFeedback(() -> Text.literal("=== RankBoard 配置 ===").formatted(Formatting.GOLD), false);
+        beginMenu(source, "RankBoard 配置");
         for (String key : RankBoardConfig.optionKeys()) {
             String value = RankBoardConfig.value(key);
             source.sendFeedback(() -> Text.literal(key + " = " + (value.isEmpty() ? "(空/自动)" : value))
@@ -1439,13 +1438,13 @@ public final class RankBoardMod implements ModInitializer {
 
     private int resetAllMetricLabels(ServerCommandSource source) {
         try {
-            for (Metric metric : Metric.values()) {
+            for (Metric metric : orderedMenuMetrics()) {
                 String key = "metric-label-" + metric.command;
                 RankBoardConfig.set(source.getServer(), key, RankBoardConfig.defaultValue(key));
             }
             refreshMetricLabels(source.getServer());
             source.sendFeedback(() -> Text.literal("已恢复全部榜单默认名称。"), true);
-            return Metric.values().length;
+            return orderedMenuMetrics().size();
         } catch (java.io.IOException exception) {
             source.sendError(Text.literal("榜单名称保存失败：" + exception.getMessage()));
             return 0;
@@ -1453,10 +1452,10 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int listMetricLabels(ServerCommandSource source) {
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             source.sendFeedback(() -> Text.literal(metric.command + " = " + metric.label()), false);
         }
-        return Metric.values().length;
+        return orderedMenuMetrics().size();
     }
 
     private int saveMetricLabel(ServerCommandSource source, Metric metric, String value, String action) {
@@ -1525,13 +1524,13 @@ public final class RankBoardMod implements ModInitializer {
 
     private int resetAllMetricColors(ServerCommandSource source) {
         try {
-            for (Metric metric : Metric.values()) {
+            for (Metric metric : orderedMenuMetrics()) {
                 String key = "metric-color-" + metric.command;
                 RankBoardConfig.set(source.getServer(), key, RankBoardConfig.defaultValue(key));
             }
             refreshColors(source.getServer());
             source.sendFeedback(() -> Text.literal("已恢复全部榜单默认颜色。"), true);
-            return Metric.values().length;
+            return orderedMenuMetrics().size();
         } catch (java.io.IOException exception) {
             source.sendError(Text.literal("颜色配置保存失败：" + exception.getMessage()));
             return 0;
@@ -1539,14 +1538,14 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int listMetricColors(ServerCommandSource source) {
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             String value = RankBoardConfig.value("metric-color-" + metric.command);
             Text entry = clickable("[" + metric.label() + " / " + metric.command + "] " + value,
                     metric, "/leaderboard color " + metric.command,
                     "点击打开 " + metric.label() + " 的原版 16 色预选");
             source.sendFeedback(() -> entry, false);
         }
-        return Metric.values().length;
+        return orderedMenuMetrics().size();
     }
 
     private int saveMetricColor(ServerCommandSource source, Metric metric, String value, String action) {
@@ -1924,6 +1923,10 @@ public final class RankBoardMod implements ModInitializer {
         }
         long read(ServerPlayerEntity player) { return counter.read(player); }
         String label() { return RankBoardConfig.get().metricLabel(this); }
+        int defaultRgb() {
+            Integer value = nameColor.getColorValue();
+            return value == null ? 0xFFFFFF : value;
+        }
         boolean isFun() { return fun; }
         String victimEntityId() { return victimEntityId; }
     }

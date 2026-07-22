@@ -16,6 +16,7 @@ public final class HistorySnapshotStoreTest {
                     "Damage dealt was scaled instead of keeping the vanilla value");
             checkRanges();
             checkNewMetrics();
+            checkMetricPresentation();
             checkMenuCoverage();
             checkObjectiveNames();
             checkCommandTree();
@@ -109,6 +110,13 @@ public final class HistorySnapshotStoreTest {
                 "Custom date range was not preserved");
     }
 
+    private static void checkMetricPresentation() {
+        for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+            check(!metric.label().isBlank(), "Metric label missing: " + metric.command);
+            int color = RankBoardColors.rgb(metric);
+            check(color >= 0 && color <= 0xFFFFFF, "Metric color invalid: " + metric.command);
+        }
+    }
     @SuppressWarnings("unchecked")
     private static void checkMenuCoverage() throws Exception {
         var method = RankBoardMod.class.getDeclaredMethod("menuMetrics", String.class);

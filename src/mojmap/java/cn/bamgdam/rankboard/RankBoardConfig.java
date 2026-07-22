@@ -224,13 +224,16 @@ final class RankBoardConfig {
     static String defaultValue(String key) { return requireOption(key).defaultValue; }
 
     int metricColor(RankBoardMod.Metric metric) {
-        return Integer.parseInt(mainProperties.getProperty("metric-color-" + metric.command,
-                defaultValue("metric-color-" + metric.command)).substring(1), 16);
+        String key = "metric-color-" + metric.command;
+        Option option = findOption(key);
+        if (option == null) return metric.defaultRgb();
+        return Integer.parseInt(mainProperties.getProperty(key, option.defaultValue).substring(1), 16);
     }
 
     String metricLabel(RankBoardMod.Metric metric) {
-        return mainProperties.getProperty("metric-label-" + metric.command,
-                defaultValue("metric-label-" + metric.command));
+        String key = "metric-label-" + metric.command;
+        Option option = findOption(key);
+        return option == null ? metric.label : mainProperties.getProperty(key, option.defaultValue);
     }
 
     static boolean isWebOption(String key) {

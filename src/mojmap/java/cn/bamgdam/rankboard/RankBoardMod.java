@@ -408,7 +408,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(Commands.literal("list").executes(context -> listMetricColors(context.getSource())));
         LiteralArgumentBuilder<CommandSourceStack> reset = Commands.literal("reset")
                 .then(Commands.literal("all").executes(context -> resetAllMetricColors(context.getSource())));
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             root.then(Commands.literal(metric.command)
                     .executes(context -> showColorPresets(context.getSource(), metric))
                     .then(Commands.argument("value", StringArgumentType.word())
@@ -426,7 +426,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(Commands.literal("list").executes(context -> listMetricLabels(context.getSource())));
         LiteralArgumentBuilder<CommandSourceStack> reset = Commands.literal("reset")
                 .then(Commands.literal("all").executes(context -> resetAllMetricLabels(context.getSource())));
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             root.then(Commands.literal(metric.command)
                     .executes(context -> showMetricLabel(context.getSource(), metric))
                     .then(Commands.argument("name", StringArgumentType.greedyString())
@@ -587,8 +587,12 @@ public final class RankBoardMod implements ModInitializer {
         source.sendSuccess(() -> line, false);
     }
 
+    private void beginMenu(CommandSourceStack source, String title) {
+        source.sendSuccess(() -> Component.literal("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n◆ " + title
+                + " ◆\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━").withStyle(ChatFormatting.GOLD), false);
+    }
     private int menu(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("=== RankBoard 功能菜单 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "RankBoard 功能菜单");
         Component playerRow = clickable("[查询排行榜]", ChatFormatting.YELLOW, "/leaderboard menu ranking", "选择时间、分类和榜单后，直接在聊天框显示排名")
                 .copy().append(Component.literal(" "))
                 .append(clickable("[分类浏览榜单]", ChatFormatting.AQUA, "/leaderboard menu core", "浏览榜单并进入个人、全服或指定玩家侧边栏操作"))
@@ -635,7 +639,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int carouselMenu(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("=== 轮播 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "轮播");
         Component actions = clickable("[开启轮播]", ChatFormatting.GREEN, "/leaderboard carousel on", "立即开启自己的榜单轮播")
                 .copy().append(Component.literal(" "))
                 .append(clickable("[关闭轮播]", ChatFormatting.RED, "/leaderboard carousel off", "立即关闭自己的榜单轮播"))
@@ -647,7 +651,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int lookMenu(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("=== 抬头蹲起菜单 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "抬头蹲起菜单");
         Component actions = clickable("[开启]", ChatFormatting.GREEN, "/leaderboard lookmenu true", "开启抬头+蹲起打开菜单")
                 .copy().append(Component.literal(" "))
                 .append(clickable("[关闭]", ChatFormatting.RED, "/leaderboard lookmenu false", "关闭抬头+蹲起打开菜单"))
@@ -664,7 +668,7 @@ public final class RankBoardMod implements ModInitializer {
                     .boardPreference(source.getEntity() == null ? null : source.getEntity().getUUID());
             boardEnabled = preference != null && preference.enabled();
         } catch (RuntimeException ignored) { }
-        source.sendSuccess(() -> Component.literal("=== RankBoard 快捷菜单 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "RankBoard 快捷菜单");
         Component statsRow = clickable("[我的总计]", ChatFormatting.GOLD, "/leaderboard mine all", "查看自己的全部统计分数")
                 .copy().append(Component.literal(" "))
                 .append(clickable("[今日]", ChatFormatting.YELLOW, "/leaderboard mine day", "查看自己的今日统计"))
@@ -746,7 +750,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int periodPickerMenu(CommandSourceStack source, int mode) {
         String command = menuModeCommand(mode);
-        source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · 选择时间 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · 选择时间");
         Component line = Component.empty();
         boolean added = false;
         for (Period period : Period.values()) {
@@ -763,8 +767,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int categoryPickerMenu(CommandSourceStack source, int mode, Period period) {
         String command = menuModeCommand(mode);
-        source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择分类 ===")
-                .withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · 选择分类");
         Component line = Component.empty();
         boolean added = false;
         String[][] groups = {{"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
@@ -786,8 +789,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int metricPickerMenu(CommandSourceStack source, int mode, Period period, String group) {
         String command = menuModeCommand(mode);
-        source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择榜单 ===")
-                .withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · 选择榜单");
         if (group.equals("fun")) {
             Component subgroups = clickable("[综合受害榜]", ChatFormatting.GOLD,
                             "/leaderboard menu " + command + " " + period.shortCommand + " fun overview",
@@ -825,7 +827,7 @@ public final class RankBoardMod implements ModInitializer {
 
     private int funBrowseMetricsMenu(CommandSourceStack source, boolean victims) {
         String title = victims ? "单种生物受害榜" : "综合受害榜";
-        source.sendSuccess(() -> Component.literal("=== 生物受害 · " + title + " ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "生物受害 · " + title);
         List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
         for (int start = 0; start < metrics.size(); start += 4) {
             sendMetricMenuRow(source, "fun", metrics.subList(start, Math.min(start + 4, metrics.size())).toArray(Metric[]::new));
@@ -838,8 +840,7 @@ public final class RankBoardMod implements ModInitializer {
     private int funWizardMetricsMenu(CommandSourceStack source, int mode, Period period, boolean victims) {
         String command = menuModeCommand(mode);
         String title = victims ? "单种生物受害榜" : "综合受害榜";
-        source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · " + title + " ===")
-                .withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, menuModeTitle(mode) + " · " + period.label + " · " + title);
         List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
         for (int start = 0; start < metrics.size(); start += 4) {
             Component line = Component.empty();
@@ -863,7 +864,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int browseMetricMenu(CommandSourceStack source, String group, Metric metric) {
-        source.sendSuccess(() -> Component.literal("=== " + metric.label() + " · 选择时间 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, metric.label() + " · 选择时间");
         Component line = Component.empty();
         boolean added = false;
         for (Period period : Period.values()) {
@@ -880,8 +881,7 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
     private int browseMetricActionMenu(CommandSourceStack source, String group, Metric metric, Period period) {
-        source.sendSuccess(() -> Component.literal("=== " + period.label + metric.label() + " · 选择操作 ===")
-                .withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, period.label + metric.label() + " · 选择操作");
         Component actions = clickable("[设为个人侧边栏]", ChatFormatting.GREEN,
                 "/leaderboard display show " + period.command + " " + group + " " + metric.command,
                 "把自己的侧边栏切换为该榜单");
@@ -903,8 +903,7 @@ public final class RankBoardMod implements ModInitializer {
     private int browsePlayersMenu(CommandSourceStack source, String group, Metric metric, Period period) {
         List<ServerPlayer> players = source.getServer().getPlayerList().getPlayers().stream()
                 .sorted(Comparator.comparing(player -> player.getName().getString(), String.CASE_INSENSITIVE_ORDER)).toList();
-        source.sendSuccess(() -> Component.literal("=== 指定玩家 · " + period.label + metric.label() + " ===")
-                .withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "指定玩家 · " + period.label + metric.label());
         if (players.isEmpty()) source.sendSuccess(() -> Component.literal("当前没有在线玩家。").withStyle(ChatFormatting.GRAY), false);
         for (int start = 0; start < players.size(); start += 4) {
             Component line = Component.empty();
@@ -928,7 +927,7 @@ public final class RankBoardMod implements ModInitializer {
     private int browsePlayerMenu(CommandSourceStack source, String group, Metric metric, Period period,
                                   ServerPlayer player) {
         String name = player.getName().getString();
-        source.sendSuccess(() -> Component.literal("=== " + name + " · 侧边栏操作 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, name + " · 侧边栏操作");
         Component actions = clickable("[显示该榜单]", ChatFormatting.GREEN,
                         "/leaderboard display show " + period.command + " " + group + " " + metric.command + " " + name,
                         "为 " + name + " 显示" + period.label + metric.label())
@@ -1036,7 +1035,7 @@ public final class RankBoardMod implements ModInitializer {
             state.rollPeriods(source.getServer());
             BoardService.enableOverview(source, period);
             String label = period == Period.ALL ? "总计" : period.label;
-            source.sendSuccess(() -> Component.literal("=== 我的分数 · " + label + " ===").withStyle(ChatFormatting.GOLD), false);
+            beginMenu(source, "我的分数 · " + label);
             if (period != Period.ALL && !state.isPeriodComplete(period)) {
                 source.sendSuccess(() -> Component.literal("当前周期从首个可信基线开始，部分指标可能暂不可用。")
                         .withStyle(ChatFormatting.YELLOW), false);
@@ -1071,7 +1070,7 @@ public final class RankBoardMod implements ModInitializer {
         }
     }
     private int listConfig(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("=== RankBoard 配置 ===").withStyle(ChatFormatting.GOLD), false);
+        beginMenu(source, "RankBoard 配置");
         for (String key : RankBoardConfig.optionKeys()) {
             String value = RankBoardConfig.value(key);
             source.sendSuccess(() -> Component.literal(key + " = " + (value.isEmpty() ? "(空/自动)" : value))
@@ -1349,11 +1348,11 @@ public final class RankBoardMod implements ModInitializer {
 
     private int resetAllMetricLabels(CommandSourceStack source) {
         try {
-            for (Metric metric : Metric.values()) RankBoardConfig.set(source.getServer(), "metric-label-" + metric.command,
+            for (Metric metric : orderedMenuMetrics()) RankBoardConfig.set(source.getServer(), "metric-label-" + metric.command,
                     RankBoardConfig.defaultValue("metric-label-" + metric.command));
             refreshMetricLabels(source.getServer());
             source.sendSuccess(() -> Component.literal("已恢复全部榜单默认名称。"), true);
-            return Metric.values().length;
+            return orderedMenuMetrics().size();
         } catch (java.io.IOException exception) {
             source.sendFailure(Component.literal("榜单名称保存失败：" + exception.getMessage()));
             return 0;
@@ -1361,8 +1360,8 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int listMetricLabels(CommandSourceStack source) {
-        for (Metric metric : Metric.values()) source.sendSuccess(() -> Component.literal(metric.command + " = " + metric.label()), false);
-        return Metric.values().length;
+        for (Metric metric : orderedMenuMetrics()) source.sendSuccess(() -> Component.literal(metric.command + " = " + metric.label()), false);
+        return orderedMenuMetrics().size();
     }
 
     private int saveMetricLabel(CommandSourceStack source, Metric metric, String value, String action) {
@@ -1426,11 +1425,11 @@ public final class RankBoardMod implements ModInitializer {
 
     private int resetAllMetricColors(CommandSourceStack source) {
         try {
-            for (Metric metric : Metric.values()) RankBoardConfig.set(source.getServer(), "metric-color-" + metric.command,
+            for (Metric metric : orderedMenuMetrics()) RankBoardConfig.set(source.getServer(), "metric-color-" + metric.command,
                     RankBoardConfig.defaultValue("metric-color-" + metric.command));
             refreshColors(source.getServer());
             source.sendSuccess(() -> Component.literal("已恢复全部榜单默认颜色。"), true);
-            return Metric.values().length;
+            return orderedMenuMetrics().size();
         } catch (java.io.IOException exception) {
             source.sendFailure(Component.literal("颜色配置保存失败：" + exception.getMessage()));
             return 0;
@@ -1438,11 +1437,11 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int listMetricColors(CommandSourceStack source) {
-        for (Metric metric : Metric.values()) {
+        for (Metric metric : orderedMenuMetrics()) {
             String value = RankBoardConfig.value("metric-color-" + metric.command);
             source.sendSuccess(() -> RankBoardColors.text(metric.command + " = " + value, metric), false);
         }
-        return Metric.values().length;
+        return orderedMenuMetrics().size();
     }
 
     private int saveMetricColor(CommandSourceStack source, Metric metric, String value, String action) {
@@ -1774,6 +1773,7 @@ public final class RankBoardMod implements ModInitializer {
         }
         long read(ServerPlayer player) { return counter.read(player); }
         String label() { return RankBoardConfig.get().metricLabel(this); }
+        int defaultRgb() { return RankBoardColors.colorValue(nameColor); }
         boolean isFun() { return fun; }
         String victimEntityId() { return victimEntityId; }
     }
