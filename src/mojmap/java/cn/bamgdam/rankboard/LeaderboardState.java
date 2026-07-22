@@ -113,15 +113,18 @@ public final class LeaderboardState extends SavedData {
             catch (IllegalArgumentException ignored) { }
         }
         String historySchema = NbtCompat.getString(nbt, "historySchema");
-        if ("3".equals(historySchema) || "4".equals(historySchema)
+        boolean legacyHistory = historySchema.isEmpty();
+        if (legacyHistory || "3".equals(historySchema) || "4".equals(historySchema)
                 || Integer.toString(HISTORY_SCHEMA).equals(historySchema)) {
             for (Tag element : NbtCompat.getList(nbt, "periods", Tag.TAG_COMPOUND)) {
-                PeriodData data = PeriodData.fromNbt((CompoundTag) element);
+                PeriodData data = PeriodData.fromNbt((CompoundTag) element, legacyHistory);
                 state.periods.put(data.period, data);
             }
             for (Tag element : NbtCompat.getList(nbt, "dailySnapshots", Tag.TAG_COMPOUND)) {
                 CompoundTag snapshot = (CompoundTag) element;
-                state.dailySnapshots.put(LocalDate.parse(NbtCompat.getString(snapshot, "date")), readPlayers(snapshot));
+                LocalDate date = LocalDate.parse(NbtCompat.getString(snapshot, "date"));
+                state.dailySnapshots.put(date, readPlayers(snapshot));
+                if (legacyHistory) state.partialSnapshotDates.add(date);
             }
             for (Tag element : NbtCompat.getList(nbt, "partialSnapshotDates", Tag.TAG_STRING)) {
                 try { state.partialSnapshotDates.add(LocalDate.parse(NbtCompat.asString(element))); }
@@ -337,7 +340,8 @@ public final class LeaderboardState extends SavedData {
     public void disableBoard(UUID uuid) {
         BoardPreference current = boardPreferences.get(uuid);
         if (current != null && current.enabled()) {
-            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false, false));
+            boardPreferences.put(uuid, new BoardPreference(
+                    current.period(), current.metric(), false, current.carousel(), current.overview()));
             setDirty();
         }
     }
@@ -555,9 +559,9 @@ public final class LeaderboardState extends SavedData {
             nbt.put("partialMetrics", partial);
             return nbt;
         }
-        static PeriodData fromNbt(CompoundTag nbt) {
+        static PeriodData fromNbt(CompoundTag nbt, boolean legacyHistory) {
             PeriodData data = new PeriodData(RankBoardMod.Period.valueOf(NbtCompat.getString(nbt, "period")),
-                    NbtCompat.getString(nbt, "key"), NbtCompat.getBoolean(nbt, "complete"));
+                    NbtCompat.getString(nbt, "key"), !legacyHistory && NbtCompat.getBoolean(nbt, "complete"));
             data.players.putAll(readPlayers(nbt));
             for (Tag element : NbtCompat.getList(nbt, "partialMetrics", Tag.TAG_STRING)) {
                 try { data.partialMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }

@@ -20,7 +20,8 @@ final class RankBoardColors {
     static ChatFormatting legacy(RankBoardMod.Metric metric) { return nearestLegacy(rgb(metric)); }
 
     static ChatFormatting legacy(RankBoardMod.Metric metric, boolean carousel) {
-        return carousel && !RankBoardConfig.get().carouselColorFollowMetric ? ChatFormatting.AQUA : legacy(metric);
+        return carousel && !RankBoardConfig.get().carouselColorFollowMetric
+                ? ChatFormatting.AQUA : legacy(metric);
     }
 
     static int renderedRgb(RankBoardMod.Metric metric) {
@@ -29,7 +30,7 @@ final class RankBoardColors {
     }
 
     static int renderedRgb(RankBoardMod.Metric metric, boolean carousel) {
-        if (carousel && !RankBoardConfig.get().carouselColorFollowMetric) return 0x55FFFF;
+        if (carousel && !RankBoardConfig.get().carouselColorFollowMetric) return colorValue(ChatFormatting.AQUA);
         return renderedRgb(metric);
     }
 

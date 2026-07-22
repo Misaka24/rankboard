@@ -10,6 +10,10 @@ public final class HistorySnapshotStoreTest {
         Path root = Files.createTempDirectory("rankboard-history-test-");
         try {
             UUID player = UUID.fromString("12345678-1234-5678-1234-567812345678");
+            check("123".equals(RankBoardMod.format(RankBoardMod.Metric.DAMAGE_TAKEN, 123L)),
+                    "Damage taken was scaled instead of keeping the vanilla value");
+            check("456".equals(RankBoardMod.format(RankBoardMod.Metric.DAMAGE_DEALT, 456L)),
+                    "Damage dealt was scaled instead of keeping the vanilla value");
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
             store.put(LocalDate.of(2026, 8, 1), players(player, RankBoardMod.Metric.JUMPS, 20), true);
@@ -38,6 +42,39 @@ public final class HistorySnapshotStoreTest {
             check(reloaded.get(LocalDate.of(2026, 9, 2)).orElseThrow().partial(),
                     "Legacy partial flag lost");
 
+            net.minecraft.nbt.NbtCompound upstreamNbt = new net.minecraft.nbt.NbtCompound();
+            upstreamNbt.putString("historySchema", "4");
+            net.minecraft.nbt.NbtCompound upstreamDay = new net.minecraft.nbt.NbtCompound();
+            upstreamDay.putString("date", "2026-10-01");
+            net.minecraft.nbt.NbtCompound upstreamPlayer = new net.minecraft.nbt.NbtCompound();
+            NbtCompat.putUuid(upstreamPlayer, "uuid", player);
+            upstreamPlayer.putLong("playtime", 300L);
+            net.minecraft.nbt.NbtList upstreamPlayers = new net.minecraft.nbt.NbtList();
+            upstreamPlayers.add(upstreamPlayer);
+            upstreamDay.put("players", upstreamPlayers);
+            net.minecraft.nbt.NbtList upstreamDays = new net.minecraft.nbt.NbtList();
+            upstreamDays.add(upstreamDay);
+            upstreamNbt.put("dailySnapshots", upstreamDays);
+            net.minecraft.nbt.NbtList partialDates = new net.minecraft.nbt.NbtList();
+            partialDates.add(net.minecraft.nbt.NbtString.of("2026-10-01"));
+            upstreamNbt.put("partialSnapshotDates", partialDates);
+            LeaderboardState migratedState = LeaderboardState.fromNbt(upstreamNbt, null);
+            var attach = LeaderboardState.class.getDeclaredMethod("attachHistoryStore", Path.class);
+            attach.setAccessible(true);
+            attach.invoke(migratedState, root);
+            HistorySnapshotStore migratedStore = new HistorySnapshotStore(root);
+            check(migratedStore.get(LocalDate.of(2026, 10, 1)).orElseThrow().partial(),
+                    "Upstream schema 4 partial flag was not migrated");
+            check(migratedStore.get(LocalDate.of(2026, 10, 1)).orElseThrow().players()
+                    .get(player).get(RankBoardMod.Metric.PLAY_TIME) == 300L,
+                    "Upstream schema 4 value was not migrated");
+            net.minecraft.nbt.NbtCompound migratedNbt = migratedState.writeNbt(
+                    new net.minecraft.nbt.NbtCompound(), null);
+            check("5".equals(NbtCompat.getString(migratedNbt, "historySchema")),
+                    "Migrated state did not advance to schema 5");
+            check(NbtCompat.getList(migratedNbt, "dailySnapshots",
+                    net.minecraft.nbt.NbtElement.COMPOUND_TYPE).isEmpty(),
+                    "Migrated embedded snapshots were not cleared");
             Files.write(root.resolve("2026-10.dat"), new byte[] {1, 2, 3});
             boolean corruptRejected = false;
             try { new HistorySnapshotStore(root).get(LocalDate.of(2026, 10, 1)); }

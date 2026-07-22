@@ -40,6 +40,15 @@ final class BoardService {
     private static Selection globalSelection;
     private BoardService() { }
 
+    static boolean canReceive(ServerPlayer player) {
+        RankBoardConfig.RecipientFilter filter = RankBoardConfig.get().recipientFilter;
+        if (filter == RankBoardConfig.RecipientFilter.DISABLED) return true;
+        if (filter == RankBoardConfig.RecipientFilter.FAKE_ONLY) return !PlayerCompat.isFake(player);
+        boolean listed = RankBoardWhitelist.matches(PlayerCompat.server(player), player.getUUID(),
+                player.getName().getString());
+        return filter == RankBoardConfig.RecipientFilter.WHITELIST ? listed : !listed;
+    }
+
     static void disconnect(ServerPlayer player) {
         PlayerNameColors.disconnect(player);
         SELECTIONS.remove(player.getUUID());
@@ -123,8 +132,52 @@ final class BoardService {
         return 1;
     }
 
+    static int enable(CommandSourceStack source) {
+        try {
+            ServerPlayer player = source.getPlayerOrException();
+            LeaderboardState state = LeaderboardState.get(PlayerCompat.server(player));
+            LeaderboardState.BoardPreference preference = state.boardPreference(player.getUUID());
+            if (preference == null) {
+                preference = new LeaderboardState.BoardPreference(
+                        RankBoardMod.Period.ALL, RankBoardMod.Metric.PLAY_TIME, false, false, false);
+            }
+            if (preference.overview()) {
+                SELECTIONS.remove(player.getUUID());
+                NEXT_CAROUSEL_AT.remove(player.getUUID());
+                OVERVIEW_SELECTIONS.put(player.getUUID(), preference.period());
+                state.setOverviewPreference(player.getUUID(), preference.period(), true);
+                sendOverview(player, preference.period());
+            } else {
+                RankBoardMod.Metric metric = preference.metric();
+                if (!state.isMetricDisplayEnabled(metric)) {
+                    metric = firstEnabledMetric(state);
+                    if (metric == null) {
+                        source.sendFailure(Component.literal("所有榜单均已被 OP 禁用。"));
+                        return 0;
+                    }
+                }
+                OVERVIEW_SELECTIONS.remove(player.getUUID());
+                Selection selection = new Selection(preference.period(), metric);
+                SELECTIONS.put(player.getUUID(), selection);
+                boolean carousel = preference.carousel() && RankBoardConfig.get().carouselEnabled;
+                state.setBoardPreference(player.getUUID(), selection.period, selection.metric, true, carousel);
+                if (carousel) scheduleCarousel(player.getUUID()); else NEXT_CAROUSEL_AT.remove(player.getUUID());
+                sendPrivate(player, selection.period, selection.metric);
+            }
+            PlayerNameColors.refresh(player);
+            source.sendSuccess(() -> Component.literal("已恢复个人计分板。"), false);
+            return 1;
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            source.sendFailure(Component.literal("该命令只能由玩家执行。"));
+            return 0;
+        } catch (RuntimeException exception) {
+            source.sendFailure(Component.literal("个人计分板开启失败：" + describe(exception)));
+            return 0;
+        }
+    }
+
     static void restore(ServerPlayer player) {
-        if (!RankBoardConfig.get().restoreBoardOnJoin) return;
+        if (!canReceive(player) || !RankBoardConfig.get().restoreBoardOnJoin || !StatReader.isReady()) return;
         LeaderboardState state = LeaderboardState.get(PlayerCompat.server(player));
         LeaderboardState.BoardPreference preference = state.boardPreference(player.getUUID());
         if (preference == null || !preference.enabled()) return;
@@ -200,10 +253,11 @@ final class BoardService {
     }
 
     static void tickCarousel(MinecraftServer server) {
-        if (!RankBoardConfig.get().carouselEnabled) return;
+        if (!StatReader.isReady() || !RankBoardConfig.get().carouselEnabled) return;
         long now = System.currentTimeMillis();
         LeaderboardState state = LeaderboardState.get(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (!canReceive(player)) continue;
             LeaderboardState.BoardPreference preference = state.boardPreference(player.getUUID());
             if (preference == null || !preference.enabled() || !preference.carousel()) continue;
             long due = NEXT_CAROUSEL_AT.computeIfAbsent(player.getUUID(), ignored -> carouselDeadline());
@@ -224,7 +278,8 @@ final class BoardService {
     /** Polls live vanilla statistics and refreshes only scoreboards watching a changed metric. */
     static void tickActivity(MinecraftServer server) {
         RankBoardConfig config = RankBoardConfig.get();
-        if (!config.scoreboardLiveUpdateEnabled || (SELECTIONS.isEmpty() && OVERVIEW_SELECTIONS.isEmpty() && globalSelection == null)) return;
+        if (!StatReader.isReady() || !config.scoreboardLiveUpdateEnabled
+                || (SELECTIONS.isEmpty() && OVERVIEW_SELECTIONS.isEmpty() && globalSelection == null)) return;
         Set<RankBoardMod.Metric> activeMetrics = new HashSet<>();
         for (Selection selection : SELECTIONS.values()) activeMetrics.add(selection.metric);
         if (!OVERVIEW_SELECTIONS.isEmpty()) for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) activeMetrics.add(metric);
@@ -248,9 +303,11 @@ final class BoardService {
     }
 
     private static void refreshMetric(MinecraftServer server, RankBoardMod.Metric metric) {
+        if (!StatReader.isReady()) return;
         Map<Selection, Objective> objectives = new HashMap<>();
         LeaderboardState state = LeaderboardState.get(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (!canReceive(player)) continue;
             RankBoardMod.Period overviewPeriod = OVERVIEW_SELECTIONS.get(player.getUUID());
             if (overviewPeriod != null) {
                 try { sendOverview(player, overviewPeriod); } catch (RuntimeException exception) { RankBoardMod.LOGGER.warn("Could not refresh overview", exception); }
@@ -278,8 +335,14 @@ final class BoardService {
     }
 
     static void refreshAll(MinecraftServer server) {
+        if (!StatReader.isReady()) return;
         Map<Selection, Objective> objectives = new HashMap<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (!canReceive(player)) {
+                removePrivateObjective(player);
+                player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
+                continue;
+            }
             RankBoardMod.Period overviewPeriod = OVERVIEW_SELECTIONS.get(player.getUUID());
             if (overviewPeriod != null) sendOverview(player, overviewPeriod);
             Selection selection = SELECTIONS.get(player.getUUID());
@@ -305,6 +368,7 @@ final class BoardService {
     }
 
     private static void sendPrivate(ServerPlayer player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
+        if (!canReceive(player)) return;
         LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
                 .boardPreference(player.getUUID());
         boolean carousel = preference != null && preference.carousel();
@@ -329,6 +393,7 @@ final class BoardService {
     }
 
     private static void sendOverview(ServerPlayer player, RankBoardMod.Period period) {
+        if (!canReceive(player)) return;
         MinecraftServer server = PlayerCompat.server(player);
         LeaderboardState state = LeaderboardState.get(server);
         Scoreboard scoreboard = server.getScoreboard();
@@ -513,7 +578,10 @@ final class BoardService {
         Component title = Component.literal(period.label + (partialPeriod ? "（部分）" : "")
                 + " " + metric.label() + unit);
         if (RankBoardConfig.get().scoreboardTitleColorEnabled) {
-            title = title.copy().withStyle(style -> style.withColor(RankBoardColors.renderedRgb(metric, carousel)));
+            int titleColor = carousel && !RankBoardConfig.get().carouselColorFollowMetric
+                    ? RankBoardColors.colorValue(ChatFormatting.AQUA)
+                    : RankBoardColors.renderedRgb(metric);
+            title = title.copy().withStyle(style -> style.withColor(titleColor));
         }
         if (objective == null) {
             objective = scoreboard.addObjective(name, ObjectiveCriteria.DUMMY, title,
@@ -594,6 +662,13 @@ final class BoardService {
             if (state.isMetricDisplayEnabled(candidate)) return candidate;
         }
         return current;
+    }
+
+    private static RankBoardMod.Metric firstEnabledMetric(LeaderboardState state) {
+        for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+            if (state.isMetricDisplayEnabled(metric)) return metric;
+        }
+        return null;
     }
     private record Selection(RankBoardMod.Period period, RankBoardMod.Metric metric) { }
 

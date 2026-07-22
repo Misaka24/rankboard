@@ -17,9 +17,7 @@ public final class PlayerNameColors {
     public static Component decorate(ServerPlayer player, Component fallback) {
         RankBoardMod.Metric metric = BoardService.selectedMetric(player.getUUID());
         if (metric == null || RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.ENABLED) return fallback;
-        LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
-                .boardPreference(player.getUUID());
-        boolean carousel = preference != null && preference.carousel();
+        boolean carousel = isCarousel(player);
         MutableComponent name = RankBoardColors.text(player.getName().getString(), metric, carousel);
         PlayerTeam team = PlayerCompat.server(player).getScoreboard().getPlayersTeam(player.getScoreboardName());
         if (team == null || isRankBoardTeam(team)) return name;
@@ -32,13 +30,11 @@ public final class PlayerNameColors {
         String holder = player.getScoreboardName();
         PlayerTeam current = scoreboard.getPlayersTeam(holder);
         RankBoardMod.Metric metric = BoardService.selectedMetric(player.getUUID());
-        LeaderboardState.BoardPreference preference = LeaderboardState.get(server).boardPreference(player.getUUID());
-        boolean carousel = preference != null && preference.carousel();
         boolean active = metric != null && RankBoardConfig.get().nameColorMode == RankBoardConfig.NameColorMode.ENABLED;
         if (!active) {
             if (isRankBoardTeam(current)) scoreboard.removePlayerFromTeam(holder, current);
         } else if (current == null || isRankBoardTeam(current)) {
-            ChatFormatting color = RankBoardColors.legacy(metric, carousel);
+            ChatFormatting color = RankBoardColors.legacy(metric, isCarousel(player));
             String teamName = TEAM_PREFIX + color.ordinal();
             PlayerTeam target = scoreboard.getPlayerTeam(teamName);
             if (target == null) target = scoreboard.addPlayerTeam(teamName);
@@ -66,6 +62,12 @@ public final class PlayerNameColors {
     }
 
     private static boolean isRankBoardTeam(PlayerTeam team) { return team != null && team.getName().startsWith(TEAM_PREFIX); }
+
+    private static boolean isCarousel(ServerPlayer player) {
+        LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
+                .boardPreference(player.getUUID());
+        return preference != null && preference.carousel();
+    }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static void setTeamColor(PlayerTeam team, ChatFormatting color) {

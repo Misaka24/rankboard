@@ -6,4 +6,10 @@ import net.minecraft.server.network.ServerPlayerEntity;
 final class PlayerCompat {
     private PlayerCompat() { }
     static MinecraftServer server(ServerPlayerEntity player) { return player.getEntityWorld().getServer(); }
+    static boolean isFake(ServerPlayerEntity player) {
+        for (Class<?> type = player.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getSimpleName().equals("EntityPlayerMPFake")) return true;
+        }
+        return false;
+    }
 }

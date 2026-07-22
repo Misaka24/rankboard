@@ -113,15 +113,18 @@ public final class LeaderboardState extends PersistentState {
             catch (IllegalArgumentException ignored) { }
         }
         String historySchema = NbtCompat.getString(nbt, "historySchema");
-        if ("3".equals(historySchema) || "4".equals(historySchema)
+        boolean legacyHistory = historySchema.isEmpty();
+        if (legacyHistory || "3".equals(historySchema) || "4".equals(historySchema)
                 || Integer.toString(HISTORY_SCHEMA).equals(historySchema)) {
             for (NbtElement element : NbtCompat.getList(nbt, "periods", NbtElement.COMPOUND_TYPE)) {
-                PeriodData data = PeriodData.fromNbt((NbtCompound) element);
+                PeriodData data = PeriodData.fromNbt((NbtCompound) element, legacyHistory);
                 state.periods.put(data.period, data);
             }
             for (NbtElement element : NbtCompat.getList(nbt, "dailySnapshots", NbtElement.COMPOUND_TYPE)) {
                 NbtCompound snapshot = (NbtCompound) element;
-                state.dailySnapshots.put(LocalDate.parse(NbtCompat.getString(snapshot, "date")), readPlayers(snapshot));
+                LocalDate date = LocalDate.parse(NbtCompat.getString(snapshot, "date"));
+                state.dailySnapshots.put(date, readPlayers(snapshot));
+                if (legacyHistory) state.partialSnapshotDates.add(date);
             }
             for (NbtElement element : NbtCompat.getList(nbt, "partialSnapshotDates", NbtElement.STRING_TYPE)) {
                 try { state.partialSnapshotDates.add(LocalDate.parse(NbtCompat.asString(element))); }
@@ -338,7 +341,8 @@ public final class LeaderboardState extends PersistentState {
     public void disableBoard(UUID uuid) {
         BoardPreference current = boardPreferences.get(uuid);
         if (current != null && current.enabled()) {
-            boardPreferences.put(uuid, new BoardPreference(current.period(), current.metric(), false, false, false));
+            boardPreferences.put(uuid, new BoardPreference(
+                    current.period(), current.metric(), false, current.carousel(), current.overview()));
             markDirty();
         }
     }
@@ -556,9 +560,9 @@ public final class LeaderboardState extends PersistentState {
             nbt.put("partialMetrics", partial);
             return nbt;
         }
-        static PeriodData fromNbt(NbtCompound nbt) {
+        static PeriodData fromNbt(NbtCompound nbt, boolean legacyHistory) {
             PeriodData data = new PeriodData(RankBoardMod.Period.valueOf(NbtCompat.getString(nbt, "period")),
-                    NbtCompat.getString(nbt, "key"), NbtCompat.getBoolean(nbt, "complete"));
+                    NbtCompat.getString(nbt, "key"), !legacyHistory && NbtCompat.getBoolean(nbt, "complete"));
             data.players.putAll(readPlayers(nbt));
             for (NbtElement element : NbtCompat.getList(nbt, "partialMetrics", NbtElement.STRING_TYPE)) {
                 try { data.partialMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }

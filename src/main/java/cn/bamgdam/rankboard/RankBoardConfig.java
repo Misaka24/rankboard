@@ -26,8 +26,10 @@ final class RankBoardConfig {
     private static final List<Option> OPTIONS = List.of(
             option("foreign-scoreboard-blocking-mode", "ask", FileKind.MAIN, "客户端计分板", "其他模组计分板屏蔽模式；可选 ask、enabled、disabled。"),
             option("mod-whitelist-enabled", "false", FileKind.MAIN, "玩家筛选", "是否只读取 config/rankboard/rankboard-whitelist.json 中的玩家；默认 false。"),
+            option("scoreboard-recipient-filter", "fake-only", FileKind.MAIN, "客户端计分板", "个人榜单数据接收过滤；fake-only 不发送给假人，false 不过滤，whitelist 仅名单内接收，blacklist 仅名单外接收。"),
             option("web-icon-request-interval-seconds", "3", FileKind.WEB, "请求限流", "图片基础请求间隔秒数；默认 3。30 秒内超过 6 次后，30 分钟内改为每 15 秒一次。"),
-            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每秒检查的玩家统计文件数；默认 50，范围 1-1000，修改后下次缓存重载生效。"),
+            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每个扫描线程每秒检查的玩家统计文件数；默认 50，范围 1-1000；总上限为该值乘以实际扫描线程数。"),
+            option("history-scan-threads", "0", FileKind.MAIN, "历史统计", "历史统计扫描线程数；默认 0 自动使用最多 50% 可用处理器，手动值同样不会超过 50%。"),
             option("welcome-enabled", "true", FileKind.MAIN, "进服提示", "是否发送“欢迎来到”提示；默认 true。"),
             option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
@@ -56,7 +58,7 @@ final class RankBoardConfig {
             option("metric-label-elytra", "飞行榜", FileKind.MAIN, "榜单名称", "飞行榜在游戏和网页结果中显示的名称。"),
             option("metric-label-fishing", "钓鱼榜", FileKind.MAIN, "榜单名称", "钓鱼榜在游戏和网页结果中显示的名称。"),
             option("metric-label-damage", "受伤榜", FileKind.MAIN, "榜单名称", "受伤榜在游戏和网页结果中显示的名称。"),
-            option("metric-label-dealt", "近战伤害输出榜", FileKind.MAIN, "榜单名称", "近战伤害输出榜在游戏和网页结果中显示的名称。"),
+            option("metric-label-dealt", "近战伤害输出榜", FileKind.MAIN, "榜单名称", "原版近战伤害累计值榜在游戏和网页结果中显示的名称。"),
             option("metric-label-dropped", "丢垃圾榜", FileKind.MAIN, "榜单名称", "丢弃物品数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-picked", "拾荒榜", FileKind.MAIN, "榜单名称", "捡起物品数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-crafted", "合成榜", FileKind.MAIN, "榜单名称", "合成物品数量榜在游戏和网页结果中显示的名称。"),
@@ -109,6 +111,7 @@ final class RankBoardConfig {
     private static volatile Properties webProperties = defaultsFor(FileKind.WEB);
 
     final int historyFilesPerSecond;
+    final int historyScanThreads;
     final boolean welcomeEnabled;
     final boolean joinMenuEnabled;
     final boolean restoreBoardOnJoin;
@@ -127,6 +130,7 @@ final class RankBoardConfig {
     final int scoreboardLiveUpdateThrottleSeconds;
     final ForeignScoreboardPolicy foreignScoreboardPolicy;
     final boolean modWhitelistEnabled;
+    final RecipientFilter recipientFilter;
     final boolean joinWebHintEnabled;
     final boolean websiteButtonEnabled;
     final boolean avatarCacheEnabled;
@@ -137,6 +141,7 @@ final class RankBoardConfig {
 
     private RankBoardConfig(Properties properties) {
         historyFilesPerSecond = integer(properties, "history-files-per-second", 50, 1, 1000);
+        historyScanThreads = integer(properties, "history-scan-threads", 0, 0, 256);
         welcomeEnabled = bool(properties, "welcome-enabled", true);
         joinMenuEnabled = bool(properties, "join-menu-enabled", true);
         restoreBoardOnJoin = bool(properties, "restore-scoreboard-on-join", true);
@@ -156,6 +161,7 @@ final class RankBoardConfig {
         foreignScoreboardPolicy = ForeignScoreboardPolicy.parse(
                 properties.getProperty("foreign-scoreboard-blocking-mode", "ask"));
         modWhitelistEnabled = bool(properties, "mod-whitelist-enabled", false);
+        recipientFilter = RecipientFilter.parse(properties.getProperty("scoreboard-recipient-filter", "fake-only"));
         joinWebHintEnabled = bool(properties, "join-web-hint-enabled", false);
         websiteButtonEnabled = bool(properties, "website-button-enabled", true);
         avatarCacheEnabled = bool(properties, "avatar-cache-enabled", true);
@@ -393,6 +399,7 @@ final class RankBoardConfig {
         }
         return switch (option.key) {
             case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
+            case "history-scan-threads" -> normalizedInteger(value, 0, 256);
             case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);
             case "avatar-cache-days" -> normalizedInteger(value, 1, 365);
             case "port" -> normalizedInteger(value, 1, 65535);
@@ -421,6 +428,7 @@ final class RankBoardConfig {
                 default -> throw new IllegalArgumentException("可用值：ask、enabled、disabled");
             };
             case "scoreboard-name-color-enabled" -> NameColorMode.parse(value).serialized;
+            case "scoreboard-recipient-filter" -> RecipientFilter.parse(value).serialized;
             case "player-name-color-render-mode" -> NameColorRenderMode.parse(value).serialized;
             case "host", "website-icon" -> {
                 if (value.isEmpty()) throw new IllegalArgumentException(option.key + " 不能为空");
@@ -548,6 +556,23 @@ final class RankBoardConfig {
                 case "op", "ops" -> OP;
                 case "hidden", "off", "none" -> HIDDEN;
                 default -> ALL;
+            };
+        }
+    }
+
+    enum RecipientFilter {
+        FAKE_ONLY("fake-only"), DISABLED("false"), WHITELIST("whitelist"), BLACKLIST("blacklist");
+
+        final String serialized;
+        RecipientFilter(String serialized) { this.serialized = serialized; }
+
+        static RecipientFilter parse(String value) {
+            return switch (value.strip().toLowerCase(Locale.ROOT)) {
+                case "fake-only", "fake", "bots" -> FAKE_ONLY;
+                case "false", "off", "disabled", "none" -> DISABLED;
+                case "whitelist", "allowlist" -> WHITELIST;
+                case "blacklist", "denylist" -> BLACKLIST;
+                default -> throw new IllegalArgumentException("可用值：fake-only、false、whitelist、blacklist");
             };
         }
     }

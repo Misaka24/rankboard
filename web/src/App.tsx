@@ -433,7 +433,9 @@ export default function App() {
           {loading && <div className="notice glass">正在读取服务器排行榜...</div>}
           {error && <div className="notice error glass">{error}</div>}
           {!error && ranking?.complete === false && (
-            <div className="notice error glass">该范围不是完整统计：{ranking.warnings?.join("；") || "部分玩家数据已排除"}</div>
+            <div className="notice error glass">
+              部分统计：{ranking.warnings?.join("；") || "统计范围缺少完整边界"}
+            </div>
           )}
 
           <div className="ranking-list">

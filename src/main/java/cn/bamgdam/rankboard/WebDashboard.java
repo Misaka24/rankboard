@@ -284,14 +284,14 @@ final class WebDashboard {
             throw new IllegalArgumentException(metric.label() + " 已被 OP 禁止显示");
         }
         boolean effectiveOnlineOnly = requestOnlineOnly || state.isOnlineOnly();
-        if (!StatReader.isReady()) {
-            throw new IllegalStateException("统计文件仍在进行权威扫描（" + StatReader.progress() + "），总榜和日期范围榜暂不可用。");
-        }
+        boolean scanning = !StatReader.isReady();
         List<WebEntry> entries = new ArrayList<>();
         String actualStart;
         String actualEnd;
-        boolean complete = true;
-        List<String> warnings = List.of();
+        boolean complete = !scanning;
+        List<String> warnings = scanning
+                ? new ArrayList<>(List.of("权威扫描进行中（" + StatReader.progress() + "），当前为缓存预览"))
+                : new ArrayList<>();
         if (period.equals("all")) {
             StatReader.readAll(server, metric).forEach(snapshot -> {
                 if (isIncluded(server, state, snapshot.uuid(), snapshot.name(), effectiveOnlineOnly)) {
@@ -301,9 +301,13 @@ final class WebDashboard {
             actualStart = "原版统计起始";
             actualEnd = LocalDate.now().toString();
         } else {
+            if (scanning) {
+                throw new IllegalStateException("历史统计仍在权威扫描（" + StatReader.progress()
+                        + "），周期榜和日期范围榜暂不可用");
+            }
             LeaderboardState.RangeData range = state.range(server, from, to, metric, true);
-            complete = range.complete();
-            warnings = range.warnings();
+            complete = complete && range.complete();
+            warnings.addAll(range.warnings());
             Map<UUID, String> names = new HashMap<>();
             StatReader.readAll(server, metric).forEach(snapshot -> names.put(snapshot.uuid(), snapshot.name()));
             range.values().forEach((uuid, value) -> {
@@ -391,7 +395,7 @@ final class WebDashboard {
         return switch (metric) {
             case PLAY_TIME -> String.format(java.util.Locale.ROOT, "%,dh %dm", value / 72000, (value / 1200) % 60);
             case ELYTRA_DISTANCE -> String.format(java.util.Locale.ROOT, "%,.1f km", value / 100000.0);
-            case DAMAGE_TAKEN, DAMAGE_DEALT -> String.format(java.util.Locale.ROOT, "%,.1f", value / 10.0);
+            case DAMAGE_TAKEN, DAMAGE_DEALT -> String.format(java.util.Locale.ROOT, "%,d", value);
             default -> {
                 String exact = String.format(java.util.Locale.ROOT, "%,d", value);
                 yield value > 100_000 ? (value / 10_000) + "w · " + exact : exact;
