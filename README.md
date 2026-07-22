@@ -4,7 +4,14 @@
 
 RankBoard 是一个 Fabric 服务端排行榜模组。玩家不需要安装客户端模组，即可使用原版计分板和网页查看排行榜。
 
-当前版本：`1.9.0`
+当前版本：`1.9.1`
+
+### 1.9.1 游戏内菜单与指令体验
+
+- 重构一级点击菜单，分别提供排行榜查询、分类浏览、个人/全服侧边栏、轮播、抬头蹲起菜单、网站和帮助。
+- 分类浏览专注侧边栏操作；排行榜查询固定在聊天栏显示前 10 名，并移除重复的 Top 数量按钮。
+- 排行榜、个人侧边栏和全服侧边栏统一使用“周期 → 分类 → 榜单”参数顺序，保留 OP 指定玩家侧边栏能力。
+- 移除无意义的缩写、重复快捷指令和村民社交榜单，增强 Tab 补全与菜单参数向导。
 
 ### 1.9.0 扩展榜单与菜单
 
@@ -294,7 +301,7 @@ gradlew.bat build
 
 RankBoard is a server-side Fabric leaderboard mod. Players do not need a client-side mod to use the vanilla sidebar or the web dashboard.
 
-Current version: `1.9.0`
+Current version: `1.9.1`
 
 ### 1.8.0 upstream sync and history sharding
 
