@@ -146,6 +146,11 @@ public final class HistorySnapshotStoreTest {
     }
 
     private static void checkCommandTree() throws Exception {
+        try {
+            Class.forName("net.minecraft.command.permission.Permission");
+            System.out.println("Skipping command-tree reflection: this Minecraft version requires Fabric Loader");
+            return;
+        } catch (ClassNotFoundException ignored) { }
         var dispatcher = new com.mojang.brigadier.CommandDispatcher<net.minecraft.server.command.ServerCommandSource>();
         var register = RankBoardMod.class.getDeclaredMethod("registerCommands",
                 com.mojang.brigadier.CommandDispatcher.class,
