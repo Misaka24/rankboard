@@ -45,7 +45,7 @@ public final class RankBoardMod implements ModInitializer {
     static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final int REFRESH_INTERVAL_TICKS = 600;
     private static final Set<UUID> LOOK_MENU_HELD = new HashSet<>();
-    private static final List<String> MENU_GROUPS = List.of("core", "combat", "build", "life", "explore", "all");
+    private static final List<String> MENU_GROUPS = List.of("core", "combat", "build", "life", "explore", "fun", "all");
     private static final Set<String> REDSTONE_COMPONENTS = Set.of(
             "redstone", "redstone_torch", "repeater", "comparator", "observer", "piston", "sticky_piston",
             "dispenser", "dropper", "hopper", "lever", "tripwire_hook", "target", "daylight_detector",
@@ -300,6 +300,12 @@ public final class RankBoardMod implements ModInitializer {
             }
             node.then(metricNode);
         }
+        if (group.equals("fun")) {
+            node.then(Commands.literal("overview")
+                    .executes(context -> funBrowseMetricsMenu(context.getSource(), false)));
+            node.then(Commands.literal("victims")
+                    .executes(context -> funBrowseMetricsMenu(context.getSource(), true)));
+        }
         return node;
     }
 
@@ -340,6 +346,12 @@ public final class RankBoardMod implements ModInitializer {
             LiteralArgumentBuilder<CommandSourceStack> metricNode = Commands.literal(metric.command)
                     .executes(context -> completeMenuAction(context.getSource(), mode, period, metric));
             node.then(metricNode);
+        }
+        if (group.equals("fun")) {
+            node.then(Commands.literal("overview")
+                    .executes(context -> funWizardMetricsMenu(context.getSource(), mode, period, false)));
+            node.then(Commands.literal("victims")
+                    .executes(context -> funWizardMetricsMenu(context.getSource(), mode, period, true)));
         }
         return node;
     }
@@ -706,6 +718,18 @@ public final class RankBoardMod implements ModInitializer {
         }
 
         sendMenuCategories(source, group);
+        if (group.equals("fun")) {
+            Component funGroups = clickable("[综合受害榜]", ChatFormatting.GOLD, "/leaderboard menu fun overview",
+                            "查看按生物族群合并统计的趣味榜单")
+                    .copy().append(Component.literal(" "))
+                    .append(clickable("[单种生物受害榜]", ChatFormatting.LIGHT_PURPLE, "/leaderboard menu fun victims",
+                            "按每一种可击杀玩家的生物查看受害次数"));
+            source.sendSuccess(() -> funGroups, false);
+            source.sendSuccess(() -> Component.literal("选择一个二级榜单合集，避免大量趣味榜单挤占常用列表。")
+                    .withStyle(ChatFormatting.GRAY), false);
+            BoardService.sendForeignScoreboardPrompt(source);
+            return 1;
+        }
         List<Metric> menuMetrics = menuMetrics(group);
         int visible = 0;
         for (int start = 0; start < menuMetrics.size(); start += 4) {
@@ -744,7 +768,7 @@ public final class RankBoardMod implements ModInitializer {
         Component line = Component.empty();
         boolean added = false;
         String[][] groups = {{"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
-                {"life", "生存"}, {"explore", "探索"}, {"all", "全部"}};
+                {"life", "生存"}, {"explore", "探索"}, {"fun", "生物受害"}, {"all", "全部"}};
         for (String[] group : groups) {
             if (added) line = line.copy().append(Component.literal(" "));
             line = line.copy().append(clickable("[" + group[1] + "]",
@@ -764,6 +788,19 @@ public final class RankBoardMod implements ModInitializer {
         String command = menuModeCommand(mode);
         source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · 选择榜单 ===")
                 .withStyle(ChatFormatting.GOLD), false);
+        if (group.equals("fun")) {
+            Component subgroups = clickable("[综合受害榜]", ChatFormatting.GOLD,
+                            "/leaderboard menu " + command + " " + period.shortCommand + " fun overview",
+                            "选择按族群合并的趣味榜单")
+                    .copy().append(Component.literal(" "))
+                    .append(clickable("[单种生物受害榜]", ChatFormatting.LIGHT_PURPLE,
+                            "/leaderboard menu " + command + " " + period.shortCommand + " fun victims",
+                            "选择具体生物的受害者榜单"));
+            source.sendSuccess(() -> subgroups, false);
+            source.sendSuccess(() -> clickable("[返回分类选择]", ChatFormatting.GRAY,
+                    "/leaderboard menu " + command + " " + period.shortCommand, "重新选择分类"), false);
+            return 1;
+        }
         List<Metric> metrics = menuMetrics(group);
         for (int start = 0; start < metrics.size(); start += 4) {
             Component line = Component.empty();
@@ -783,6 +820,45 @@ public final class RankBoardMod implements ModInitializer {
         }
         source.sendSuccess(() -> clickable("[返回分类选择]", ChatFormatting.GRAY,
                 "/leaderboard menu " + command + " " + period.shortCommand, "重新选择分类"), false);
+        return 1;
+    }
+
+    private int funBrowseMetricsMenu(CommandSourceStack source, boolean victims) {
+        String title = victims ? "单种生物受害榜" : "综合受害榜";
+        source.sendSuccess(() -> Component.literal("=== 生物受害 · " + title + " ===").withStyle(ChatFormatting.GOLD), false);
+        List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
+        for (int start = 0; start < metrics.size(); start += 4) {
+            sendMetricMenuRow(source, "fun", metrics.subList(start, Math.min(start + 4, metrics.size())).toArray(Metric[]::new));
+        }
+        source.sendSuccess(() -> clickable("[返回生物受害分类]", ChatFormatting.GRAY,
+                "/leaderboard menu fun", "返回二级榜单合集选择"), false);
+        return 1;
+    }
+
+    private int funWizardMetricsMenu(CommandSourceStack source, int mode, Period period, boolean victims) {
+        String command = menuModeCommand(mode);
+        String title = victims ? "单种生物受害榜" : "综合受害榜";
+        source.sendSuccess(() -> Component.literal("=== " + menuModeTitle(mode) + " · " + period.label + " · " + title + " ===")
+                .withStyle(ChatFormatting.GOLD), false);
+        List<Metric> metrics = victims ? funVictimMetrics() : funOverviewMetrics();
+        for (int start = 0; start < metrics.size(); start += 4) {
+            Component line = Component.empty();
+            int visible = 0;
+            for (Metric metric : metrics.subList(start, Math.min(start + 4, metrics.size()))) {
+                if (!LeaderboardState.get(source.getServer()).isMetricDisplayEnabled(metric)) continue;
+                if (visible++ > 0) line = line.copy().append(Component.literal(" "));
+                line = line.copy().append(clickable("[" + metric.label() + "]", metric,
+                        "/leaderboard menu " + command + " " + period.shortCommand + " fun " + metric.command,
+                        mode == 0 ? "直接在聊天框显示该排行榜前 10 名"
+                                : mode == 1 ? "设为自己的个人侧边栏" : "设为全服共享侧边栏"));
+            }
+            if (visible > 0) {
+                Component finalLine = line;
+                source.sendSuccess(() -> finalLine, false);
+            }
+        }
+        source.sendSuccess(() -> clickable("[返回二级合集]", ChatFormatting.GRAY,
+                "/leaderboard menu " + command + " " + period.shortCommand + " fun", "重新选择生物受害合集"), false);
         return 1;
     }
 
@@ -877,7 +953,7 @@ public final class RankBoardMod implements ModInitializer {
                 .copy().append(Component.literal(" 分类 ").withStyle(ChatFormatting.GRAY));
         String[][] groups = {
                 {"core", "常用"}, {"combat", "战斗"}, {"build", "建造"},
-                {"life", "生存"}, {"explore", "探索"}, {"all", "全部"}
+                {"life", "生存"}, {"explore", "探索"}, {"fun", "生物受害"}, {"all", "全部"}
         };
         for (String[] group : groups) {
             line = line.copy().append(clickable("[" + group[1] + "]",
@@ -896,12 +972,29 @@ public final class RankBoardMod implements ModInitializer {
                     Metric.REDSTONE_PLACED, Metric.TOOLS_BROKEN);
             case "life" -> List.of(Metric.FOOD, Metric.FISHING, Metric.ANIMALS_BRED, Metric.SLEPT,
                     Metric.TRADES, Metric.ENCHANTED);
+            case "fun" -> funMetrics();
+            case "fun_overview" -> funOverviewMetrics();
+            case "fun_victims" -> funVictimMetrics();
             case "explore" -> List.of(Metric.TRAVEL_DISTANCE, Metric.ELYTRA_DISTANCE, Metric.JUMPS,
                     Metric.PICKED_UP, Metric.DROPPED, Metric.MUSIC_PLAYED);
             case "all" -> orderedMenuMetrics();
             default -> List.of(Metric.PLAY_TIME, Metric.MINED, Metric.PLACED, Metric.KILLS,
                     Metric.DEATHS, Metric.TRAVEL_DISTANCE, Metric.ORES_MINED, Metric.TRADES);
         };
+    }
+
+    private static List<Metric> funOverviewMetrics() {
+        return java.util.Arrays.stream(Metric.values())
+                .filter(metric -> metric.isFun() && metric.victimEntityId() == null).toList();
+    }
+
+    private static List<Metric> funVictimMetrics() {
+        return java.util.Arrays.stream(Metric.values())
+                .filter(metric -> metric.victimEntityId() != null).toList();
+    }
+
+    private static List<Metric> funMetrics() {
+        return java.util.Arrays.stream(Metric.values()).filter(Metric::isFun).toList();
     }
 
     private static List<Metric> orderedMenuMetrics() {
@@ -912,7 +1005,7 @@ public final class RankBoardMod implements ModInitializer {
                 Metric.DAMAGE_DEALT, Metric.PICKED_UP, Metric.FOOD, Metric.DROPPED,
                 Metric.REDSTONE_PLACED));
         for (Metric metric : Metric.values()) {
-            if (!ordered.contains(metric)) ordered.add(metric);
+            if (!metric.isFun() && !ordered.contains(metric)) ordered.add(metric);
         }
         return List.copyOf(ordered);
     }
@@ -948,7 +1041,7 @@ public final class RankBoardMod implements ModInitializer {
                 source.sendSuccess(() -> Component.literal("当前周期从首个可信基线开始，部分指标可能暂不可用。")
                         .withStyle(ChatFormatting.YELLOW), false);
             }
-            for (Metric metric : Metric.values()) {
+            for (Metric metric : orderedMenuMetrics()) {
                 java.util.OptionalLong delta = state.periodDelta(
                         period, player.getUUID(), metric, metric.read(player));
                 if (delta.isEmpty()) {
@@ -1596,17 +1689,93 @@ public final class RankBoardMod implements ModInitializer {
         ORES_MINED("ores", "矿业大亨榜", ChatFormatting.GOLD, RankBoardMod::oresMined),
         TOTEM_USED("totem", "死里逃生榜", ChatFormatting.YELLOW, RankBoardMod::totemsUsed),
         MUSIC_PLAYED("music", "音乐家榜", ChatFormatting.LIGHT_PURPLE, p -> custom(p, Stats.PLAY_RECORD)),
-        TARGET_HITS("target", "神射手榜", ChatFormatting.RED, p -> custom(p, Stats.TARGET_HIT));
+        TARGET_HITS("target", "神射手榜", ChatFormatting.RED, p -> custom(p, Stats.TARGET_HIT)),
+        MOB_DEATHS("mob_victims", "怪物大餐榜", ChatFormatting.DARK_RED, RankBoardMod::killedByMobs, true),
+        ZOMBIE_DEATHS("zombie_group", "僵尸加餐榜", ChatFormatting.DARK_GREEN, p -> killedBy(p, MetricCatalog.ZOMBIE_KILLERS), true),
+        SKELETON_DEATHS("skeleton_group", "骷髅箭靶榜", ChatFormatting.GRAY, p -> killedBy(p, MetricCatalog.SKELETON_KILLERS), true),
+        CREEPER_DEATHS("creeper_group", "苦力怕烟花榜", ChatFormatting.GREEN, p -> killedBy(p, MetricCatalog.CREEPER_KILLERS), true),
+        ARTHROPOD_DEATHS("arthropod_group", "虫群口粮榜", ChatFormatting.DARK_PURPLE, p -> killedBy(p, MetricCatalog.ARTHROPOD_KILLERS), true),
+        RAIDER_DEATHS("raider_group", "灾厄靶子榜", ChatFormatting.GOLD, p -> killedBy(p, MetricCatalog.RAIDER_KILLERS), true),
+        NETHER_DEATHS("nether_group", "下界燃料榜", ChatFormatting.RED, p -> killedBy(p, MetricCatalog.NETHER_KILLERS), true),
+        END_DEATHS("end_group", "末地祭品榜", ChatFormatting.LIGHT_PURPLE, p -> killedBy(p, MetricCatalog.END_KILLERS), true),
+        WARDEN_DEATHS("warden_group", "监守者玩具榜", ChatFormatting.DARK_AQUA, p -> killedBy(p, MetricCatalog.WARDEN_KILLERS), true),
+        VICTIM_BLAZE("victim_blaze", "烈焰人受害者榜", ChatFormatting.DARK_RED, "minecraft:blaze"),
+        VICTIM_BOGGED("victim_bogged", "沼骸受害者榜", ChatFormatting.DARK_GREEN, "minecraft:bogged"),
+        VICTIM_BREEZE("victim_breeze", "旋风人受害者榜", ChatFormatting.AQUA, "minecraft:breeze"),
+        VICTIM_CAMEL_HUSK("victim_camel_husk", "骆驼尸壳受害者榜", ChatFormatting.GOLD, "minecraft:camel_husk"),
+        VICTIM_CAVE_SPIDER("victim_cave_spider", "洞穴蜘蛛受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:cave_spider"),
+        VICTIM_CREAKING("victim_creaking", "嘎枝受害者榜", ChatFormatting.DARK_GRAY, "minecraft:creaking"),
+        VICTIM_CREEPER("victim_creeper", "苦力怕受害者榜", ChatFormatting.GREEN, "minecraft:creeper"),
+        VICTIM_DROWNED("victim_drowned", "溺尸受害者榜", ChatFormatting.DARK_AQUA, "minecraft:drowned"),
+        VICTIM_ELDER_GUARDIAN("victim_elder_guardian", "远古守卫者受害者榜", ChatFormatting.DARK_AQUA, "minecraft:elder_guardian"),
+        VICTIM_ENDER_DRAGON("victim_ender_dragon", "末影龙受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:ender_dragon"),
+        VICTIM_ENDERMAN("victim_enderman", "末影人受害者榜", ChatFormatting.LIGHT_PURPLE, "minecraft:enderman"),
+        VICTIM_ENDERMITE("victim_endermite", "末影螨受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:endermite"),
+        VICTIM_EVOKER("victim_evoker", "唤魔者受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:evoker"),
+        VICTIM_GHAST("victim_ghast", "恶魂受害者榜", ChatFormatting.RED, "minecraft:ghast"),
+        VICTIM_GUARDIAN("victim_guardian", "守卫者受害者榜", ChatFormatting.AQUA, "minecraft:guardian"),
+        VICTIM_HOGLIN("victim_hoglin", "疣猪兽受害者榜", ChatFormatting.DARK_RED, "minecraft:hoglin"),
+        VICTIM_HUSK("victim_husk", "尸壳受害者榜", ChatFormatting.GOLD, "minecraft:husk"),
+        VICTIM_ILLUSIONER("victim_illusioner", "幻术师受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:illusioner"),
+        VICTIM_MAGMA_CUBE("victim_magma_cube", "岩浆怪受害者榜", ChatFormatting.RED, "minecraft:magma_cube"),
+        VICTIM_PARCHED("victim_parched", "干尸（Parched）受害者榜", ChatFormatting.YELLOW, "minecraft:parched"),
+        VICTIM_PHANTOM("victim_phantom", "幻翼受害者榜", ChatFormatting.DARK_BLUE, "minecraft:phantom"),
+        VICTIM_PIGLIN("victim_piglin", "猪灵受害者榜", ChatFormatting.GOLD, "minecraft:piglin"),
+        VICTIM_PIGLIN_BRUTE("victim_piglin_brute", "猪灵蛮兵受害者榜", ChatFormatting.DARK_RED, "minecraft:piglin_brute"),
+        VICTIM_PILLAGER("victim_pillager", "掠夺者受害者榜", ChatFormatting.GRAY, "minecraft:pillager"),
+        VICTIM_RAVAGER("victim_ravager", "劫掠兽受害者榜", ChatFormatting.DARK_GRAY, "minecraft:ravager"),
+        VICTIM_SHULKER("victim_shulker", "潜影贝受害者榜", ChatFormatting.LIGHT_PURPLE, "minecraft:shulker"),
+        VICTIM_SILVERFISH("victim_silverfish", "蠹虫受害者榜", ChatFormatting.GRAY, "minecraft:silverfish"),
+        VICTIM_SKELETON("victim_skeleton", "骷髅受害者榜", ChatFormatting.GRAY, "minecraft:skeleton"),
+        VICTIM_SLIME("victim_slime", "史莱姆受害者榜", ChatFormatting.GREEN, "minecraft:slime"),
+        VICTIM_SPIDER("victim_spider", "蜘蛛受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:spider"),
+        VICTIM_STRAY("victim_stray", "流浪者受害者榜", ChatFormatting.AQUA, "minecraft:stray"),
+        VICTIM_VEX("victim_vex", "恼鬼受害者榜", ChatFormatting.LIGHT_PURPLE, "minecraft:vex"),
+        VICTIM_VINDICATOR("victim_vindicator", "卫道士受害者榜", ChatFormatting.DARK_RED, "minecraft:vindicator"),
+        VICTIM_WARDEN("victim_warden", "监守者受害者榜", ChatFormatting.DARK_AQUA, "minecraft:warden"),
+        VICTIM_WITCH("victim_witch", "女巫受害者榜", ChatFormatting.DARK_PURPLE, "minecraft:witch"),
+        VICTIM_WITHER("victim_wither", "凋灵受害者榜", ChatFormatting.DARK_GRAY, "minecraft:wither"),
+        VICTIM_WITHER_SKELETON("victim_wither_skeleton", "凋灵骷髅受害者榜", ChatFormatting.DARK_GRAY, "minecraft:wither_skeleton"),
+        VICTIM_ZOGLIN("victim_zoglin", "僵尸疣猪兽受害者榜", ChatFormatting.DARK_RED, "minecraft:zoglin"),
+        VICTIM_ZOMBIE("victim_zombie", "僵尸受害者榜", ChatFormatting.DARK_GREEN, "minecraft:zombie"),
+        VICTIM_ZOMBIE_NAUTILUS("victim_zombie_nautilus", "僵尸鹦鹉螺受害者榜", ChatFormatting.DARK_AQUA, "minecraft:zombie_nautilus"),
+        VICTIM_ZOMBIE_VILLAGER("victim_zombie_villager", "僵尸村民受害者榜", ChatFormatting.DARK_GREEN, "minecraft:zombie_villager"),
+        VICTIM_ZOMBIFIED_PIGLIN("victim_zombified_piglin", "僵尸猪灵受害者榜", ChatFormatting.GOLD, "minecraft:zombified_piglin"),
+        VICTIM_BEE("victim_bee", "蜜蜂受害者榜", ChatFormatting.YELLOW, "minecraft:bee"),
+        VICTIM_DOLPHIN("victim_dolphin", "海豚受害者榜", ChatFormatting.AQUA, "minecraft:dolphin"),
+        VICTIM_GOAT("victim_goat", "山羊受害者榜", ChatFormatting.WHITE, "minecraft:goat"),
+        VICTIM_IRON_GOLEM("victim_iron_golem", "铁傀儡受害者榜", ChatFormatting.GRAY, "minecraft:iron_golem"),
+        VICTIM_LLAMA("victim_llama", "羊驼受害者榜", ChatFormatting.GOLD, "minecraft:llama"),
+        VICTIM_PANDA("victim_panda", "熊猫受害者榜", ChatFormatting.WHITE, "minecraft:panda"),
+        VICTIM_POLAR_BEAR("victim_polar_bear", "北极熊受害者榜", ChatFormatting.WHITE, "minecraft:polar_bear"),
+        VICTIM_PUFFERFISH("victim_pufferfish", "河豚受害者榜", ChatFormatting.YELLOW, "minecraft:pufferfish"),
+        VICTIM_RABBIT("victim_rabbit", "杀手兔受害者榜", ChatFormatting.WHITE, "minecraft:rabbit"),
+        VICTIM_TRADER_LLAMA("victim_trader_llama", "行商羊驼受害者榜", ChatFormatting.AQUA, "minecraft:trader_llama"),
+        VICTIM_WOLF("victim_wolf", "狼受害者榜", ChatFormatting.GRAY, "minecraft:wolf");
 
         final String command;
         final String label;
         final ChatFormatting nameColor;
         final Counter counter;
+        final boolean fun;
+        final String victimEntityId;
         Metric(String command, String label, ChatFormatting nameColor, Counter counter) {
+            this(command, label, nameColor, counter, false, null);
+        }
+        Metric(String command, String label, ChatFormatting nameColor, Counter counter, boolean fun) {
+            this(command, label, nameColor, counter, fun, null);
+        }
+        Metric(String command, String label, ChatFormatting nameColor, String victimEntityId) {
+            this(command, label, nameColor, player -> killedBy(player, Set.of(victimEntityId)), true, victimEntityId);
+        }
+        Metric(String command, String label, ChatFormatting nameColor, Counter counter, boolean fun, String victimEntityId) {
             this.command = command; this.label = label; this.nameColor = nameColor; this.counter = counter;
+            this.fun = fun; this.victimEntityId = victimEntityId;
         }
         long read(ServerPlayer player) { return counter.read(player); }
         String label() { return RankBoardConfig.get().metricLabel(this); }
+        boolean isFun() { return fun; }
+        String victimEntityId() { return victimEntityId; }
     }
 
     public enum Period {
@@ -1643,6 +1812,8 @@ public final class RankBoardMod implements ModInitializer {
     private static long travelDistance(ServerPlayer player) { return MetricCatalog.TRAVEL_CUSTOM_STATS.stream().mapToLong(id -> custom(player, net.minecraft.resources.Identifier.parse(id))).sum(); }
     private static long oresMined(ServerPlayer player) { return BuiltInRegistries.BLOCK.stream().filter(block -> MetricCatalog.ORE_BLOCKS.contains(BuiltInRegistries.BLOCK.getKey(block).toString())).mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
     private static long totemsUsed(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(item -> BuiltInRegistries.ITEM.getKey(item).toString().equals("minecraft:totem_of_undying")).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
+    private static long killedByMobs(ServerPlayer player) { return BuiltInRegistries.ENTITY_TYPE.stream().filter(type -> !BuiltInRegistries.ENTITY_TYPE.getKey(type).toString().equals("minecraft:player")).mapToLong(type -> player.getStats().getValue(Stats.ENTITY_KILLED_BY.get(type))).sum(); }
+    private static long killedBy(ServerPlayer player, Set<String> killers) { return BuiltInRegistries.ENTITY_TYPE.stream().filter(type -> killers.contains(BuiltInRegistries.ENTITY_TYPE.getKey(type).toString())).mapToLong(type -> player.getStats().getValue(Stats.ENTITY_KILLED_BY.get(type))).sum(); }
     static boolean isRedstoneComponent(Item item) {
         String path = BuiltInRegistries.ITEM.getKey(item).getPath();
         return REDSTONE_COMPONENTS.contains(path) || path.endsWith("_button") || path.endsWith("_pressure_plate")

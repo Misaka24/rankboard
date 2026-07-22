@@ -17,6 +17,7 @@ public final class HistorySnapshotStoreTest {
             checkRanges();
             checkNewMetrics();
             checkMenuCoverage();
+            checkObjectiveNames();
             checkCommandTree();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
             store.put(LocalDate.of(2026, 7, 31), players(player, RankBoardMod.Metric.PLAY_TIME, 100), false);
@@ -112,12 +113,36 @@ public final class HistorySnapshotStoreTest {
     private static void checkMenuCoverage() throws Exception {
         var method = RankBoardMod.class.getDeclaredMethod("menuMetrics", String.class);
         method.setAccessible(true);
-        Set<RankBoardMod.Metric> covered = EnumSet.noneOf(RankBoardMod.Metric.class);
+        Set<RankBoardMod.Metric> standard = EnumSet.noneOf(RankBoardMod.Metric.class);
         for (String group : List.of("core", "combat", "build", "life", "explore")) {
-            covered.addAll((List<RankBoardMod.Metric>) method.invoke(null, group));
+            standard.addAll((List<RankBoardMod.Metric>) method.invoke(null, group));
         }
-        check(covered.equals(EnumSet.allOf(RankBoardMod.Metric.class)),
-                "Categorized menu does not cover every metric: " + covered);
+        Set<RankBoardMod.Metric> fun = EnumSet.copyOf((List<RankBoardMod.Metric>) method.invoke(null, "fun"));
+        Set<RankBoardMod.Metric> all = EnumSet.copyOf((List<RankBoardMod.Metric>) method.invoke(null, "all"));
+        Set<RankBoardMod.Metric> combined = EnumSet.copyOf(standard);
+        combined.addAll(fun);
+        check(java.util.Collections.disjoint(standard, fun), "Fun metrics leaked into standard categories");
+        check(all.equals(standard), "All category must exclude fun metrics: " + all);
+        check(combined.equals(EnumSet.allOf(RankBoardMod.Metric.class)),
+                "Categorized menu does not cover every metric: " + combined);
+        check(((List<RankBoardMod.Metric>) method.invoke(null, "fun_overview")).stream()
+                        .allMatch(metric -> metric.isFun() && metric.victimEntityId() == null),
+                "Fun overview contains individual victim metrics");
+        check(((List<RankBoardMod.Metric>) method.invoke(null, "fun_victims")).stream()
+                        .allMatch(metric -> metric.victimEntityId() != null),
+                "Victim subgroup contains aggregate metrics");
+    }
+
+    private static void checkObjectiveNames() throws Exception {
+        var method = BoardService.class.getDeclaredMethod("objectiveName",
+                RankBoardMod.Period.class, RankBoardMod.Metric.class, boolean.class);
+        method.setAccessible(true);
+        Set<String> names = new HashSet<>();
+        for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+            String name = (String) method.invoke(null, RankBoardMod.Period.ALL, metric, true);
+            check(name.length() <= 16, "Objective name is too long: " + name);
+            check(names.add(name), "Objective name collision for " + metric.command + ": " + name);
+        }
     }
 
     private static void checkCommandTree() throws Exception {
@@ -133,15 +158,24 @@ public final class HistorySnapshotStoreTest {
         checkCommandPath(root, "menu", "core", "placed");
         checkCommandPath(root, "menu", "core", "placed", "week");
         checkCommandPath(root, "menu", "core", "placed", "week", "players", "player");
+        checkCommandPath(root, "menu", "fun", "overview");
+        checkCommandPath(root, "menu", "fun", "victims");
+        checkCommandPath(root, "menu", "fun", "victim_zombie");
         checkCommandPath(root, "menu", "home");
         checkCommandPath(root, "menu", "carousel");
         checkCommandPath(root, "menu", "lookmenu");
         checkCommandPath(root, "menu", "ranking", "week");
+        checkCommandPath(root, "menu", "ranking", "week", "fun", "overview");
+        checkCommandPath(root, "menu", "ranking", "week", "fun", "victims");
+        checkCommandPath(root, "menu", "ranking", "week", "fun", "victim_zombie");
         var quickRanking = checkCommandPath(root, "menu", "ranking", "week", "all", "placed");
         check(quickRanking.getChild("players") == null, "Quick ranking unexpectedly exposes sidebar actions");
         checkCommandPath(root, "menu", "personal", "month", "all", "placed");
         checkCommandPath(root, "menu", "server", "yearly", "all", "placed");
         checkCommandPath(root, "weekly", "core", "placed");
+        checkCommandPath(root, "weekly", "fun", "victim_zombie");
+        check(root.getChild("weekly").getChild("all").getChild("victim_zombie") == null,
+                "Fun victim metric leaked into all category command completion");
         checkCommandPath(root, "weekly", "core", "placed", "limit");
         checkCommandPath(root, "display", "show", "weekly", "core", "placed");
         checkCommandPath(root, "display", "show", "weekly", "core", "placed", "player");
@@ -191,6 +225,17 @@ public final class HistorySnapshotStoreTest {
         com.google.gson.JsonObject used = new com.google.gson.JsonObject();
         used.addProperty("minecraft:totem_of_undying", 11);
         stats.add("minecraft:used", used);
+        com.google.gson.JsonObject killedBy = new com.google.gson.JsonObject();
+        killedBy.addProperty("minecraft:zombie", 3);
+        killedBy.addProperty("minecraft:skeleton", 4);
+        killedBy.addProperty("minecraft:creeper", 5);
+        killedBy.addProperty("minecraft:warden", 2);
+        killedBy.addProperty("minecraft:pillager", 7);
+        killedBy.addProperty("minecraft:blaze", 11);
+        killedBy.addProperty("minecraft:enderman", 13);
+        killedBy.addProperty("minecraft:spider", 17);
+        killedBy.addProperty("minecraft:player", 100);
+        stats.add("minecraft:killed_by", killedBy);
 
         var method = StatReader.class.getDeclaredMethod("readValues", com.google.gson.JsonObject.class);
         method.setAccessible(true);
@@ -206,6 +251,18 @@ public final class HistorySnapshotStoreTest {
         check(values.get(RankBoardMod.Metric.TOTEM_USED) == 11L, "Totem metric mismatch");
         check(values.get(RankBoardMod.Metric.MUSIC_PLAYED) == 6L, "Music metric mismatch");
         check(values.get(RankBoardMod.Metric.TARGET_HITS) == 7L, "Target metric mismatch");
+        check(values.get(RankBoardMod.Metric.MOB_DEATHS) == 62L, "Non-player mob death aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.ZOMBIE_DEATHS) == 3L, "Zombie-family victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.SKELETON_DEATHS) == 4L, "Skeleton-family victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.CREEPER_DEATHS) == 5L, "Creeper victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.ARTHROPOD_DEATHS) == 17L, "Arthropod victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.RAIDER_DEATHS) == 7L, "Raider victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.NETHER_DEATHS) == 11L, "Nether victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.END_DEATHS) == 13L, "End victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.WARDEN_DEATHS) == 2L, "Warden victim aggregate mismatch");
+        check(values.get(RankBoardMod.Metric.VICTIM_ZOMBIE) == 3L, "Zombie victim metric mismatch");
+        check(values.get(RankBoardMod.Metric.VICTIM_SKELETON) == 4L, "Skeleton victim metric mismatch");
+        check(values.get(RankBoardMod.Metric.VICTIM_CREEPER) == 5L, "Creeper victim metric mismatch");
         check("3.0 km".equals(RankBoardMod.format(RankBoardMod.Metric.TRAVEL_DISTANCE, 300_000L)),
                 "Travel formatting mismatch");
     }

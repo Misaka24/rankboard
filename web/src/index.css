@@ -431,6 +431,14 @@ body { color: var(--theme-text); }
 }
 .metric-groups button:hover { color: var(--theme-primary); border-color: color-mix(in srgb, var(--theme-primary) 40%, transparent); }
 .metric-groups button.selected { color: #fff; border-color: var(--theme-primary); background: var(--theme-primary); }
+.metric-subgroups { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.metric-subgroups button {
+  min-height: 34px; padding: 6px 9px; color: var(--theme-muted); border: 1px solid var(--theme-border);
+  border-radius: 6px; background: color-mix(in srgb, var(--theme-surface) 86%, transparent);
+}
+.metric-subgroups button:hover { color: var(--theme-primary); border-color: color-mix(in srgb, var(--theme-primary) 40%, transparent); }
+.metric-subgroups button.selected { color: #fff; border-color: var(--theme-primary); background: var(--theme-primary); }
+
 .metric-search { display: block; }
 .metric-search input {
   width: 100%;

@@ -42,7 +42,7 @@ final class StatReader {
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
-    private static final int PERSISTENT_CACHE_SCHEMA = 6;
+    private static final int PERSISTENT_CACHE_SCHEMA = 7;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
@@ -445,6 +445,9 @@ final class StatReader {
     }
 
     private static long readValue(JsonObject stats, RankBoardMod.Metric metric) {
+        if (metric.victimEntityId() != null) {
+            return stat(stats, "minecraft:killed_by", metric.victimEntityId());
+        }
         return switch (metric) {
             case FOOD -> sumMatching(stats, "minecraft:used", FOOD_ITEMS);
             case PLACED -> sumMatching(stats, "minecraft:used", BLOCK_ITEMS);
@@ -473,6 +476,16 @@ final class StatReader {
             case TOTEM_USED -> stat(stats, "minecraft:used", "minecraft:totem_of_undying");
             case MUSIC_PLAYED -> stat(stats, "minecraft:custom", "minecraft:play_record");
             case TARGET_HITS -> stat(stats, "minecraft:custom", "minecraft:target_hit");
+            case MOB_DEATHS -> sumExcluding(stats, "minecraft:killed_by", Set.of("minecraft:player"));
+            case ZOMBIE_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.ZOMBIE_KILLERS);
+            case SKELETON_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.SKELETON_KILLERS);
+            case CREEPER_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.CREEPER_KILLERS);
+            case ARTHROPOD_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.ARTHROPOD_KILLERS);
+            case RAIDER_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.RAIDER_KILLERS);
+            case NETHER_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.NETHER_KILLERS);
+            case END_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.END_KILLERS);
+            case WARDEN_DEATHS -> sumMatching(stats, "minecraft:killed_by", MetricCatalog.WARDEN_KILLERS);
+            default -> 0L;
         };
     }
 
@@ -489,6 +502,14 @@ final class StatReader {
         long result = 0;
         for (Map.Entry<String, JsonElement> entry : object(stats, group).entrySet()) {
             if (acceptedIds.contains(entry.getKey())) result += entry.getValue().getAsLong();
+        }
+        return result;
+    }
+
+    private static long sumExcluding(JsonObject stats, String group, Set<String> excludedIds) {
+        long result = 0;
+        for (Map.Entry<String, JsonElement> entry : object(stats, group).entrySet()) {
+            if (!excludedIds.contains(entry.getKey())) result += entry.getValue().getAsLong();
         }
         return result;
     }

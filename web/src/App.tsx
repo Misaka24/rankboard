@@ -192,8 +192,74 @@ const defaultMetrics: Metric[] = [
   { id: "ores", label: "矿业大亨榜", detail: "资源" },
   { id: "totem", label: "死里逃生榜", detail: "生存" },
   { id: "music", label: "音乐家榜", detail: "休闲" },
-  { id: "target", label: "神射手榜", detail: "战斗" }
+  { id: "target", label: "神射手榜", detail: "战斗" },
+  { id: "mob_victims", label: "怪物大餐榜", detail: "综合受害" },
+  { id: "zombie_group", label: "僵尸加餐榜", detail: "综合受害" },
+  { id: "skeleton_group", label: "骷髅箭靶榜", detail: "综合受害" },
+  { id: "creeper_group", label: "苦力怕烟花榜", detail: "综合受害" },
+  { id: "arthropod_group", label: "虫群口粮榜", detail: "综合受害" },
+  { id: "raider_group", label: "灾厄靶子榜", detail: "综合受害" },
+  { id: "nether_group", label: "下界燃料榜", detail: "综合受害" },
+  { id: "end_group", label: "末地祭品榜", detail: "综合受害" },
+  { id: "warden_group", label: "监守者玩具榜", detail: "综合受害" },
+  { id: "victim_blaze", label: "烈焰人受害者榜", detail: "单种生物" },
+  { id: "victim_bogged", label: "沼骸受害者榜", detail: "单种生物" },
+  { id: "victim_breeze", label: "旋风人受害者榜", detail: "单种生物" },
+  { id: "victim_camel_husk", label: "骆驼尸壳受害者榜", detail: "单种生物" },
+  { id: "victim_cave_spider", label: "洞穴蜘蛛受害者榜", detail: "单种生物" },
+  { id: "victim_creaking", label: "嘎枝受害者榜", detail: "单种生物" },
+  { id: "victim_creeper", label: "苦力怕受害者榜", detail: "单种生物" },
+  { id: "victim_drowned", label: "溺尸受害者榜", detail: "单种生物" },
+  { id: "victim_elder_guardian", label: "远古守卫者受害者榜", detail: "单种生物" },
+  { id: "victim_ender_dragon", label: "末影龙受害者榜", detail: "单种生物" },
+  { id: "victim_enderman", label: "末影人受害者榜", detail: "单种生物" },
+  { id: "victim_endermite", label: "末影螨受害者榜", detail: "单种生物" },
+  { id: "victim_evoker", label: "唤魔者受害者榜", detail: "单种生物" },
+  { id: "victim_ghast", label: "恶魂受害者榜", detail: "单种生物" },
+  { id: "victim_guardian", label: "守卫者受害者榜", detail: "单种生物" },
+  { id: "victim_hoglin", label: "疣猪兽受害者榜", detail: "单种生物" },
+  { id: "victim_husk", label: "尸壳受害者榜", detail: "单种生物" },
+  { id: "victim_illusioner", label: "幻术师受害者榜", detail: "单种生物" },
+  { id: "victim_magma_cube", label: "岩浆怪受害者榜", detail: "单种生物" },
+  { id: "victim_parched", label: "干尸（Parched）受害者榜", detail: "单种生物" },
+  { id: "victim_phantom", label: "幻翼受害者榜", detail: "单种生物" },
+  { id: "victim_piglin", label: "猪灵受害者榜", detail: "单种生物" },
+  { id: "victim_piglin_brute", label: "猪灵蛮兵受害者榜", detail: "单种生物" },
+  { id: "victim_pillager", label: "掠夺者受害者榜", detail: "单种生物" },
+  { id: "victim_ravager", label: "劫掠兽受害者榜", detail: "单种生物" },
+  { id: "victim_shulker", label: "潜影贝受害者榜", detail: "单种生物" },
+  { id: "victim_silverfish", label: "蠹虫受害者榜", detail: "单种生物" },
+  { id: "victim_skeleton", label: "骷髅受害者榜", detail: "单种生物" },
+  { id: "victim_slime", label: "史莱姆受害者榜", detail: "单种生物" },
+  { id: "victim_spider", label: "蜘蛛受害者榜", detail: "单种生物" },
+  { id: "victim_stray", label: "流浪者受害者榜", detail: "单种生物" },
+  { id: "victim_vex", label: "恼鬼受害者榜", detail: "单种生物" },
+  { id: "victim_vindicator", label: "卫道士受害者榜", detail: "单种生物" },
+  { id: "victim_warden", label: "监守者受害者榜", detail: "单种生物" },
+  { id: "victim_witch", label: "女巫受害者榜", detail: "单种生物" },
+  { id: "victim_wither", label: "凋灵受害者榜", detail: "单种生物" },
+  { id: "victim_wither_skeleton", label: "凋灵骷髅受害者榜", detail: "单种生物" },
+  { id: "victim_zoglin", label: "僵尸疣猪兽受害者榜", detail: "单种生物" },
+  { id: "victim_zombie", label: "僵尸受害者榜", detail: "单种生物" },
+  { id: "victim_zombie_nautilus", label: "僵尸鹦鹉螺受害者榜", detail: "单种生物" },
+  { id: "victim_zombie_villager", label: "僵尸村民受害者榜", detail: "单种生物" },
+  { id: "victim_zombified_piglin", label: "僵尸猪灵受害者榜", detail: "单种生物" },
+  { id: "victim_bee", label: "蜜蜂受害者榜", detail: "单种生物" },
+  { id: "victim_dolphin", label: "海豚受害者榜", detail: "单种生物" },
+  { id: "victim_goat", label: "山羊受害者榜", detail: "单种生物" },
+  { id: "victim_iron_golem", label: "铁傀儡受害者榜", detail: "单种生物" },
+  { id: "victim_llama", label: "羊驼受害者榜", detail: "单种生物" },
+  { id: "victim_panda", label: "熊猫受害者榜", detail: "单种生物" },
+  { id: "victim_polar_bear", label: "北极熊受害者榜", detail: "单种生物" },
+  { id: "victim_pufferfish", label: "河豚受害者榜", detail: "单种生物" },
+  { id: "victim_rabbit", label: "杀手兔受害者榜", detail: "单种生物" },
+  { id: "victim_trader_llama", label: "行商羊驼受害者榜", detail: "单种生物" },
+  { id: "victim_wolf", label: "狼受害者榜", detail: "单种生物" }
 ];
+
+const funOverviewMetricIds = ["mob_victims", "zombie_group", "skeleton_group", "creeper_group", "arthropod_group", "raider_group", "nether_group", "end_group", "warden_group"];
+const funVictimMetricIds = ["victim_blaze", "victim_bogged", "victim_breeze", "victim_camel_husk", "victim_cave_spider", "victim_creaking", "victim_creeper", "victim_drowned", "victim_elder_guardian", "victim_ender_dragon", "victim_enderman", "victim_endermite", "victim_evoker", "victim_ghast", "victim_guardian", "victim_hoglin", "victim_husk", "victim_illusioner", "victim_magma_cube", "victim_parched", "victim_phantom", "victim_piglin", "victim_piglin_brute", "victim_pillager", "victim_ravager", "victim_shulker", "victim_silverfish", "victim_skeleton", "victim_slime", "victim_spider", "victim_stray", "victim_vex", "victim_vindicator", "victim_warden", "victim_witch", "victim_wither", "victim_wither_skeleton", "victim_zoglin", "victim_zombie", "victim_zombie_nautilus", "victim_zombie_villager", "victim_zombified_piglin", "victim_bee", "victim_dolphin", "victim_goat", "victim_iron_golem", "victim_llama", "victim_panda", "victim_polar_bear", "victim_pufferfish", "victim_rabbit", "victim_trader_llama", "victim_wolf"];
+const funMetricIds = [...funOverviewMetricIds, ...funVictimMetricIds];
 
 const metricGroups = [
   { id: "core", label: "常用", metrics: ["playtime", "mined", "placed", "kills", "deaths", "travel", "ores", "trades"] },
@@ -201,6 +267,7 @@ const metricGroups = [
   { id: "build", label: "建造", metrics: ["mined", "placed", "ores", "crafted", "redstone", "broken", "enchanted"] },
   { id: "life", label: "生存", metrics: ["food", "fishing", "bred", "slept", "trades", "totem"] },
   { id: "explore", label: "探索", metrics: ["travel", "elytra", "jumps", "picked", "dropped", "music"] },
+  { id: "fun", label: "生物受害", metrics: funMetricIds },
   { id: "all", label: "全部", metrics: [] as string[] }
 ];
 
@@ -218,6 +285,7 @@ export default function App() {
   const [period, setPeriod] = useState("all");
   const [metric, setMetric] = useState("playtime");
   const [metricGroup, setMetricGroup] = useState("core");
+  const [funSubgroup, setFunSubgroup] = useState<"overview" | "victims">("overview");
   const [metricQuery, setMetricQuery] = useState("");
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
@@ -367,9 +435,9 @@ export default function App() {
     const group = metricGroups.find((item) => item.id === metricGroup);
     const keyword = metricQuery.trim().toLowerCase();
     return metrics.filter((item) =>
-      (!group || group.id === "all" || group.metrics.includes(item.id))
+      (!group || (group.id === "all" ? !funMetricIds.includes(item.id) : group.id === "fun" ? (funSubgroup === "overview" ? funOverviewMetricIds : funVictimMetricIds).includes(item.id) : group.metrics.includes(item.id)))
       && (!keyword || item.label.toLowerCase().includes(keyword) || item.detail.toLowerCase().includes(keyword)));
-  }, [metricGroup, metricQuery, metrics]);
+  }, [metricGroup, funSubgroup, metricQuery, metrics]);
 
   const activeMetric = metrics.find((item) => item.id === metric) ?? metrics[0] ?? {
     id: "none", label: "无可用榜单", detail: ""
@@ -429,9 +497,17 @@ export default function App() {
             <div className="metric-groups" role="tablist" aria-label="榜单分类">
               {metricGroups.map((group) => (
                 <button key={group.id} className={group.id === metricGroup ? "selected" : ""}
-                  onClick={() => setMetricGroup(group.id)}>{group.label}</button>
+                  onClick={() => { setMetricGroup(group.id); if (group.id === "fun") setFunSubgroup("overview"); }}>{group.label}</button>
               ))}
             </div>
+            {metricGroup === "fun" && (
+              <div className="metric-subgroups" role="tablist" aria-label="生物受害二级分类">
+                <button className={funSubgroup === "overview" ? "selected" : ""}
+                  onClick={() => setFunSubgroup("overview")}>综合受害榜</button>
+                <button className={funSubgroup === "victims" ? "selected" : ""}
+                  onClick={() => setFunSubgroup("victims")}>单种生物受害榜</button>
+              </div>
+            )}
             <label className="metric-search">
               <span className="sr-only">搜索榜单</span>
               <input value={metricQuery} onChange={(event) => setMetricQuery(event.target.value)}

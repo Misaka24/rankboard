@@ -282,7 +282,7 @@ final class BoardService {
                 || (SELECTIONS.isEmpty() && OVERVIEW_SELECTIONS.isEmpty() && globalSelection == null)) return;
         Set<RankBoardMod.Metric> activeMetrics = new HashSet<>();
         for (Selection selection : SELECTIONS.values()) activeMetrics.add(selection.metric);
-        if (!OVERVIEW_SELECTIONS.isEmpty()) for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) activeMetrics.add(metric);
+        if (!OVERVIEW_SELECTIONS.isEmpty()) for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) if (!metric.isFun()) activeMetrics.add(metric);
         if (globalSelection != null) activeMetrics.add(globalSelection.metric);
         long now = System.currentTimeMillis();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -408,7 +408,7 @@ final class BoardService {
         player.connection.send(new ClientboundSetObjectivePacket(objective, ClientboundSetObjectivePacket.METHOD_ADD));
         CLIENT_OBJECTIVES.put(player.getUUID(), name);
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
-            if (!state.isMetricDisplayEnabled(metric)) continue;
+            if (metric.isFun() || !state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);
             java.util.OptionalLong delta = state.periodDelta(period, player.getUUID(), metric, raw);
             if (delta.isEmpty()) continue;
@@ -641,7 +641,9 @@ final class BoardService {
     }
     private static String objectiveName(RankBoardMod.Period period, RankBoardMod.Metric metric, boolean personal) {
         String prefix = personal ? "rbp_" : "rbg_";
-        return prefix + period.command.charAt(0) + "_" + metric.command.substring(0, Math.min(7, metric.command.length()));
+        String key = metric.victimEntityId() == null ? metric.command
+                : "v" + Integer.toUnsignedString(metric.command.hashCode(), 36);
+        return prefix + period.command.charAt(0) + "_" + key.substring(0, Math.min(7, key.length()));
     }
     private static boolean isRankBoardObjective(Objective objective) {
         String name = objective.getName();
@@ -659,14 +661,14 @@ final class BoardService {
         RankBoardMod.Metric[] metrics = RankBoardMod.Metric.values();
         for (int offset = 1; offset <= metrics.length; offset++) {
             RankBoardMod.Metric candidate = metrics[(current.ordinal() + offset) % metrics.length];
-            if (state.isMetricDisplayEnabled(candidate)) return candidate;
+            if (!candidate.isFun() && state.isMetricDisplayEnabled(candidate)) return candidate;
         }
         return current;
     }
 
     private static RankBoardMod.Metric firstEnabledMetric(LeaderboardState state) {
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
-            if (state.isMetricDisplayEnabled(metric)) return metric;
+            if (!metric.isFun() && state.isMetricDisplayEnabled(metric)) return metric;
         }
         return null;
     }

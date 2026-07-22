@@ -24,4 +24,30 @@ final class MetricCatalog {
             "minecraft:emerald_ore", "minecraft:deepslate_emerald_ore",
             "minecraft:diamond_ore", "minecraft:deepslate_diamond_ore",
             "minecraft:nether_quartz_ore", "minecraft:ancient_debris");
+
+    static final Set<String> ZOMBIE_KILLERS = Set.of(
+            "minecraft:zombie", "minecraft:husk", "minecraft:drowned",
+            "minecraft:zombie_villager", "minecraft:zombified_piglin");
+
+    static final Set<String> SKELETON_KILLERS = Set.of(
+            "minecraft:skeleton", "minecraft:stray", "minecraft:bogged", "minecraft:wither_skeleton");
+
+    static final Set<String> CREEPER_KILLERS = Set.of("minecraft:creeper");
+
+    static final Set<String> ARTHROPOD_KILLERS = Set.of(
+            "minecraft:spider", "minecraft:cave_spider", "minecraft:silverfish", "minecraft:endermite");
+
+    static final Set<String> RAIDER_KILLERS = Set.of(
+            "minecraft:pillager", "minecraft:vindicator", "minecraft:evoker",
+            "minecraft:vex", "minecraft:ravager", "minecraft:illusioner");
+
+    static final Set<String> NETHER_KILLERS = Set.of(
+            "minecraft:blaze", "minecraft:ghast", "minecraft:magma_cube", "minecraft:hoglin",
+            "minecraft:zoglin", "minecraft:piglin", "minecraft:piglin_brute",
+            "minecraft:wither_skeleton", "minecraft:wither");
+
+    static final Set<String> END_KILLERS = Set.of(
+            "minecraft:enderman", "minecraft:endermite", "minecraft:shulker", "minecraft:ender_dragon");
+
+    static final Set<String> WARDEN_KILLERS = Set.of("minecraft:warden");
 }
