@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Github, PackageOpen } from "lucide-react";
+import { ExternalLink, Github, LayoutDashboard, PackageOpen, Rows3 } from "lucide-react";
 import BlurText from "@/components/BlurText/BlurText";
 
 type Metric = {
@@ -187,6 +187,14 @@ const defaultMetrics: Metric[] = [
 
 const today = new Date().toISOString().slice(0, 10);
 
+function initialUiMode(): "classic" | "modern" {
+  try {
+    return window.localStorage.getItem("rankboard-ui") === "modern" ? "modern" : "classic";
+  } catch {
+    return "classic";
+  }
+}
+
 export default function App() {
   const [period, setPeriod] = useState("all");
   const [metric, setMetric] = useState("playtime");
@@ -204,6 +212,12 @@ export default function App() {
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uiMode, setUiMode] = useState<"classic" | "modern">(initialUiMode);
+
+  useEffect(() => {
+    try { window.localStorage.setItem("rankboard-ui", uiMode); }
+    catch { /* Storage may be disabled; switching still works for the current page. */ }
+  }, [uiMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,17 +352,28 @@ export default function App() {
   }, [query, ranking]);
 
   return (
-    <div className="app-shell">
+    <div className={"app-shell ui-" + uiMode}>
       <header className="topbar glass">
         <div className="brand">
           {iconSource ? <img src={iconSource} onLoad={(event) => setIconColor(iconAverage(event.currentTarget))}
             alt="服务器图标" /> : <span className="brand-icon-placeholder">RB</span>}
           <BlurText text={serverName} delay={35} animateBy="letters" direction="top" className="brand-title" />
         </div>
-        <div className="top-status">
-          <strong>RankBoard排行榜模组</strong>
-          <span className={ranking?.cacheReady ? "signal online" : "signal"} />
-          {ranking?.onlineOnly ? "仅在线玩家" : "历史统计同步"}
+        <div className="header-actions">
+          <div className="top-status">
+            <strong>RankBoard排行榜模组</strong>
+            <span className={ranking?.cacheReady ? "signal online" : "signal"} />
+            {ranking?.onlineOnly ? "仅在线玩家" : "历史统计同步"}
+          </div>
+          <button
+            className="ui-switch"
+            type="button"
+            onClick={() => setUiMode((current) => current === "classic" ? "modern" : "classic")}
+            aria-label={"切换到" + (uiMode === "classic" ? "现代" : "经典") + "界面"}
+          >
+            {uiMode === "classic" ? <LayoutDashboard aria-hidden="true" /> : <Rows3 aria-hidden="true" />}
+            <span>{uiMode === "classic" ? "现代界面" : "经典界面"}</span>
+          </button>
         </div>
       </header>
 
@@ -445,7 +470,7 @@ export default function App() {
               <div className="notice glass">当前筛选下没有可显示的玩家。</div>
             )}
             {visiblePlayers.map((player) => (
-              <article className="ranking-card glass" key={player.uuid}>
+              <article className="ranking-card glass" data-rank={player.rank} key={player.uuid}>
                 <span className="rank-number">{String(player.rank).padStart(2, "0")}</span>
                 <PlayerAvatar player={player} />
                 <div className="player-info">
