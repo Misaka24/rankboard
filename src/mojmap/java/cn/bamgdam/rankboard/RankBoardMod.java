@@ -128,6 +128,10 @@ public final class RankBoardMod implements ModInitializer {
         menuRoot.then(Commands.literal("home").executes(context -> menu(context.getSource())));
         menuRoot.then(Commands.literal("carousel").executes(context -> carouselMenu(context.getSource())));
         menuRoot.then(Commands.literal("lookmenu").executes(context -> lookMenu(context.getSource())));
+        menuRoot.then(Commands.literal("_click")
+                .then(Commands.argument("command", StringArgumentType.greedyString())
+                        .executes(context -> runMenuClick(context.getSource(),
+                                StringArgumentType.getString(context, "command")))));
         for (String group : MENU_GROUPS) menuRoot.then(buildMenuGroupCommand(group));
         menuRoot.then(buildPeriodMenuCommands("ranking", 0));
         menuRoot.then(buildPeriodMenuCommands("personal", 1));
@@ -599,8 +603,7 @@ public final class RankBoardMod implements ModInitializer {
                 .append(Component.literal(" "))
                 .append(clickable("[查询我的统计]", ChatFormatting.GOLD, "/leaderboard mine all", "只查看自己的全部统计，不与其他玩家排名"));
         source.sendSuccess(() -> playerRow, false);
-        source.sendSuccess(() -> Component.literal("查询排行榜＝聊天框快速看排名；分类浏览＝进入榜单操作；查询我的统计＝只看自己的各项数据。")
-                .withStyle(ChatFormatting.DARK_GRAY), false);
+
         boolean boardEnabled = false;
         try {
             UUID uuid = source.getEntity() == null ? null : source.getEntity().getUUID();
@@ -633,8 +636,7 @@ public final class RankBoardMod implements ModInitializer {
                     .append(clickable("[清除全服侧边栏]", ChatFormatting.RED, "/leaderboard scoreboard clear", "立即关闭全服共享侧边栏"));
             source.sendSuccess(() -> adminRow, false);
         }
-        source.sendSuccess(() -> Component.literal("输入 /leaderboard 可随时重新打开本菜单。")
-                .withStyle(ChatFormatting.DARK_GRAY), false);
+
         return 1;
     }
 
@@ -1249,12 +1251,30 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private static Component clickable(String label, ChatFormatting color, String command, String hover) {
-        return Component.literal(label).setStyle(TextCompat.interactive(Style.EMPTY.withColor(color), command, Component.literal(hover)));
+        return Component.literal(label).setStyle(TextCompat.interactive(
+                Style.EMPTY.withColor(color), menuClickCommand(command), Component.literal(hover)));
     }
 
     private static Component clickable(String label, Metric metric, String command, String hover) {
         return Component.literal(label).setStyle(TextCompat.interactive(
-                Style.EMPTY.withColor(RankBoardColors.renderedRgb(metric)), command, Component.literal(hover)));
+                Style.EMPTY.withColor(RankBoardColors.renderedRgb(metric)), menuClickCommand(command), Component.literal(hover)));
+    }
+
+    private static String menuClickCommand(String command) {
+        String prefix = "/leaderboard ";
+        if (!command.startsWith(prefix)) return command;
+        String action = command.substring(prefix.length());
+        if (action.equals("menu _click") || action.startsWith("menu _click ")) return command;
+        return "/leaderboard menu _click " + action;
+    }
+
+    private int runMenuClick(CommandSourceStack source, String action)
+            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        if (action.isBlank() || action.equals("menu _click") || action.startsWith("menu _click ")) {
+            source.sendFailure(Component.literal("无效的菜单操作。"));
+            return 0;
+        }
+        return source.getServer().getCommands().getDispatcher().execute("leaderboard " + action, source);
     }
 
     private static Component websiteButton(CommandSourceStack source) {

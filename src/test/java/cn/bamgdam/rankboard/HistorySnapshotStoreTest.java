@@ -18,6 +18,7 @@ public final class HistorySnapshotStoreTest {
             checkNewMetrics();
             checkMetricPresentation();
             checkMenuCoverage();
+            checkMenuClickRouting();
             checkObjectiveNames();
             checkCommandTree();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
@@ -141,6 +142,22 @@ public final class HistorySnapshotStoreTest {
                 "Victim subgroup contains aggregate metrics");
     }
 
+    private static void checkMenuClickRouting() throws Exception {
+        var method = RankBoardMod.class.getDeclaredMethod("menuClickCommand", String.class);
+        method.setAccessible(true);
+        check("/leaderboard menu _click menu home".equals(
+                        method.invoke(null, "/leaderboard menu home")),
+                "Menu navigation did not use the confirmation-free click route");
+        check("/leaderboard menu _click scoreboard clear".equals(
+                        method.invoke(null, "/leaderboard scoreboard clear")),
+                "Menu action did not use the confirmation-free click route");
+        check("/leaderboard menu _click menu home".equals(
+                        method.invoke(null, "/leaderboard menu _click menu home")),
+                "Click route was wrapped recursively");
+        check("/other command".equals(method.invoke(null, "/other command")),
+                "Non-RankBoard command was unexpectedly rewritten");
+    }
+
     private static void checkObjectiveNames() throws Exception {
         var method = BoardService.class.getDeclaredMethod("objectiveName",
                 RankBoardMod.Period.class, RankBoardMod.Metric.class, boolean.class);
@@ -177,6 +194,7 @@ public final class HistorySnapshotStoreTest {
         checkCommandPath(root, "menu", "home");
         checkCommandPath(root, "menu", "carousel");
         checkCommandPath(root, "menu", "lookmenu");
+        checkCommandPath(root, "menu", "_click", "command");
         checkCommandPath(root, "menu", "ranking", "week");
         checkCommandPath(root, "menu", "ranking", "week", "fun", "overview");
         checkCommandPath(root, "menu", "ranking", "week", "fun", "victims");
