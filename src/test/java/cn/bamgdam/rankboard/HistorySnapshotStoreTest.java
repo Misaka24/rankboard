@@ -175,7 +175,12 @@ public final class HistorySnapshotStoreTest {
             Class.forName("net.minecraft.command.permission.Permission");
             System.out.println("Skipping command-tree reflection: this Minecraft version requires Fabric Loader");
             return;
-        } catch (ClassNotFoundException ignored) { }
+        } catch (ClassNotFoundException ignored) {
+            // Older versions can build the isolated command tree without Fabric Loader.
+        } catch (LinkageError bootstrapRequired) {
+            System.out.println("Skipping command-tree reflection: Minecraft registries are not bootstrapped");
+            return;
+        }
         var dispatcher = new com.mojang.brigadier.CommandDispatcher<net.minecraft.server.command.ServerCommandSource>();
         var register = RankBoardMod.class.getDeclaredMethod("registerCommands",
                 com.mojang.brigadier.CommandDispatcher.class,
