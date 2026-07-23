@@ -21,6 +21,10 @@ import net.minecraft.registry.Registries;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.scoreboard.ScoreAccess;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreboardCriterion;
+import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.stat.Stat;
 import net.minecraft.stat.Stats;
 import net.minecraft.text.Text;
@@ -35,14 +39,23 @@ import java.time.temporal.WeekFields;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.net.URI;
 
 public final class RankBoardMod implements ModInitializer {
     public static final String MOD_ID = "rankboard";
     static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final int REFRESH_INTERVAL_TICKS = 600;
+    private static final String MENU_TRIGGER_OBJECTIVE = "rb_menu";
+    private static final AtomicInteger NEXT_MENU_ACTION_ID = new AtomicInteger(
+            ThreadLocalRandom.current().nextInt(1, 1_000_000_000));
+    private static final Map<String, Integer> MENU_ACTION_IDS = new ConcurrentHashMap<>();
+    private static final Map<Integer, String> MENU_ACTIONS = new ConcurrentHashMap<>();
     private static final Set<UUID> LOOK_MENU_HELD = new HashSet<>();
     private static final List<String> MENU_GROUPS = List.of("core", "combat", "build", "life", "explore", "fun", "all");
     private static final Set<String> REDSTONE_COMPONENTS = Set.of(
@@ -70,6 +83,7 @@ public final class RankBoardMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             RankBoardConfig.load(server);
             RankBoardWhitelist.load(server);
+            ensureMenuTriggerObjective(server);
             BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.startWarmup(server);
             WebDashboard.start(server);
@@ -83,6 +97,7 @@ public final class RankBoardMod implements ModInitializer {
         });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
+            prepareMenuTrigger(player);
             LeaderboardState.get(server).ensurePlayer(player);
             AvatarCache.cacheOnJoin(server, player);
             BoardService.restore(player);
@@ -97,6 +112,7 @@ public final class RankBoardMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             BoardService.tickCarousel(server);
             BoardService.tickActivity(server);
+            handleMenuTriggers(server);
             handleLookUpSneakMenu(server);
             if (++ticks >= REFRESH_INTERVAL_TICKS) {
                 ticks = 0;
@@ -132,10 +148,7 @@ public final class RankBoardMod implements ModInitializer {
         menuRoot.then(CommandManager.literal("home").executes(context -> menu(context.getSource())));
         menuRoot.then(CommandManager.literal("carousel").executes(context -> carouselMenu(context.getSource())));
         menuRoot.then(CommandManager.literal("lookmenu").executes(context -> lookMenu(context.getSource())));
-        menuRoot.then(CommandManager.literal("_click")
-                .then(CommandManager.argument("command", StringArgumentType.greedyString())
-                        .executes(context -> runMenuClick(context.getSource(),
-                                StringArgumentType.getString(context, "command")))));
+
         for (String group : MENU_GROUPS) menuRoot.then(buildMenuGroupCommand(group));
         menuRoot.then(buildPeriodMenuCommands("ranking", 0));
         menuRoot.then(buildPeriodMenuCommands("personal", 1));
@@ -685,7 +698,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private void beginMenu(ServerCommandSource source, String title) {
-        source.sendFeedback(() -> Text.literal("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n◆ " + title
+        source.sendFeedback(() -> Text.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n◆ " + title
                 + " ◆\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━").formatted(Formatting.GOLD), false);
     }
     private int menu(ServerCommandSource source) {
@@ -1346,17 +1359,61 @@ public final class RankBoardMod implements ModInitializer {
         String prefix = "/leaderboard ";
         if (!command.startsWith(prefix)) return command;
         String action = command.substring(prefix.length());
-        if (action.equals("menu _click") || action.startsWith("menu _click ")) return command;
-        return "/leaderboard menu _click " + action;
+        if (action.isBlank()) return command;
+        int id = MENU_ACTION_IDS.computeIfAbsent(action, key -> {
+            int next = NEXT_MENU_ACTION_ID.getAndIncrement();
+            MENU_ACTIONS.put(next, key);
+            return next;
+        });
+        return "/trigger " + MENU_TRIGGER_OBJECTIVE + " set " + id;
     }
 
-    private int runMenuClick(ServerCommandSource source, String action)
-            throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        if (action.isBlank() || action.equals("menu _click") || action.startsWith("menu _click ")) {
-            source.sendError(Text.literal("无效的菜单操作。"));
-            return 0;
+    private static ScoreboardObjective ensureMenuTriggerObjective(net.minecraft.server.MinecraftServer server) {
+        Scoreboard scoreboard = server.getScoreboard();
+        ScoreboardObjective objective = scoreboard.getNullableObjective(MENU_TRIGGER_OBJECTIVE);
+        if (objective == null) {
+            objective = scoreboard.addObjective(MENU_TRIGGER_OBJECTIVE, ScoreboardCriterion.TRIGGER,
+                    Text.literal("RankBoard Menu"), ScoreboardCriterion.RenderType.INTEGER, false, null);
         }
-        return source.getServer().getCommandManager().getDispatcher().execute("leaderboard " + action, source);
+        return objective;
+    }
+
+    private static void prepareMenuTrigger(ServerPlayerEntity player) {
+        net.minecraft.server.MinecraftServer server = PlayerCompat.server(player);
+        ScoreAccess score = server.getScoreboard().getOrCreateScore(
+                player, ensureMenuTriggerObjective(server), true);
+        score.setScore(0);
+        score.unlock();
+    }
+
+    private void handleMenuTriggers(net.minecraft.server.MinecraftServer server) {
+        ScoreboardObjective objective = ensureMenuTriggerObjective(server);
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (PlayerCompat.isFake(player)) continue;
+            ScoreAccess score = server.getScoreboard().getOrCreateScore(player, objective, true);
+            int actionId = score.getScore();
+            if (actionId <= 0) {
+                if (score.isLocked()) score.unlock();
+                continue;
+            }
+            score.setScore(0);
+            score.unlock();
+            String action = MENU_ACTIONS.get(actionId);
+            if (action == null) {
+                player.sendMessage(Text.literal("Menu action expired. Please reopen the menu.")
+                        .formatted(Formatting.RED), false);
+                continue;
+            }
+            try {
+                server.getCommandManager().getDispatcher().execute(
+                        "leaderboard " + action, player.getCommandSource());
+            } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+                player.sendMessage(Text.literal("Menu action failed: " + exception.getRawMessage().getString())
+                        .formatted(Formatting.RED), false);
+                LOGGER.warn("Failed to execute menu action '{}' for {}",
+                        action, player.getName().getString(), exception);
+            }
+        }
     }
 
     private static Text websiteButton(ServerCommandSource source) {

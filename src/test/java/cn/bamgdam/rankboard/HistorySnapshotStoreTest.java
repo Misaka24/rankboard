@@ -145,15 +145,17 @@ public final class HistorySnapshotStoreTest {
     private static void checkMenuClickRouting() throws Exception {
         var method = RankBoardMod.class.getDeclaredMethod("menuClickCommand", String.class);
         method.setAccessible(true);
-        check("/leaderboard menu _click menu home".equals(
-                        method.invoke(null, "/leaderboard menu home")),
-                "Menu navigation did not use the confirmation-free click route");
-        check("/leaderboard menu _click scoreboard clear".equals(
-                        method.invoke(null, "/leaderboard scoreboard clear")),
-                "Menu action did not use the confirmation-free click route");
-        check("/leaderboard menu _click menu home".equals(
-                        method.invoke(null, "/leaderboard menu _click menu home")),
-                "Click route was wrapped recursively");
+        String home = (String) method.invoke(null, "/leaderboard menu home");
+        String homeAgain = (String) method.invoke(null, "/leaderboard menu home");
+        String clear = (String) method.invoke(null, "/leaderboard scoreboard clear");
+        check(home.matches("/trigger rb_menu set [1-9][0-9]*"),
+                "Menu navigation did not use the vanilla trigger route: " + home);
+        check(home.equals(homeAgain), "The same menu action received different trigger ids");
+        check(clear.matches("/trigger rb_menu set [1-9][0-9]*"),
+                "Menu action did not use the vanilla trigger route: " + clear);
+        check(!home.equals(clear), "Different menu actions received the same trigger id");
+        check(!home.contains("_click") && !clear.contains("_click"),
+                "Legacy custom click command is still present");
         check("/other command".equals(method.invoke(null, "/other command")),
                 "Non-RankBoard command was unexpectedly rewritten");
     }
@@ -199,7 +201,6 @@ public final class HistorySnapshotStoreTest {
         checkCommandPath(root, "menu", "home");
         checkCommandPath(root, "menu", "carousel");
         checkCommandPath(root, "menu", "lookmenu");
-        checkCommandPath(root, "menu", "_click", "command");
         checkCommandPath(root, "menu", "ranking", "week");
         checkCommandPath(root, "menu", "ranking", "week", "fun", "overview");
         checkCommandPath(root, "menu", "ranking", "week", "fun", "victims");
