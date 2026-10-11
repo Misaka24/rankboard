@@ -31,6 +31,7 @@ final class RankBoardConfig {
             option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
             option("default-language", "zh_cn", FileKind.MAIN, "语言", "全服默认聊天语言；新玩家和 OP 确认全服默认后使用；可填写语言文件名，如 zh_cn 或 en_us。"),
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
+            option("join-message-mode", "simple", FileKind.MAIN, "进服提示", "进服提示模式；simple 仅显示查看入口（默认，包含 OP），detailed 保留欢迎语与详细管理提示。"),
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
             option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
@@ -121,6 +122,7 @@ final class RankBoardConfig {
     final int historyScanThreads;
     final boolean welcomeEnabled;
     final boolean joinMenuEnabled;
+    final boolean simpleJoinMessages;
     final boolean restoreBoardOnJoin;
     final boolean lookUpSneakMenuEnabled;
     final boolean carouselEnabled;
@@ -152,6 +154,7 @@ final class RankBoardConfig {
         historyScanThreads = integer(properties, "history-scan-threads", 0, 0, 256);
         welcomeEnabled = bool(properties, "welcome-enabled", true);
         joinMenuEnabled = bool(properties, "join-menu-enabled", true);
+        simpleJoinMessages = !properties.getProperty("join-message-mode", "simple").strip().equalsIgnoreCase("detailed");
         restoreBoardOnJoin = bool(properties, "restore-scoreboard-on-join", true);
         lookUpSneakMenuEnabled = bool(properties, "look-up-sneak-menu-enabled", true);
         carouselEnabled = bool(properties, "carousel-enabled", true);
@@ -408,6 +411,10 @@ final class RankBoardConfig {
             return value.equalsIgnoreCase("auto") ? "auto" : normalizedColor(value);
         }
         return switch (option.key) {
+            case "join-message-mode" -> switch (value.toLowerCase(Locale.ROOT)) {
+                case "simple", "detailed" -> value.toLowerCase(Locale.ROOT);
+                default -> throw new IllegalArgumentException("可用值：simple、detailed");
+            };
             case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
             case "history-scan-threads" -> normalizedInteger(value, 0, 256);
             case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);

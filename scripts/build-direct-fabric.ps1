@@ -1,9 +1,11 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('1.21.4', '1.21.10', '1.21.x', '26.1.x', '26.2', '26.3')]
+    [ValidateSet('1.21.4', '1.21.10', '1.21.x', '26.x', '26.1.x', '26.2', '26.3')]
     [string]$Target,
     [string]$OutputDirectory = 'build/libs',
-    [string]$ModVersion = ''
+    [string]$ModVersion = '',
+    [switch]$Offline,
+    [string]$MinecraftMetadata = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +23,7 @@ $modVersion = if ([string]::IsNullOrWhiteSpace($ModVersion)) {
 } else { $ModVersion }
 
 $targets = @{
-    # Internal compatibility baselines only; release workflows still have four family targets.
+    # Minor-version targets are internal baselines; releases only build 1.21.x and 26.x.
     '1.21.4' = @{
         Minecraft = '1.21.4'; MappingType = 'yarn'; YarnMappings = '1.21.4+build.8'
         Loader = '0.16.10'; Fabric = '0.119.4+1.21.4'; Dependency = '>=1.21 <1.22'
@@ -41,6 +43,11 @@ $targets = @{
     '26.1.x' = @{
         Minecraft = '26.1.2'; MappingType = 'none'; YarnMappings = ''
         Loader = '0.19.3'; Fabric = '0.155.2+26.1.2'; Dependency = '>=26.1 <26.2'
+        Java = 25
+    }
+    '26.x' = @{
+        Minecraft = '26.1.2'; MappingType = 'none'; YarnMappings = ''
+        Loader = '0.19.3'; Fabric = '0.155.2+26.1.2'; Dependency = '>=26.1 <27'
         Java = 25
     }
     '26.2' = @{
@@ -67,6 +74,8 @@ $arguments = @(
 )
 if ($config.YarnMappings) { $arguments += "-Pyarn_mappings=$($config.YarnMappings)" }
 if ($config.Metadata) { $arguments += "-Ploom_custom_metadata=$($config.Metadata)" }
+if ($MinecraftMetadata) { $arguments += "-Ploom_custom_metadata=$MinecraftMetadata" }
+if ($Offline) { $arguments += '--offline' }
 
 Write-Host "Building one direct Fabric JAR for $Target (compile target $($config.Minecraft))"
 & $gradle @arguments

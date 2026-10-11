@@ -4,6 +4,7 @@ package cn.bamgdam.rankboard;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.LiteralMessage;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.api.ModInitializer;
@@ -78,6 +79,7 @@ public final class RankBoardMod implements ModInitializer {
             RankBoardLanguage.load(server);
             BoardService.enforceForeignScoreboardPolicy(server);
             StatReader.initialize(server);
+            FlightMetricTracker.start(server);
             WebDashboard.start(server);
         });
         // Clear all per-server state before the old server is fully stopped.
@@ -92,17 +94,20 @@ public final class RankBoardMod implements ModInitializer {
             // Refresh this mapping as soon as a player joins, including after a rename.
             StatReader.updateName(player.getUUID(), player.getScoreboardName());
             LeaderboardState.get(server).ensurePlayer(player);
+            FlightMetricTracker.join(server, player);
             AvatarCache.cacheOnJoin(server, player);
             BoardService.restore(player);
             sendJoinExperience(player);
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            FlightMetricTracker.disconnect(server, handler.getPlayer());
             StatReader.capturePlayer(server, handler.getPlayer());
             StatReader.reloadPlayer(server, handler.getPlayer().getUUID());
             LOOK_MENU_HELD.remove(handler.getPlayer().getUUID());
             BoardService.disconnect(handler.getPlayer());
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            FlightMetricTracker.tick(server);
             BoardService.tickCarousel(server);
             BoardService.tickActivity(server);
             handleLookUpSneakMenu(server);
@@ -149,6 +154,7 @@ public final class RankBoardMod implements ModInitializer {
             export.then(periodNode);
         }
         root.then(export);
+        root.then(buildMetricDataCommands());
         root.then(Commands.literal("mine")
                 .executes(context -> showMyScores(context.getSource(), -1, "总计"))
                 .then(Commands.literal("all").executes(context -> showMyScores(context.getSource(), -1, "总计")))
@@ -336,6 +342,99 @@ public final class RankBoardMod implements ModInitializer {
         dispatcher.register(root);
     }
 
+    private LiteralArgumentBuilder<CommandSourceStack> buildMetricDataCommands() {
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("data")
+                .requires(source -> CommandPermissionCompat.has(source, 2));
+        root.then(playerMetricCommand("get", false, false));
+        root.then(playerMetricCommand("set", true, false));
+        root.then(playerMetricCommand("add", true, true));
+
+        LiteralArgumentBuilder<CommandSourceStack> reset = Commands.literal("reset");
+        var resetPlayer = Commands.argument("player", EntityArgument.player());
+        for (Metric metric : Metric.values()) {
+            resetPlayer.then(Commands.literal(metric.command)
+                    .executes(context -> resetMetricData(context.getSource(),
+                            EntityArgument.getPlayer(context, "player"), metric)));
+        }
+        resetPlayer.then(Commands.literal("all")
+                .executes(context -> resetAllMetricData(context.getSource(),
+                        EntityArgument.getPlayer(context, "player"))));
+        reset.then(resetPlayer);
+        root.then(reset);
+        return root;
+    }
+
+    private LiteralArgumentBuilder<CommandSourceStack> playerMetricCommand(String operation,
+                                                                            boolean takesValue,
+                                                                            boolean add) {
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(operation);
+        var playerNode = Commands.argument("player", EntityArgument.player());
+        for (Metric metric : Metric.values()) {
+            LiteralArgumentBuilder<CommandSourceStack> metricNode = Commands.literal(metric.command);
+            if (takesValue) {
+                metricNode.then(Commands.argument("value", LongArgumentType.longArg(0L))
+                        .executes(context -> setMetricData(context.getSource(),
+                                EntityArgument.getPlayer(context, "player"), metric,
+                                LongArgumentType.getLong(context, "value"), add)));
+            } else {
+                metricNode.executes(context -> getMetricData(context.getSource(),
+                        EntityArgument.getPlayer(context, "player"), metric));
+            }
+            playerNode.then(metricNode);
+        }
+        root.then(playerNode);
+        return root;
+    }
+
+    private int getMetricData(CommandSourceStack source, ServerPlayer player, Metric metric) {
+        StatSnapshot snapshot = LeaderboardState.get(source.getServer())
+                .applyCustomMetrics(StatReader.fromPlayer(player));
+        long value = snapshot.value(metric);
+        source.sendSuccess(() -> Component.literal(localized(source, "data.get", player.getName().getString(),
+                localizedMetric(source, metric), String.format(java.util.Locale.ROOT, "%,d", value), format(metric, value)))
+                .withStyle(ChatFormatting.AQUA), false);
+        return 1;
+    }
+
+    private int setMetricData(CommandSourceStack source, ServerPlayer player, Metric metric, long input, boolean add) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        long value = input;
+        if (add) {
+            long current = state.applyCustomMetrics(StatReader.fromPlayer(player)).value(metric);
+            try { value = Math.addExact(current, input); }
+            catch (ArithmeticException ignored) { value = Long.MAX_VALUE; }
+        }
+        state.setMetricOverride(player.getUUID(), metric, value);
+        BoardService.refreshAll(source.getServer());
+        WebDashboard.invalidateRankings();
+        long displayValue = value;
+        String feedback = localized(source, add ? "data.add" : "data.set", player.getName().getString(),
+                localizedMetric(source, metric), String.format(java.util.Locale.ROOT, "%,d", displayValue),
+                format(metric, displayValue), "/leaderboard data reset " + player.getScoreboardName() + " " + metric.command);
+        source.sendSuccess(() -> Component.literal(feedback).withStyle(ChatFormatting.GREEN), true);
+        return 1;
+    }
+
+    private int resetMetricData(CommandSourceStack source, ServerPlayer player, Metric metric) {
+        boolean removed = LeaderboardState.get(source.getServer()).clearMetricOverride(player.getUUID(), metric);
+        BoardService.refreshAll(source.getServer());
+        WebDashboard.invalidateRankings();
+        String feedback = localized(source, removed ? "data.reset" : "data.reset.none",
+                player.getName().getString(), localizedMetric(source, metric));
+        source.sendSuccess(() -> Component.literal(feedback)
+                .withStyle(removed ? ChatFormatting.GREEN : ChatFormatting.YELLOW), true);
+        return 1;
+    }
+
+    private int resetAllMetricData(CommandSourceStack source, ServerPlayer player) {
+        int removed = LeaderboardState.get(source.getServer()).clearMetricOverrides(player.getUUID());
+        BoardService.refreshAll(source.getServer());
+        WebDashboard.invalidateRankings();
+        source.sendSuccess(() -> Component.literal(localized(source, "data.reset.all",
+                player.getName().getString(), removed)).withStyle(ChatFormatting.GREEN), true);
+        return 1;
+    }
+
 
     private LiteralArgumentBuilder<CommandSourceStack> buildSelectionCommands(boolean vanilla) {
         LiteralArgumentBuilder<CommandSourceStack> periods = Commands.literal("show");
@@ -412,6 +511,10 @@ public final class RankBoardMod implements ModInitializer {
         source.sendSuccess(() -> clickable("[返回 Help]", ChatFormatting.GRAY, "/leaderboard help", "返回帮助分组"), false);
         switch (group) {
             case "player" -> {
+                source.sendSuccess(() -> Component.literal(localized(source, "menu.join_compact"))
+                        .append(Component.literal("：" + (source.getEntity() instanceof ServerPlayer p
+                                ? RankBoardLanguage.help(p, "进服默认仅显示查看入口；点击后展开榜单与操作")
+                                : "进服默认仅显示查看入口；点击后展开榜单与操作"))), false);
                 helpCommand(source, "/leaderboard language <zh_cn|en_us|status>", "/leaderboard language ", "选择聊天提示语言");
                 if (op) helpCommand(source, "/leaderboard language default <语言>", "/leaderboard language default ",
                         "OP 设置全服默认聊天语言；会更新在线和已记录玩家");
@@ -459,6 +562,8 @@ public final class RankBoardMod implements ModInitializer {
             }
             case "admin-players" -> {
                 if (!op) return 0;
+                helpCommand(source, "/leaderboard data <get|set|add|reset> <玩家> <榜单> [数值]",
+                        "/leaderboard data ", "测试榜单数值；只覆盖 RankBoard 显示，不修改原版统计，reset 可恢复");
                 helpCommand(source, "/leaderboard whitelist <true|false|status>", "/leaderboard whitelist ", "控制白名单筛选");
                 helpCommand(source, "/leaderboard whitelist setup <server|mod|none>", "/leaderboard whitelist setup ", "首次安装时选择服务器白名单、模组白名单或无白名单；随后可选择是否读取榜单数据");
                 helpCommand(source, "/leaderboard modwhitelist <add|remove|list|reload>", "/leaderboard modwhitelist ", "管理模组白名单");
@@ -493,6 +598,8 @@ public final class RankBoardMod implements ModInitializer {
             }
             case "admin-config" -> {
                 if (!op) return 0;
+                helpCommand(source, "/leaderboard config set join-message-mode <simple|detailed>",
+                        "/leaderboard config set join-message-mode ", "进服提示模式：simple 简洁（默认），detailed 详细；包含 OP，修改后下次进服生效");
                 helpCommand(source, "/leaderboard config list", "/leaderboard config list", "列出全部配置");
                 helpCommand(source, "/leaderboard config get <配置项>", "/leaderboard config get ", "查看用途与当前值");
                 helpCommand(source, "/leaderboard config set <配置项> <值>", "/leaderboard config set ", "修改配置并立即应用");
@@ -528,6 +635,8 @@ public final class RankBoardMod implements ModInitializer {
         source.sendSuccess(() -> Component.literal(help).withStyle(ChatFormatting.GRAY), false);
         if (op) {
             helpCommand(source, "/leaderboard config list|get|set|reload", "/leaderboard config ", "查询、修改或重载配置");
+            helpCommand(source, "/leaderboard config set join-message-mode <simple|detailed>",
+                    "/leaderboard config set join-message-mode ", "进服提示模式：simple 简洁（默认），detailed 详细；包含 OP，修改后下次进服生效");
             helpCommand(source, "/leaderboard config set welcome-enabled false", "/leaderboard config set welcome-enabled false", "关闭欢迎语");
             helpCommand(source, "/leaderboard config set welcome-name <名称|auto>", "/leaderboard config set welcome-name ", "修改欢迎语名称");
             helpCommand(source, "/leaderboard config set web-data-requests-per-second <次数>", "/leaderboard config set web-data-requests-per-second ", "修改数据接口每秒基础次数");
@@ -563,6 +672,8 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private int menu(CommandSourceStack source) {
+        if (RankBoardConfig.get().simpleJoinMessages && source.getEntity() instanceof ServerPlayer player
+                && CommandPermissionCompat.has(source, 2)) sendLanguagePrompt(player);
         boolean boardEnabled = false;
         try {
             LeaderboardState.BoardPreference preference = LeaderboardState.get(source.getServer())
@@ -741,6 +852,7 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private void cleanupServerState(net.minecraft.server.MinecraftServer server) {
+        FlightMetricTracker.stop(server);
         PlayerNameColors.clear(server);
         BoardService.clearSessions();
         WebDashboard.stop();
@@ -921,9 +1033,13 @@ public final class RankBoardMod implements ModInitializer {
     private void sendJoinExperience(ServerPlayer player) {
         if (PlayerCompat.isFake(player)) return;
         CommandSourceStack source = player.createCommandSourceStack();
+        RankBoardConfig config = RankBoardConfig.get();
+        if (config.simpleJoinMessages) {
+            if (config.joinMenuEnabled) source.sendSuccess(() -> compactJoinButton(player), false);
+            return;
+        }
         boolean op = CommandPermissionCompat.has(source, 2);
         if (op) sendLanguagePrompt(player);
-        RankBoardConfig config = RankBoardConfig.get();
         if (config.welcomeEnabled) {
             player.sendSystemMessage(Component.literal(RankBoardLanguage.text(player, "welcome",
                     config.displayName(PlayerCompat.server(player)))).withStyle(ChatFormatting.GRAY), false);
@@ -941,6 +1057,11 @@ public final class RankBoardMod implements ModInitializer {
                         RankBoardLanguage.text(player, "menu.tooltip.expand_details")), false);
             }
         }
+    }
+
+    private static Component compactJoinButton(ServerPlayer player) {
+        return clickable("[" + RankBoardLanguage.text(player, "menu.join_compact") + "]",
+                ChatFormatting.GOLD, "/leaderboard", RankBoardLanguage.text(player, "menu.tooltip.expand_details"));
     }
 
     private int setLanguage(CommandSourceStack source, String code) {
@@ -1521,6 +1642,18 @@ public final class RankBoardMod implements ModInitializer {
         return Long.toString(value);
     }
 
+    static String localized(CommandSourceStack source, String key, Object... arguments) {
+        return source.getEntity() instanceof ServerPlayer player
+                ? RankBoardLanguage.text(player, key, arguments)
+                : RankBoardLanguage.defaultText(key, arguments);
+    }
+
+    static String localizedMetric(CommandSourceStack source, Metric metric) {
+        String configured = metric.label();
+        String defaultLabel = RankBoardConfig.defaultValue("metric-label-" + metric.command);
+        return configured.equals(defaultLabel) ? localized(source, "metric." + metric.command) : configured;
+    }
+
     static long total(List<Entry> entries) {
         long total = 0;
         for (Entry entry : entries) {
@@ -1559,6 +1692,7 @@ public final class RankBoardMod implements ModInitializer {
         Metric(String command, String label, ChatFormatting nameColor, Counter counter) {
             this.command = command; this.label = label; this.nameColor = nameColor; this.counter = counter;
         }
+        boolean isCustomMetric() { return this == ELYTRA_DISTANCE; }
         long read(ServerPlayer player) { return counter.read(player); }
         String label() { return RankBoardConfig.get().metricLabel(this); }
     }

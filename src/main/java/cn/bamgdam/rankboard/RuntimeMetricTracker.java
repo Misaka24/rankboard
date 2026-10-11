@@ -1,6 +1,7 @@
 package cn.bamgdam.rankboard;
 
 import net.minecraft.block.Blocks;
+import net.minecraft.entity.EntityPose;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
@@ -11,12 +12,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** Tracks RankBoard metrics that vanilla does not expose in player statistics files. */
+/** Tracks runtime metrics, including counters that exceed vanilla's bounded statistics. */
 final class RuntimeMetricTracker {
     private static final long AFK_THRESHOLD_TICKS = 3L * 60L * 20L;
     private static final Map<UUID, Activity> ACTIVITIES = new HashMap<>();
+    private static final Map<UUID, FlightActivity> FLIGHT_ACTIVITIES = new HashMap<>();
     private static final Map<UUID, Long> PENDING_AFK = new HashMap<>();
     private static final Map<UUID, Long> PENDING_BEDROCK = new HashMap<>();
+    private static final Map<UUID, Long> PENDING_ELYTRA = new HashMap<>();
     private static final Map<BlockPos, UUID> BEDROCK_WATCHERS = new HashMap<>();
     private static MinecraftServer server;
     private static long tick;
@@ -27,8 +30,10 @@ final class RuntimeMetricTracker {
         server = value;
         tick = 0;
         ACTIVITIES.clear();
+        FLIGHT_ACTIVITIES.clear();
         PENDING_AFK.clear();
         PENDING_BEDROCK.clear();
+        PENDING_ELYTRA.clear();
         BEDROCK_WATCHERS.clear();
     }
 
@@ -36,8 +41,10 @@ final class RuntimeMetricTracker {
         if (server != value) return;
         flush(value);
         ACTIVITIES.clear();
+        FLIGHT_ACTIVITIES.clear();
         PENDING_AFK.clear();
         PENDING_BEDROCK.clear();
+        PENDING_ELYTRA.clear();
         BEDROCK_WATCHERS.clear();
         server = null;
     }
@@ -45,14 +52,20 @@ final class RuntimeMetricTracker {
     static void join(MinecraftServer value, ServerPlayerEntity player) {
         if (server != value) start(value);
         ACTIVITIES.put(player.getUuid(), new Activity(player.getX(), player.getY(), player.getZ(), tick, tick));
+        FLIGHT_ACTIVITIES.put(player.getUuid(), new FlightActivity(player));
+        LeaderboardState.get(value).ensureCustomMetric(player.getUuid(), RankBoardMod.Metric.ELYTRA_DISTANCE,
+                RankBoardMod.Metric.ELYTRA_DISTANCE.read(player));
     }
 
     static void disconnect(MinecraftServer value, ServerPlayerEntity player) {
         if (server != value) return;
         Activity activity = ACTIVITIES.get(player.getUuid());
         if (activity != null) process(value, player, activity, tick);
+        FlightActivity flightActivity = FLIGHT_ACTIVITIES.get(player.getUuid());
+        if (flightActivity != null) processFlight(player, flightActivity);
         flush(value);
         ACTIVITIES.remove(player.getUuid());
+        FLIGHT_ACTIVITIES.remove(player.getUuid());
     }
 
     static void tick(MinecraftServer value) {
@@ -62,10 +75,27 @@ final class RuntimeMetricTracker {
             Activity activity = ACTIVITIES.computeIfAbsent(player.getUuid(), ignored ->
                     new Activity(player.getX(), player.getY(), player.getZ(), tick, tick));
             process(value, player, activity, tick);
+            FlightActivity flightActivity = FLIGHT_ACTIVITIES.computeIfAbsent(player.getUuid(), ignored ->
+                    new FlightActivity(player));
+            processFlight(player, flightActivity);
         }
         if (RankBoardConfig.get().bedrockBreakLeaderboardEnabled && tick % 20L == 0L) scanBedrock(value);
         else if (!RankBoardConfig.get().bedrockBreakLeaderboardEnabled && !BEDROCK_WATCHERS.isEmpty()) BEDROCK_WATCHERS.clear();
         if (tick % 20L == 0L) flush(value);
+    }
+
+    private static void processFlight(ServerPlayerEntity player, FlightActivity activity) {
+        boolean flying = player.getPose() == EntityPose.GLIDING;
+        Object world = PlayerCompat.world(player);
+        long centimeters = FlightDistanceMath.deltaCentimeters(activity.fallFlying, flying,
+                activity.world == world,
+                player.getX() - activity.x, player.getY() - activity.y, player.getZ() - activity.z);
+        if (centimeters > 0) addPending(PENDING_ELYTRA, player.getUuid(), centimeters);
+        activity.x = player.getX();
+        activity.y = player.getY();
+        activity.z = player.getZ();
+        activity.world = world;
+        activity.fallFlying = flying;
     }
 
     private static void process(MinecraftServer value, ServerPlayerEntity player, Activity activity, long now) {
@@ -137,8 +167,10 @@ final class RuntimeMetricTracker {
         LeaderboardState state = LeaderboardState.get(value);
         PENDING_AFK.forEach((uuid, amount) -> state.addCustomMetric(uuid, RankBoardMod.Metric.AFK_TIME, amount));
         PENDING_BEDROCK.forEach((uuid, amount) -> state.addCustomMetric(uuid, RankBoardMod.Metric.BEDROCK_BROKEN, amount));
+        PENDING_ELYTRA.forEach((uuid, amount) -> state.addCustomMetric(uuid, RankBoardMod.Metric.ELYTRA_DISTANCE, amount));
         PENDING_AFK.clear();
         PENDING_BEDROCK.clear();
+        PENDING_ELYTRA.clear();
     }
 
     private static final class Activity {
@@ -155,6 +187,22 @@ final class RuntimeMetricTracker {
             this.z = z;
             this.lastMovementTick = lastMovementTick;
             this.countedTick = countedTick;
+        }
+    }
+
+    private static final class FlightActivity {
+        double x;
+        double y;
+        double z;
+        Object world;
+        boolean fallFlying;
+
+        FlightActivity(ServerPlayerEntity player) {
+            x = player.getX();
+            y = player.getY();
+            z = player.getZ();
+            world = PlayerCompat.world(player);
+            fallFlying = player.getPose() == EntityPose.GLIDING;
         }
     }
 }

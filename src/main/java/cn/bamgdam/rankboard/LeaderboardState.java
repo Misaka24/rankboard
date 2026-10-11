@@ -48,6 +48,7 @@ public final class LeaderboardState extends PersistentState {
     private final Map<UUID, String> playerLanguages = new HashMap<>();
     /** Runtime metrics which are not present in vanilla statistics JSON files. */
     private final Map<UUID, EnumMap<RankBoardMod.Metric, Long>> customMetricValues = new HashMap<>();
+    private final Map<UUID, EnumMap<RankBoardMod.Metric, Long>> metricOverrides = new HashMap<>();
     private final Map<UUID, BoardPreference> boardPreferences = new HashMap<>();
     private BoardPreference globalBoardPreference;
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
@@ -130,6 +131,18 @@ public final class LeaderboardState extends PersistentState {
                 if (!custom.isEmpty()) state.customMetricValues.put(uuid, custom);
             } catch (RuntimeException ignored) { }
         }
+        for (NbtElement element : NbtCompat.getList(nbt, "metricOverrides", NbtElement.COMPOUND_TYPE)) {
+            try {
+                NbtCompound entry = (NbtCompound) element;
+                UUID uuid = NbtCompat.getUuid(entry, "uuid");
+                NbtCompound values = NbtCompat.getCompound(entry, "values");
+                EnumMap<RankBoardMod.Metric, Long> overrides = new EnumMap<>(RankBoardMod.Metric.class);
+                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                    if (values.contains(metric.command)) overrides.put(metric, Math.max(0L, NbtCompat.getLong(values, metric.command)));
+                }
+                if (!overrides.isEmpty()) state.metricOverrides.put(uuid, overrides);
+            } catch (RuntimeException ignored) { }
+        }
         for (NbtElement element : NbtCompat.getList(nbt, "periods", NbtElement.COMPOUND_TYPE)) {
             PeriodData data = PeriodData.fromNbt((NbtCompound) element, legacyHistory);
             state.periods.put(data.period, data);
@@ -207,6 +220,16 @@ public final class LeaderboardState extends PersistentState {
             customMetrics.add(entry);
         });
         nbt.put("customMetricValues", customMetrics);
+        NbtList metricOverrideList = new NbtList();
+        metricOverrides.forEach((uuid, values) -> {
+            NbtCompound entry = new NbtCompound();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            NbtCompound valueCompound = new NbtCompound();
+            values.forEach((metric, value) -> valueCompound.putLong(metric.command, value));
+            entry.put("values", valueCompound);
+            metricOverrideList.add(entry);
+        });
+        nbt.put("metricOverrides", metricOverrideList);
         NbtList snapshots = new NbtList();
         dailySnapshots.forEach((date, players) -> {
             NbtCompound snapshot = new NbtCompound();
@@ -364,6 +387,42 @@ public final class LeaderboardState extends PersistentState {
                 .getOrDefault(metric, 0L);
     }
 
+    public boolean hasCustomMetric(UUID uuid, RankBoardMod.Metric metric) {
+        EnumMap<RankBoardMod.Metric, Long> values = customMetricValues.get(uuid);
+        return values != null && values.containsKey(metric);
+    }
+
+    public void ensureCustomMetric(UUID uuid, RankBoardMod.Metric metric, long initialValue) {
+        if (!metric.isCustomMetric() || hasCustomMetric(uuid, metric)) return;
+        long value = metric == RankBoardMod.Metric.ELYTRA_DISTANCE && initialValue < 0
+                ? Integer.MAX_VALUE : Math.max(0L, initialValue);
+        customMetricValues.computeIfAbsent(uuid, ignored -> new EnumMap<>(RankBoardMod.Metric.class))
+                .put(metric, value);
+        markDirty();
+    }
+
+    public void setMetricOverride(UUID uuid, RankBoardMod.Metric metric, long value) {
+        if (value < 0) throw new IllegalArgumentException("Metric override cannot be negative");
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.computeIfAbsent(
+                uuid, ignored -> new EnumMap<>(RankBoardMod.Metric.class));
+        if (!java.util.Objects.equals(overrides.put(metric, value), value)) markDirty();
+    }
+
+    public boolean clearMetricOverride(UUID uuid, RankBoardMod.Metric metric) {
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.get(uuid);
+        if (overrides == null || overrides.remove(metric) == null) return false;
+        if (overrides.isEmpty()) metricOverrides.remove(uuid);
+        markDirty();
+        return true;
+    }
+
+    public int clearMetricOverrides(UUID uuid) {
+        EnumMap<RankBoardMod.Metric, Long> removed = metricOverrides.remove(uuid);
+        if (removed == null || removed.isEmpty()) return 0;
+        markDirty();
+        return removed.size();
+    }
+
     public void addCustomMetric(UUID uuid, RankBoardMod.Metric metric, long amount) {
         if (!metric.isCustomMetric() || amount <= 0) return;
         EnumMap<RankBoardMod.Metric, Long> values = customMetricValues.computeIfAbsent(
@@ -379,9 +438,13 @@ public final class LeaderboardState extends PersistentState {
     }
 
     public StatSnapshot applyCustomMetrics(StatSnapshot snapshot) {
+        ensureCustomMetric(snapshot.uuid(), RankBoardMod.Metric.ELYTRA_DISTANCE,
+                snapshot.value(RankBoardMod.Metric.ELYTRA_DISTANCE));
         EnumMap<RankBoardMod.Metric, Long> values = new EnumMap<>(snapshot.values());
         EnumMap<RankBoardMod.Metric, Long> custom = customMetricValues.get(snapshot.uuid());
         if (custom != null) custom.forEach((metric, value) -> values.put(metric, value));
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.get(snapshot.uuid());
+        if (overrides != null) overrides.forEach(values::put);
         return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
     }
     public boolean isNameColorEnabled(UUID uuid) { return !nameColorDisabledPlayers.contains(uuid); }

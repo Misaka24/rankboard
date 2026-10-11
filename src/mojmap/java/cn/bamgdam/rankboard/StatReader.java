@@ -155,7 +155,13 @@ final class StatReader {
                     && !RankBoardWhitelist.matches(server, player.getUUID(), player.getName().getString())) continue;
             snapshots.put(player.getUUID(), fromPlayer(player, onlyMetric));
         }
-        return new ArrayList<>(snapshots.values());
+        LeaderboardState state = LeaderboardState.get(server);
+        List<StatSnapshot> results = new ArrayList<>(snapshots.size());
+        for (StatSnapshot snapshot : snapshots.values()) {
+            results.add(onlyMetric == null ? state.applyCustomMetrics(snapshot)
+                    : state.applyCustomMetric(snapshot, onlyMetric));
+        }
+        return results;
     }
 
     private static void warmup(MinecraftServer server, long generation, int filesPerSecond) {
@@ -438,7 +444,7 @@ final class StatReader {
 
     static StatSnapshot fromPlayer(ServerPlayer player) { return fromPlayer(player, null); }
 
-    private static StatSnapshot fromPlayer(ServerPlayer player, RankBoardMod.Metric onlyMetric) {
+    static StatSnapshot fromPlayer(ServerPlayer player, RankBoardMod.Metric onlyMetric) {
         Map<RankBoardMod.Metric, Long> values = new EnumMap<>(RankBoardMod.Metric.class);
         if (onlyMetric != null) {
             values.put(onlyMetric, onlyMetric.read(player));

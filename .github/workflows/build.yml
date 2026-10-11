@@ -1,0 +1,99 @@
+name: Build RankBoard families
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.loader }} ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - loader: fabric
+            target: 1.21.x
+            java: '21'
+          - loader: fabric
+            target: 26.x
+            java: '25'
+          - loader: neoforge
+            target: 1.21.x
+            java: '21'
+          - loader: neoforge
+            target: 26.x
+            java: '25'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: gradle
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build one direct family JAR
+        shell: pwsh
+        env:
+          LOADER: ${{ matrix.loader }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if ($env:LOADER -eq 'fabric') {
+            ./scripts/build-direct-fabric.ps1 -Target $env:TARGET -OutputDirectory release
+          } else {
+            ./scripts/build-direct-neoforge.ps1 -Target $env:TARGET -OutputDirectory release
+          }
+
+      - name: Validate family artifact
+        shell: pwsh
+        run: |
+          $artifacts = @(Get-ChildItem release -Filter 'rankboard-*.jar' -File |
+            Where-Object { $_.Name -notlike '*-sources.jar' })
+          if ($artifacts.Count -ne 1) {
+            throw "Expected exactly one distributable JAR, found $($artifacts.Count)."
+          }
+          $versionLine = Get-Content gradle.properties | Where-Object { $_ -match '^mod_version=' } | Select-Object -First 1
+          if (-not $versionLine) { throw 'mod_version is missing from gradle.properties.' }
+          $expectedVersion = ($versionLine -split '=', 2)[1].Trim()
+          if ($artifacts[0].Name -notlike "rankboard-$expectedVersion+*") {
+            throw "Artifact filename does not match mod_version $expectedVersion: $($artifacts[0].Name)"
+          }
+          $entries = & jar tf $artifacts[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the built JAR.' }
+          if ($entries -match '^META-INF/jars/') {
+            throw 'The family JAR must not embed per-version JAR variants.'
+          }
+          Write-Host "Validated $($artifacts[0].Name)"
+
+      - name: Run flight-distance math regression
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/rankboard-flight-distance-tests"
+          mkdir -p "$output"
+          javac --release 21 -d "$output" \
+            src/main/java/cn/bamgdam/rankboard/FlightDistanceMath.java \
+            tests/java/cn/bamgdam/rankboard/FlightDistanceMathTest.java
+          java -cp "$output" cn.bamgdam.rankboard.FlightDistanceMathTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-${{ matrix.loader }}-${{ matrix.target }}
+          path: release/*.jar
+          if-no-files-found: error
+          retention-days: 14

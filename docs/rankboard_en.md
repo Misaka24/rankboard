@@ -55,11 +55,9 @@ The `redstone` metric counts placed power, transmission, and mechanical componen
 
 ### Joining the Server
 
-When a player joins, they see:
+With the default `join-message-mode=simple`, players and operators see only **[View leaderboard information]** on join. Clicking runs `/leaderboard` and expands scores, sidebar actions, the website link and help. Language, whitelist and foreign-scoreboard operator prompts retain their permissions/setup conditions and appear when an operator opens the menu.
 
-1. **Welcome message**: Shows the server name (configurable)
-2. **Ranking menu**: Clickable buttons for scores, sidebar toggle, carousel, website link, and help
-3. **Web hint** (off by default): Shows the web dashboard URL
+Operators can run `/leaderboard config set join-message-mode detailed` to restore the original detailed join flow (welcome, menu and enabled web hints), or `/leaderboard config set join-message-mode simple` to restore compact mode. Changes apply on the next join. `join-menu-enabled=false` still suppresses the join entry. Player help explains the entry; operator configuration help documents the mode command.
 
 ### Using the Ranking Menu
 
@@ -216,6 +214,10 @@ Every command in the help system is clickable and fills the chat input when clic
 | `/leaderboard cache threads status` | Show the configured and resolved scanner-thread counts |
 | `/leaderboard lookup <UUID\|whitelist>` | Look up Mojang player names |
 | `/leaderboard ratelimit clear` | Clear all web IP rate-limit history |
+| `/leaderboard data get <player> <metric>` | Inspect a player's current leaderboard value (OP; player must be online) |
+| `/leaderboard data set <player> <metric> <value>` | Set a RankBoard-only test override without changing vanilla stats (OP) |
+| `/leaderboard data add <player> <metric> <value>` | Add a test value to the current metric value (OP) |
+| `/leaderboard data reset <player> <metric\|all>` | Restore the actual metric value or clear all test overrides for that player (OP) |
 | `/leaderboard config <list\|reload\|get\|set>` | List, change, or reload settings |
 | `/leaderboard lookmenu global <true\|false\|status>` | Operators toggle or inspect the global menu |
 | `/leaderboard carousel color <true\|false\|status>` | Set carousel title to follow metric color or use fixed aqua |
@@ -229,6 +231,8 @@ Every command in the help system is clickable and fills the chat input when clic
 | `/leaderboard label reset <metric\|all>` | Restore one or all default names |
 | `/leaderboard webtheme <icon\|blue\|rgb #RRGGBB\|true\|false\|status>` | Set web theme mode |
 | `/leaderboard webswitch <name\|weight\|add\|remove\|list\|status>` | Manage the web server switcher |
+
+Test example: `/leaderboard data set Steve elytra 9000000000000` verifies flight values beyond vanilla's integer range; use `/leaderboard data reset Steve elytra` to restore the real value. New flight distance is accumulated by RankBoard in a persisted 64-bit counter, using the existing vanilla distance as its migration starting point.
 
 `true/false` is the recommended syntax. The old `on/off` and `enable/disable` aliases remain available for compatibility.
 
@@ -250,6 +254,7 @@ welcome-enabled=true                        # Send a welcome message on join
 welcome-name=auto                           # Welcome name; auto reads server data
 default-language=zh_cn                      # Server-wide default chat language for new/defaulted players
 join-menu-enabled=true                      # Open the chat ranking menu on join
+join-message-mode=simple                    # Default single [View leaderboard information] entry, including operators; detailed restores full join messages
 join-web-hint-enabled=false                 # Show the web-ranking address on join
 website-button-enabled=true                 # Show [Open Website] in menu and help
 web-public-address=                         # Website button address; blank defaults to http://127.0.0.1:8765
@@ -433,19 +438,19 @@ Artifacts are written to `build/libs/`. The JAR filename includes the mod and Mi
 Each supported platform/version family is built as one direct JAR. No per-minor JARs are embedded in `META-INF/jars`; the family metadata declares its supported range. In PowerShell:
 
 ```text
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.9
 ```
 
 Every successful build is archived in its own timestamped directory under `mod-builds/` with its SHA-256 and build command.
 
 ## GitHub Actions publishing
 
-Create and publish a GitHub Release first using the `1.10.6` tag. The published event starts two independent workflows:
+Create and publish a GitHub Release first using the `1.10.9` tag. The published event starts two independent workflows:
 
 - `.github/workflows/release.yml` builds Fabric only.
 - `.github/workflows/release-neoforge.yml` builds NeoForge only.
 
-Each workflow uploads only its own JARs, then publishes that loader to Modrinth and CurseForge. Checksums remain local sidecars and are not uploaded as release assets. To repair an existing release, select **Run workflow** in the matching workflow and enter the Release tag, destinations, and an optional version filter. Configure `MODRINTH_TOKEN` and `CURSEFORGE_TOKEN` as repository secrets; project IDs can be overridden with Repository Variables.
+Both workflows directly compile only the `1.21.x` and `26.x` families: four JARs in total, two per loader. There are no separate 26.1.x/26.2/26.3 release JARs, embedded per-version JARs, or universal suffixes. Each workflow uploads its own JARs, then publishes that loader to Modrinth and CurseForge. Checksums remain local sidecars and are not uploaded as release assets. To repair an existing release, select **Run workflow** in the matching workflow and enter the Release tag, destinations, and an optional family filter. Configure `MODRINTH_TOKEN` and `CURSEFORGE_TOKEN` as repository secrets; project IDs can be overridden with Repository Variables.

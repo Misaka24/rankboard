@@ -8,6 +8,7 @@ param(
     [switch]$StartupOnly,
     [switch]$PlayerDirectoryRegression,
     [switch]$OfflineDirectoryRegression,
+    [switch]$FlightLeaderboardRegression,
     [string]$FixtureRoot = 'wrapper-smoke'
 )
 
@@ -20,7 +21,7 @@ $java = 'C:\Program Files\Java\jdk-25.0.3\bin\java.exe'
 $node = 'C:\Program Files\nodejs\node.exe'
 $joinClient = Join-Path $projectRoot '.tmp/mc-join/join-smoke.js'
 $results = [System.Collections.Generic.List[object]]::new()
-$passResult = if ($StartupOnly -and $OfflineDirectoryRegression) { 'PASS (startup, web, offline directory API; player login not tested)' } elseif ($StartupOnly) { 'PASS (server startup only)' } else { 'PASS' }
+$passResult = if ($StartupOnly -and $OfflineDirectoryRegression) { 'PASS (startup, web, offline directory API; player login not tested)' } elseif ($StartupOnly) { 'PASS (server startup only)' } elseif ($FlightLeaderboardRegression) { 'PASS (join and long flight leaderboard commands)' } else { 'PASS' }
 
 if (-not (Test-Path -LiteralPath $java)) { throw "Java runtime not found: $java" }
 if (-not (Test-Path -LiteralPath $node)) { throw "Node.js runtime not found: $node" }
@@ -75,7 +76,7 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
 server-port=$serverPort
 online-mode=false
 enable-query=false
-enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression).ToString().ToLowerInvariant())
+enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression).ToString().ToLowerInvariant())
 rcon.port=$rconPort
 rcon.password=rankboard-smoke-only
 level-name=world
@@ -134,7 +135,9 @@ pause-when-empty-seconds=0
             if (-not $apiPassed) { $failure = "Offline directory API regression failed: $apiOutput" }
         }
         if ($ready -and -not $StartupOnly -and -not $failure) {
-            if ($PlayerDirectoryRegression) {
+            if ($FlightLeaderboardRegression) {
+                $joinOutput = & $node (Join-Path $PSScriptRoot 'flight-leaderboard-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
+            } elseif ($PlayerDirectoryRegression) {
                 $joinOutput = & $node (Join-Path $projectRoot 'scripts/player-directory-join-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
             } else {
                 $joinOutput = & $node $joinClient $serverPort $joinVersion 2>&1 | Out-String
@@ -146,6 +149,9 @@ pause-when-empty-seconds=0
             if ($logText -notmatch 'RankBoard initialized') { $failure = 'RankBoard did not initialize.' }
             if ($logText -match 'NoClassDefFoundError|NoSuchMethodError|Exception in server tick loop') {
                 $failure = 'Server log contains a Minecraft linkage/runtime exception.'
+            }
+            if ($FlightLeaderboardRegression -and $joinOutput -notmatch 'FLIGHT_LEADERBOARD_OK') {
+                $failure = "Long flight leaderboard regression failed: $joinOutput"
             }
         }
     } finally {
@@ -172,3 +178,4 @@ $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $testRo
 $results | Format-Table -AutoSize
 Write-Host "Logs and isolated worlds: $testRoot"
 if ($results | Where-Object { $_.Result -notlike 'PASS*' }) { exit 1 }
+exit 0

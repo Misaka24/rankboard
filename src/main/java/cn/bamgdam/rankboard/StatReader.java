@@ -433,7 +433,7 @@ final class StatReader {
 
     static StatSnapshot fromPlayer(ServerPlayerEntity player) { return fromPlayer(player, null); }
 
-    private static StatSnapshot fromPlayer(ServerPlayerEntity player, RankBoardMod.Metric onlyMetric) {
+    static StatSnapshot fromPlayer(ServerPlayerEntity player, RankBoardMod.Metric onlyMetric) {
         Map<RankBoardMod.Metric, Long> values = new EnumMap<>(RankBoardMod.Metric.class);
         if (onlyMetric != null) {
             values.put(onlyMetric, onlyMetric.read(player));

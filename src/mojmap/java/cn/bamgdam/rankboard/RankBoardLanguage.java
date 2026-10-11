@@ -31,11 +31,27 @@ final class RankBoardLanguage {
             Map.entry("help.click_to_fill", "点击填入指令栏"), Map.entry("menu.help", "帮助help"),
             Map.entry("menu.website", "打开网站"), Map.entry("menu.scores", "查询分数"),
             Map.entry("menu.expand_details", "展开榜单信息"), Map.entry("menu.tooltip.expand_details", "点击展开详细榜单与操作"),
+            Map.entry("menu.join_compact", "查看排行榜单相关内容"),
             Map.entry("menu.close_board", "关闭榜单"), Map.entry("menu.open_board", "开启榜单"),
             Map.entry("menu.close_look", "关闭抬头蹲起"), Map.entry("menu.open_look", "开启抬头蹲起"),
             Map.entry("menu.carousel", "轮播"), Map.entry("help.player", "玩家指令"),
             Map.entry("help.scoreboard", "计分板"), Map.entry("help.web", "网页与配置"),
-            Map.entry("help.admin", "OP 管理"));
+            Map.entry("help.admin", "OP 管理"), Map.entry("help.arg.player", "玩家"),
+            Map.entry("data.get", "榜单数据 {0} / {1}：{2}（{3}）"),
+            Map.entry("data.set", "已设置 {0} 的 {1} 为 {2}（{3}）；不会修改原版统计。重置：{4}"),
+            Map.entry("data.add", "已增加 {0} 的 {1} 为 {2}（{3}）；不会修改原版统计。重置：{4}"),
+            Map.entry("data.reset", "已恢复 {0} / {1} 的实际统计值。"),
+            Map.entry("data.reset.none", "没有测试覆盖：{0} / {1} 的实际统计值。"),
+            Map.entry("data.reset.all", "已清除 {0} 的 {1} 项榜单测试值，并恢复实际统计。"),
+            Map.entry("metric.food", "大胃王榜"), Map.entry("metric.jumps", "跳跃榜"),
+            Map.entry("metric.mined", "挖掘榜"), Map.entry("metric.placed", "放置榜"),
+            Map.entry("metric.kills", "击杀榜"), Map.entry("metric.pvp", "PvP榜"),
+            Map.entry("metric.deaths", "死亡榜"), Map.entry("metric.trades", "交易榜"),
+            Map.entry("metric.playtime", "在线榜"), Map.entry("metric.elytra", "飞行榜"),
+            Map.entry("metric.fishing", "钓鱼榜"), Map.entry("metric.damage", "受伤榜"),
+            Map.entry("metric.dealt", "输出榜"), Map.entry("metric.dropped", "丢垃圾榜"),
+            Map.entry("metric.picked", "拾荒榜"), Map.entry("metric.crafted", "合成榜"),
+            Map.entry("metric.redstone", "红石大蛇榜"));
     private static final Map<String, String> EN = Map.ofEntries(
             Map.entry("welcome", "Welcome to {0}"), Map.entry("web_hint", "View web rankings at {0}."),
             Map.entry("language.name", "English"), Map.entry("language.prompt", "Select language"),
@@ -47,11 +63,27 @@ final class RankBoardLanguage {
             Map.entry("help.click_to_fill", "Click to fill the chat command"), Map.entry("menu.help", "Help帮助"),
             Map.entry("menu.website", "Open website"), Map.entry("menu.scores", "My scores"),
             Map.entry("menu.expand_details", "Expand leaderboard info"), Map.entry("menu.tooltip.expand_details", "Click to show detailed rankings and actions"),
+            Map.entry("menu.join_compact", "View leaderboard information"),
             Map.entry("menu.close_board", "Close board"), Map.entry("menu.open_board", "Open board"),
             Map.entry("menu.close_look", "Disable look menu"), Map.entry("menu.open_look", "Enable look menu"),
             Map.entry("menu.carousel", "Carousel"), Map.entry("help.player", "Player"),
             Map.entry("help.scoreboard", "Scoreboard"), Map.entry("help.web", "Web & config"),
-            Map.entry("help.admin", "OP admin"));
+            Map.entry("help.admin", "OP admin"), Map.entry("help.arg.player", "player"),
+            Map.entry("data.get", "Leaderboard data {0} / {1}: {2} ({3})"),
+            Map.entry("data.set", "Set {0}'s {1} to {2} ({3}); vanilla stats unchanged. Reset: {4}"),
+            Map.entry("data.add", "Added to {0}'s {1}, now {2} ({3}); vanilla stats unchanged. Reset: {4}"),
+            Map.entry("data.reset", "Restored {0}'s actual {1} statistic."),
+            Map.entry("data.reset.none", "No test override for {0}'s actual {1} statistic."),
+            Map.entry("data.reset.all", "Cleared {1} leaderboard test values for {0} and restored actual statistics."),
+            Map.entry("metric.food", "Food"), Map.entry("metric.jumps", "Jumps"),
+            Map.entry("metric.mined", "Mining"), Map.entry("metric.placed", "Placing"),
+            Map.entry("metric.kills", "Kills"), Map.entry("metric.pvp", "PvP"),
+            Map.entry("metric.deaths", "Deaths"), Map.entry("metric.trades", "Trades"),
+            Map.entry("metric.playtime", "Playtime"), Map.entry("metric.elytra", "Flight"),
+            Map.entry("metric.fishing", "Fishing"), Map.entry("metric.damage", "Damage taken"),
+            Map.entry("metric.dealt", "Damage dealt"), Map.entry("metric.dropped", "Dropped items"),
+            Map.entry("metric.picked", "Picked up"), Map.entry("metric.crafted", "Crafted"),
+            Map.entry("metric.redstone", "Redstone"));
     private static final Map<String, String> HELP_EN = Map.ofEntries(
             Map.entry("打开可点击菜单", "Open the clickable menu"),
             Map.entry("查询所有个人统计并显示总览", "Show all personal statistics and the overview"),
@@ -68,7 +100,10 @@ final class RankBoardLanguage {
             Map.entry("导出当前服务器筛选后的排行榜为 Excel 可打开的 CSV 表格", "Export the filtered leaderboard as an Excel-compatible CSV"),
             Map.entry("查看或修改配置", "View or edit configuration"),
             Map.entry("选择图标自动取色、默认蓝色或 RGB 网页主题", "Choose icon, blue, or RGB web colors"),
-            Map.entry("首次安装时选择服务器白名单、模组白名单或无白名单；随后可选择是否读取榜单数据", "Choose a whitelist mode on first install, then choose whether to read statistics"));
+            Map.entry("首次安装时选择服务器白名单、模组白名单或无白名单；随后可选择是否读取榜单数据", "Choose a whitelist mode on first install, then choose whether to read statistics"),
+            Map.entry("测试榜单数值；只覆盖 RankBoard 显示，不修改原版统计，reset 可恢复", "Test leaderboard values; overrides RankBoard only, never modifies vanilla stats, and reset restores actual values"),
+            Map.entry("进服默认仅显示查看入口；点击后展开榜单与操作", "Joining shows a single button by default; click to expand leaderboard actions"),
+            Map.entry("进服提示模式：simple 简洁（默认），detailed 详细；包含 OP，修改后下次进服生效", "Join message mode: simple (default) or detailed; also applies to operators, effective on the next join"));
     private static final Map<String, Map<String, String>> PACKS = new ConcurrentHashMap<>();
 
     private RankBoardLanguage() { }
@@ -108,6 +143,14 @@ final class RankBoardLanguage {
 
     static String text(ServerPlayer player, String key, Object... arguments) {
         String code = LeaderboardState.get(PlayerCompat.server(player)).language(player.getUUID());
+        return text(code, key, arguments);
+    }
+
+    static String defaultText(String key, Object... arguments) {
+        return text(RankBoardConfig.get().defaultLanguage, key, arguments);
+    }
+
+    private static String text(String code, String key, Object... arguments) {
         Map<String, String> pack = PACKS.getOrDefault(code, PACKS.get("zh_cn"));
         String value = pack == null ? ZH.getOrDefault(key, key) : pack.getOrDefault(key, ZH.getOrDefault(key, key));
         for (int i = 0; i < arguments.length; i++) value = value.replace("{" + i + "}", String.valueOf(arguments[i]));

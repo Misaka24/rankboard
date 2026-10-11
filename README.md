@@ -18,16 +18,14 @@
 
 ## 版本支持
 
-注意：已发布的 1.10.5 `mc1.21.x` 单 JAR 在部分 1.21 小版本存在二进制兼容问题；1.10.6 已修复并通过 1.21–1.21.11 Fabric 与 NeoForge 逐版启动、进服测试。26.2/26.3 已通过对应服务端启动及网页 HTTP 测试，尚未完成玩家登录测试。详见 [1.10.6 兼容性排查](docs/compatibility-audit-1.10.6.md)。
+历史说明：已发布的 1.10.5 `mc1.21.x` 单 JAR 曾在部分 1.21 小版本存在二进制兼容问题，1.10.6 修复了该问题。当前 1.10.10 按 `1.21.x` 与 `26.x` 家族分别直接构建，逐版本验证结果见 [1.10.10 兼容性报告](docs/compatibility-audit-1.10.10-families.md)。
 
 | 加载器 | 游戏版本 | 状态 | 最新 RankBoard |
 | --- | --- | --- | --- |
-| Fabric | 1.21–1.21.11 | 逐版启动、网页与进服测试通过 | 1.10.6 |
-| Fabric | 26.1、26.1.1、26.1.2 | 逐版启动、网页与进服测试通过 | 1.10.6 |
-| Fabric | 26.2、26.3 | 服务端启动与网页测试通过；玩家登录未测 | 1.10.6 |
-| NeoForge | 1.21–1.21.11 | 逐版启动、网页与进服测试通过 | 1.10.6 |
-| NeoForge | 26.1.x | 26.1.2 启动、网页与进服测试通过 | 1.10.6 |
-| NeoForge | 26.2、26.3 | 服务端启动与网页测试通过；玩家登录未测 | 1.10.6 |
+| Fabric | 1.21–1.21.11 | 家族 JAR；逐版启动与网页测试 | 1.10.10 |
+| Fabric | 26.1、26.1.1、26.1.2、26.2、26.3 | 家族 JAR；逐版启动与网页测试 | 1.10.10 |
+| NeoForge | 1.21–1.21.11 | 家族 JAR；逐版启动与网页测试 | 1.10.10 |
+| NeoForge | 26.1、26.1.1、26.1.2、26.2、26.3 | 家族 JAR；逐版启动与网页测试 | 1.10.10 |
 
 ## 文档
 
@@ -48,7 +46,7 @@
 
 RankBoard 是一个服务端排行榜模组，支持 Fabric 和 NeoForge。玩家不需要客户端模组即可使用原版计分板和网页查看排行榜。
 
-当前开发版本：`1.10.9`（Fabric / NeoForge 全系列已同步构建，尚未发布）　|　[构建包与测试范围](docs/compatibility-audit-1.10.9.md)　|　[完整中文文档](docs/rankboard.md)　|　[English documentation](docs/rankboard_en.md)
+当前开发版本：`1.10.10`（Fabric / NeoForge；`1.21.x`、`26.x` 家族构建，尚未发布）　|　[构建包与测试范围](docs/compatibility-audit-1.10.10-families.md)　|　[更新日志](CHANGELOG.md)　|　[完整中文文档](docs/rankboard.md)　|　[English documentation](docs/rankboard_en.md)
 
 ### 功能简介
 
@@ -65,7 +63,7 @@ RankBoard 是一个服务端排行榜模组，支持 Fabric 和 NeoForge。玩�
 
 **NeoForge：**
 1. 安装对应 Minecraft 版本的 NeoForge。
-2. 1.21.x 使用 `rankboard-1.10.6+neoforge+mc1.21.x.jar`；26.1.x 使用 `rankboard-1.10.6+neoforge+mc26.1.x.jar`；26.2、26.3 使用对应版本 JAR。
+2. 1.21.x 使用 `rankboard-1.10.10+neoforge+mc1.21.x.jar`；26.x 使用 `rankboard-1.10.10+neoforge+mc26.x.jar`。
 3. 将 JAR 放入服务器 `mods/` 目录。
 
 启动服务器一次生成 `config/rankboard/` 配置目录，修改配置后重启或使用 `/leaderboard config reload`。
@@ -96,20 +94,20 @@ gradlew.bat build
 需要手动构建某个平台/版本家族的单次直接 JAR 时，在 PowerShell 执行（不会嵌套多个小版本 JAR）：
 
 ```text
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.10
 ```
 
 ### GitHub Actions 发布
 
-发布流程仿照 Carpet-FGA-Addition：先在 GitHub 创建并发布一个 Release（标签使用 `1.10.6`），随后 Actions 会从该标签构建并上传产物。Fabric 与 NeoForge 是两个独立的工作流和发布任务：
+推送到 `main` 或创建面向 `main` 的 Pull Request 时，`.github/workflows/build.yml` 会构建四个家族 JAR 并保存为 Actions 构建产物，不会发布到 Modrinth 或 CurseForge。正式发布时，创建并发布 GitHub Release（例如标签 `1.10.10`）后，两个发布工作流才会从该标签构建并发布：
 
-- `.github/workflows/release.yml`：只构建和发布 Fabric（1.21.x、26.1.x、26.2、26.3）。
-- `.github/workflows/release-neoforge.yml`：构建并发布 NeoForge；每个目标家族只直接编译一次（1.21.x、26.1.x、26.2、26.3）。
+- `.github/workflows/release.yml`：构建并发布 Fabric（1.21.x、26.x）。
+- `.github/workflows/release-neoforge.yml`：构建并发布 NeoForge（1.21.x、26.x）。
 
-两个工作流都只将自己的 JAR 上传到现有 GitHub Release，并分别发布到 Modrinth、CurseForge；校验文件只在本地构建目录生成。需要修复某个已有 Release 时，可在对应工作流选择 **Run workflow**，填写 Release 标签、发布目标和版本筛选。
+两个发布工作流都从 `CHANGELOG.md` 读取更新说明，只将自己的 JAR 上传到现有 GitHub Release，并分别发布到 Modrinth、CurseForge；校验文件只在本地构建目录生成。需要重建某个已有 Release 时，可在对应工作流选择 **Run workflow**，填写 Release 标签、发布目标和版本筛选。
 
 发布前需要在仓库 **Settings → Secrets and variables → Actions** 添加以下 Secrets：
 
@@ -124,11 +122,11 @@ GitHub Release 使用工作流自带的 `GITHUB_TOKEN`。令牌不会写入源�
 
 ## English
 
-Warning: The published 1.10.5 `mc1.21.x` single JAR is not binary-compatible with every 1.21 release. Version 1.10.6 fixes this and passed per-version server startup and player-login smoke tests on Fabric and NeoForge 1.21–1.21.11. Minecraft 26.2/26.3 passed server-startup and dashboard HTTP tests, but player login was not tested; see the [compatibility audit](docs/compatibility-audit-1.10.6.md).
+Historical note: the published 1.10.5 `mc1.21.x` single JAR had binary-compatibility issues on some 1.21 releases; 1.10.6 fixed those issues. Version 1.10.10 is built directly for the `1.21.x` and `26.x` families. See the [1.10.10 compatibility report](docs/compatibility-audit-1.10.10-families.md) for per-version verification results.
 
 RankBoard is a server-side leaderboard mod supporting Fabric and NeoForge. Players do not need a client-side mod to use the vanilla sidebar or the web dashboard.
 
-Development version: `1.10.9` (all Fabric / NeoForge families synchronized and built; not yet released)　|　[Builds and test coverage](docs/compatibility-audit-1.10.9.md)　|　[中文文档](docs/rankboard.md)　|　[English documentation](docs/rankboard_en.md)
+Development version: `1.10.10` (Fabric / NeoForge, `1.21.x` and `26.x` families; not yet released)　|　[Builds and test coverage](docs/compatibility-audit-1.10.10-families.md)　|　[Changelog](CHANGELOG.md)　|　[中文文档](docs/rankboard.md)　|　[English documentation](docs/rankboard_en.md)
 
 ### Highlights
 
@@ -145,7 +143,7 @@ Development version: `1.10.9` (all Fabric / NeoForge families synchronized and b
 
 **NeoForge:**
 1. Install NeoForge for the target Minecraft version.
-2. For 1.21.x use `rankboard-1.10.6+neoforge+mc1.21.x.jar`; for 26.1.x use `rankboard-1.10.6+neoforge+mc26.1.x.jar`; use matching JARs for 26.2 and 26.3.
+2. For 1.21.x use `rankboard-1.10.10+neoforge+mc1.21.x.jar`; for 26.x use `rankboard-1.10.10+neoforge+mc26.x.jar`.
 3. Put the JAR in the server `mods/` directory.
 
 Start the server once to create `config/rankboard/`. Restart after editing configuration, or run `/leaderboard config reload`.
@@ -176,20 +174,20 @@ Artifacts are written to `build/libs/`.
 To build a single direct JAR for a platform/version family in PowerShell (no nested per-minor JARs):
 
 ```text
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.10
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.10
 ```
 
 ### GitHub Actions publishing
 
-The release flow follows Carpet-FGA-Addition: create and publish a GitHub Release first using the `1.10.6` tag. Actions then build from that tag. Fabric and NeoForge are intentionally separate:
+Pushes to `main` and pull requests targeting `main` run `.github/workflows/build.yml`, which builds the four family JARs as CI artifacts without publishing them externally. For an actual release, create and publish a GitHub Release (for example, tag `1.10.10`); the two publication workflows then build from that tag:
 
-- `.github/workflows/release.yml` builds and publishes Fabric only (1.21.x, 26.1.x, 26.2, and 26.3).
-- `.github/workflows/release-neoforge.yml` builds and publishes NeoForge; every target family is compiled once directly (1.21.x, 26.1.x, 26.2, and 26.3).
+- `.github/workflows/release.yml` builds and publishes Fabric (1.21.x and 26.x).
+- `.github/workflows/release-neoforge.yml` builds and publishes NeoForge (1.21.x and 26.x).
 
-Each workflow uploads only its own JARs to the existing GitHub Release; checksums are generated locally as sidecar files and are not uploaded as extra release assets. To repair an existing Release, use **Actions → Run workflow** in the corresponding workflow and enter the Release tag, destinations, and optional version filter.
+Both publication workflows read release notes from `CHANGELOG.md` and upload only their own JARs to the existing GitHub Release, Modrinth, and CurseForge; checksums are local sidecar files, not extra release assets. To repair an existing Release, use **Actions → Run workflow** and enter the Release tag, destinations, and optional version filter.
 
 Before publishing, add these repository Actions secrets under **Settings → Secrets and variables → Actions**:
 

@@ -1,10 +1,11 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('1.21.4', '1.21.x', '26.1.x', '26.2', '26.3')]
+    [ValidateSet('1.21.4', '1.21.x', '26.x', '26.1.x', '26.2', '26.3')]
     [string]$Target,
     [string]$OutputDirectory = 'build/libs',
     [string]$ModVersion = '',
-    [string]$JavaToolchain = ''
+    [string]$JavaToolchain = '',
+    [switch]$Offline
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -24,6 +25,7 @@ $targets = @{
     '1.21.4' = @{ Minecraft = '1.21.4'; Range = '[1.21,1.22)'; Neo = '21.4.157'; NeoDependency = '21.0'; ParchmentMinecraft = '1.21.4'; Java = 21 }
     '1.21.x' = @{ Minecraft = '1.21.4'; Range = '[1.21,1.22)'; Neo = '21.4.157'; NeoDependency = '21.0'; ParchmentMinecraft = '1.21.4'; Java = 21 }
     '26.1.x' = @{ Minecraft = '26.1.2'; Range = '[26.1,26.2)'; Neo = '26.1.2.94'; NeoDependency = '26.1.0'; ParchmentMinecraft = '26.1.2'; Java = 25 }
+    '26.x' = @{ Minecraft = '26.1.2'; Range = '[26.1,27)'; Neo = '26.1.2.94'; NeoDependency = '26.1.0'; ParchmentMinecraft = '26.1.2'; Java = 25 }
     '26.2' = @{ Minecraft = '26.2'; Range = '[26.2]'; Neo = '26.2.0.41-beta'; NeoDependency = '26.2.0.41-beta'; ParchmentMinecraft = '26.2'; Java = 25 }
     '26.3' = @{ Minecraft = '26.3'; Range = '[26.3]'; Neo = '26.3.0.1-beta'; NeoDependency = '26.3.0.1-beta'; ParchmentMinecraft = '26.3'; Java = 25 }
 }
@@ -42,6 +44,7 @@ $arguments = @(
 if (-not [string]::IsNullOrWhiteSpace($JavaToolchain)) {
     $arguments += "-Prankboard_java_toolchain=$JavaToolchain"
 }
+if ($Offline) { $arguments += '--offline' }
 
 Write-Host "Building one direct NeoForge JAR for $Target (compile target $($config.Minecraft))"
 & $gradle @arguments

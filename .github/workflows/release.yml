@@ -21,7 +21,7 @@ on:
           - modrinth
           - curseforge
       versions:
-        description: Fabric targets to rebuild (comma-separated or all)
+        description: Fabric targets to rebuild (1.21.x, 26.x; comma-separated or all)
         required: false
         type: string
         default: all
@@ -73,6 +73,15 @@ jobs:
           destinations="${destinations:-all}"
           versions="${versions:-all}"
           versions="${versions// /}"
+          if [[ "$versions" != "all" ]]; then
+            IFS=',' read -ra requested <<< "$versions"
+            for target in "${requested[@]}"; do
+              case "$target" in
+                1.21.x|26.x) ;;
+                *) echo "Unsupported release family '$target'; use 1.21.x,26.x or all." >&2; exit 1 ;;
+              esac
+            done
+          fi
 
           version="$tag"
           version="${version#release-}"
@@ -106,118 +115,42 @@ jobs:
       matrix:
         include:
           - target: 1.21.x
-            # Current Fabric Loom alpha used by the shared build requires a Java 25 runtime.
-            # This does not change the Minecraft 1.21 server/runtime requirement.
             java: '25'
-          - target: 26.1.x
-            java: '25'
-          - target: 26.2
-            java: '25'
-          - target: 26.3
+          - target: 26.x
             java: '25'
     steps:
-      - name: Check out Release source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ needs.inspect.outputs.tag }}
           fetch-depth: 1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: gradle
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build 1.21.x direct JAR
-        if: ${{ matrix.target == '1.21.x' && (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) }}
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.inspect.outputs.version }}
-        run: ./scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion $env:VERSION
-
-      - name: Build 26.1.x direct JAR
-        if: ${{ matrix.target == '26.1.x' && (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) }}
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.inspect.outputs.version }}
-        run: ./scripts/build-direct-fabric.ps1 -Target 26.1.x -OutputDirectory release -ModVersion $env:VERSION
-
-      - name: Build 26.2 artifact
-        if: ${{ matrix.target == '26.2' && (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) }}
-        shell: bash
-        env:
-          VERSION: ${{ needs.inspect.outputs.version }}
-        run: |
-          ./gradlew clean build --no-daemon \
-            -Dorg.gradle.java.home="$JAVA_HOME" \
-            -Pminecraft_version=26.2 \
-            -Ploom_custom_metadata=https://piston-meta.mojang.com/v1/packages/2ee1d19a4f344bcc84c0499ba332b98f6441e6ff/26.2.json \
-            -Pmapping_type=none \
-            -Ploader_version=0.19.3 \
-            -Pfabric_version=0.157.0+26.2 \
-            -Pmod_version="$VERSION"
-          mkdir -p release
-          artifact="$(find build/libs -maxdepth 1 -type f -name 'rankboard-*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$artifact"
-          output="release/rankboard-${VERSION}+fabric+mc26.2.jar"
-          mv "$artifact" "$output"
-
-      - name: Build 26.3 artifact
-        if: ${{ matrix.target == '26.3' && (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) }}
-        shell: bash
-        env:
-          VERSION: ${{ needs.inspect.outputs.version }}
-        run: |
-          ./gradlew clean build --no-daemon \
-            -Dorg.gradle.java.home="$JAVA_HOME" \
-            -Pminecraft_version=26.3 \
-            -Pmapping_type=none \
-            -Ploader_version=0.19.5 \
-            -Pfabric_version=0.160.5+26.3 \
-            -Pmod_version="$VERSION"
-          mkdir -p release
-          artifact="$(find build/libs -maxdepth 1 -type f -name 'rankboard-*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$artifact"
-          output="release/rankboard-${VERSION}+fabric+mc26.3.jar"
-          mv "$artifact" "$output"
-
-      - name: Normalize artifact name and create checksum
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build one direct Fabric family JAR
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
-        shell: bash
+        shell: pwsh
         env:
           VERSION: ${{ needs.inspect.outputs.version }}
           TARGET: ${{ matrix.target }}
-        run: |
-          artifact="$(find release -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n 1)"
-          test -n "$artifact"
-          output="release/rankboard-${VERSION}+fabric+mc${TARGET}.jar"
-          if [[ "$artifact" != "$output" ]]; then mv "$artifact" "$output"; fi
-          checksum="${output%.jar}.sha256"
-          sha256sum "$output" > "$checksum"
-
-      - name: Verify direct JAR has no embedded variants
+        run: ./scripts/build-direct-fabric.ps1 -Target $env:TARGET -OutputDirectory release -ModVersion $env:VERSION
+      - name: Reject embedded per-version variants
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
         shell: bash
         run: |
           if unzip -Z1 release/*.jar | grep -q '^META-INF/jars/'; then
-            echo 'Embedded per-minor JARs are not allowed in direct family artifacts.' >&2
+            echo 'Embedded per-version JARs are not allowed.' >&2
             exit 1
           fi
-
-      - name: Upload Fabric build artifact
+      - uses: actions/upload-artifact@v4
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
-        uses: actions/upload-artifact@v4
         with:
           name: fabric-${{ matrix.target }}
           path: release
@@ -247,32 +180,27 @@ jobs:
               1.21.9
               1.21.10
               1.21.11
-          - target: 26.1.x
+          - target: 26.x
             game_versions: |
               26.1
               26.1.1
               26.1.2
-          - target: 26.2
-            game_versions: 26.2
-          - target: 26.3
-            game_versions: 26.3
+              26.2
+              26.3
     steps:
-      - name: Download Fabric build artifact
+      - uses: actions/download-artifact@v4
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
-        uses: actions/download-artifact@v4
         with:
           name: fabric-${{ matrix.target }}
           path: release
-
-      - name: Upload Fabric assets to GitHub Release
+      - name: Upload family JAR to GitHub Release
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
         run: gh release upload "$RELEASE_TAG" release/*.jar --repo "$GITHUB_REPOSITORY" --clobber
-
-      - name: Publish Fabric to Modrinth
+      - name: Publish Fabric to modrinth
         if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'modrinth') }}
         uses: Kira-NT/mc-publish@v3
         with:
@@ -283,14 +211,12 @@ jobs:
           loaders: fabric
           game-versions: ${{ matrix.game_versions }}
           environment: server
-          changelog: |
-            修复 1.21.x 跨小版本服务端兼容问题；普通玩家进服仅显示“展开榜单信息”按钮，OP 保留详细管理菜单；发布 Fabric 版本家族单 JAR
+          changelog-file: CHANGELOG.md
           modrinth-id: ${{ vars.MODRINTH_PROJECT_ID || 'TcDzE8EJ' }}
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           retry-attempts: 3
           retry-delay: 15000
-
-      - name: Publish Fabric to CurseForge
+      - name: Publish Fabric to curseforge
         if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'curseforge') }}
         uses: Kira-NT/mc-publish@v3
         with:
@@ -301,8 +227,7 @@ jobs:
           loaders: fabric
           game-versions: ${{ matrix.game_versions }}
           environment: server
-          changelog: |
-            修复 1.21.x 跨小版本服务端兼容问题；普通玩家进服仅显示“展开榜单信息”按钮，OP 保留详细管理菜单；发布 Fabric 版本家族单 JAR
+          changelog-file: CHANGELOG.md
           curseforge-id: ${{ vars.CURSEFORGE_PROJECT_ID || '1663124' }}
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           retry-attempts: 3

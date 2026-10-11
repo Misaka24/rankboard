@@ -33,6 +33,7 @@ final class BoardService {
     private static final Map<UUID, Selection> SELECTIONS = new HashMap<>();
     private static final Map<UUID, RankBoardMod.Period> OVERVIEW_SELECTIONS = new HashMap<>();
     private static final Map<UUID, String> CLIENT_OBJECTIVES = new HashMap<>();
+    private static final Map<UUID, SidebarUpdateState> CLIENT_UPDATES = new HashMap<>();
     private static final Map<UUID, Long> NEXT_CAROUSEL_AT = new HashMap<>();
     private static final Map<ActivityKey, Long> LAST_ACTIVITY_VALUES = new HashMap<>();
     private static final Map<RankBoardMod.Metric, ActivityRate> ACTIVITY_RATES = new EnumMap<>(RankBoardMod.Metric.class);
@@ -53,6 +54,7 @@ final class BoardService {
         SELECTIONS.remove(player.getUuid());
         OVERVIEW_SELECTIONS.remove(player.getUuid());
         CLIENT_OBJECTIVES.remove(player.getUuid());
+        CLIENT_UPDATES.remove(player.getUuid());
         NEXT_CAROUSEL_AT.remove(player.getUuid());
         LAST_ACTIVITY_VALUES.keySet().removeIf(key -> key.uuid.equals(player.getUuid()));
     }
@@ -61,6 +63,7 @@ final class BoardService {
         SELECTIONS.clear();
         OVERVIEW_SELECTIONS.clear();
         CLIENT_OBJECTIVES.clear();
+        CLIENT_UPDATES.clear();
         NEXT_CAROUSEL_AT.clear();
         LAST_ACTIVITY_VALUES.clear();
         ACTIVITY_RATES.clear();
@@ -380,6 +383,7 @@ final class BoardService {
         boolean carousel = preference != null && preference.carousel();
         ScoreboardObjective objective = syncObjective(PlayerCompat.server(player), period, metric, true, carousel, player);
         sendPackets(player, objective, RankBoardMod.entries(PlayerCompat.server(player), period, metric), metric);
+        player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
     }
 
     static int enableOverview(ServerCommandSource source, RankBoardMod.Period period) {
@@ -413,14 +417,10 @@ final class BoardService {
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
                     ScoreboardCriterion.RenderType.INTEGER, false, null);
-        } else {
+        } else if (!objective.getDisplayName().equals(title)) {
             objective.setDisplayName(title);
-            scoreboard.updateObjective(objective);
         }
-        removePrivateObjective(player);
-        player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(
-                objective, ScoreboardObjectiveUpdateS2CPacket.ADD_MODE));
-        CLIENT_OBJECTIVES.put(player.getUuid(), name);
+        List<ScoreboardScoreUpdateS2CPacket> updates = new java.util.ArrayList<>();
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);
@@ -428,26 +428,25 @@ final class BoardService {
                     ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUuid(), metric));
             if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
             int score = scoreboardValue(metric, value);
-            player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                    RankBoardMod.localizedMetric(player, metric), name, score, Optional.empty(), scoreboardFormat(metric, score)));
+            updates.add(new ScoreboardScoreUpdateS2CPacket(
+                    RankBoardMod.localizedMetric(player, metric), name, score, Optional.empty(), scoreboardFormat(metric, value)));
         }
-        player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
+        sendSidebarUpdate(player, objective, updates);
     }
 
     private static void sendPackets(ServerPlayerEntity player, ScoreboardObjective objective,
                                     List<RankBoardMod.Entry> entries, RankBoardMod.Metric metric) {
-        removePrivateObjective(player);
         List<RankBoardMod.Entry> visibleEntries = RankBoardConfig.get().clientScoreboardShowZero
                 ? entries : entries.stream().filter(entry -> entry.value() != 0L).toList();
         Map<UUID, ServerPlayerEntity> onlinePlayers = new HashMap<>();
         for (ServerPlayerEntity onlinePlayer : PlayerCompat.server(player).getPlayerManager().getPlayerList()) {
             onlinePlayers.put(onlinePlayer.getUuid(), onlinePlayer);
         }
-        player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(objective, ScoreboardObjectiveUpdateS2CPacket.ADD_MODE));
-        CLIENT_OBJECTIVES.put(player.getUuid(), objective.getName());
-        int totalValue = scoreboardValue(metric, RankBoardMod.total(entries));
-        player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                RankBoardLanguage.text(player, "scoreboard.total"), objective.getName(), totalValue, Optional.empty(), scoreboardFormat(metric, totalValue)));
+        List<ScoreboardScoreUpdateS2CPacket> updates = new java.util.ArrayList<>();
+        long total = RankBoardMod.total(entries);
+        int totalValue = scoreboardValue(metric, total);
+        updates.add(new ScoreboardScoreUpdateS2CPacket(
+                RankBoardLanguage.text(player, "scoreboard.total"), objective.getName(), totalValue, Optional.empty(), scoreboardFormat(metric, total)));
         for (int i = 0; i < Math.min(14, visibleEntries.size()); i++) {
             RankBoardMod.Entry entry = visibleEntries.get(i);
             int value = scoreboardValue(metric, entry.value());
@@ -464,10 +463,17 @@ final class BoardService {
                 boolean entryCarousel = entryPreference != null && entryPreference.carousel();
                 displayName = Optional.of(RankBoardColors.text(scoreHolder, entrySelection.metric, entryCarousel));
             }
-            player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                    scoreHolder, objective.getName(), value, displayName, scoreboardFormat(metric, value)));
+            updates.add(new ScoreboardScoreUpdateS2CPacket(
+                    scoreHolder, objective.getName(), value, displayName, scoreboardFormat(metric, entry.value())));
         }
-        player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
+        sendSidebarUpdate(player, objective, updates);
+    }
+
+    private static void sendSidebarUpdate(ServerPlayerEntity player, ScoreboardObjective objective,
+                                          List<ScoreboardScoreUpdateS2CPacket> updates) {
+        CLIENT_UPDATES.computeIfAbsent(player.getUuid(), uuid -> new SidebarUpdateState())
+                .refresh(objective, updates, packet -> player.networkHandler.sendPacket(packet));
+        CLIENT_OBJECTIVES.put(player.getUuid(), objective.getName());
     }
 
     static int writeVanilla(ServerCommandSource source, RankBoardMod.Period period, RankBoardMod.Metric metric) {
@@ -610,25 +616,25 @@ final class BoardService {
         if (objective == null) {
             objective = scoreboard.addObjective(name, ScoreboardCriterion.DUMMY, title,
                     ScoreboardCriterion.RenderType.INTEGER, false, null);
-        } else {
+        } else if (!objective.getDisplayName().equals(title)) {
             objective.setDisplayName(title);
-            scoreboard.updateObjective(objective);
         }
 
-        for (ScoreHolder holder : List.copyOf(scoreboard.getKnownScoreHolders())) {
-            scoreboard.removeScore(holder, objective);
-        }
         List<RankBoardMod.Entry> entries = RankBoardMod.entries(server, period, metric);
-        int totalValue = scoreboardValue(metric, RankBoardMod.total(entries));
+        long total = RankBoardMod.total(entries);
+        int totalValue = scoreboardValue(metric, total);
         String totalHolder = localePlayer == null ? "总和" : RankBoardLanguage.text(localePlayer, "scoreboard.total");
-        ScoreAccess totalScore = scoreboard.getOrCreateScore(ScoreHolder.fromName(totalHolder), objective, true);
-        totalScore.setScore(totalValue);
-        totalScore.setNumberFormat(scoreboardFormat(metric, totalValue).orElse(null));
+        Set<String> currentHolders = new HashSet<>();
+        currentHolders.add(totalHolder);
+        entries.forEach(entry -> currentHolders.add(entry.name()));
+        for (ScoreHolder holder : List.copyOf(scoreboard.getKnownScoreHolders())) {
+            if (!currentHolders.contains(holder.getNameForScoreboard()) && scoreboard.getScore(holder, objective) != null)
+                scoreboard.removeScore(holder, objective);
+        }
+        updateScore(scoreboard, objective, totalHolder, totalValue, scoreboardFormat(metric, total).orElse(null));
         for (RankBoardMod.Entry entry : entries) {
             int value = scoreboardValue(metric, entry.value());
-            ScoreAccess score = scoreboard.getOrCreateScore(ScoreHolder.fromName(entry.name()), objective, true);
-            score.setScore(value);
-            score.setNumberFormat(scoreboardFormat(metric, value).orElse(null));
+            updateScore(scoreboard, objective, entry.name(), value, scoreboardFormat(metric, entry.value()).orElse(null));
         }
         return objective;
     }
@@ -638,9 +644,22 @@ final class BoardService {
         return clamp(metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME
                 ? value / 72_000L : value);
     }
-    private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, int value) {
+    private static void updateScore(Scoreboard scoreboard, ScoreboardObjective objective, String name,
+                                    int value, NumberFormat format) {
+        ScoreHolder holder = ScoreHolder.fromName(name);
+        var previous = scoreboard.getScore(holder, objective);
+        boolean valueChanged = previous == null || previous.getScore() != value;
+        NumberFormat previousFormat = previous == null ? null : previous.getNumberFormat();
+        boolean formatChanged = previous == null || (previousFormat == null) != (format == null)
+                || (format != null && previousFormat != null && !previousFormat.format(value).equals(format.format(value)));
+        if (!valueChanged && !formatChanged) return;
+        ScoreAccess score = scoreboard.getOrCreateScore(holder, objective, true);
+        if (valueChanged) score.setScore(value);
+        if (formatChanged) score.setNumberFormat(format);
+    }
+    private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long value) {
         if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {
-            return Optional.of(new FixedNumberFormat(Text.literal(value + "h").formatted(Formatting.RED)));
+            return Optional.of(new FixedNumberFormat(Text.literal(scoreboardValue(metric, value) + "h").formatted(Formatting.RED)));
         }
         if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
             return Optional.of(new FixedNumberFormat(Text.literal(String.format(java.util.Locale.ROOT,
@@ -653,6 +672,7 @@ final class BoardService {
                 + (exception.getMessage() == null ? "" : " - " + exception.getMessage());
     }
     private static void removePrivateObjective(ServerPlayerEntity player) {
+        CLIENT_UPDATES.remove(player.getUuid());
         String oldName = CLIENT_OBJECTIVES.remove(player.getUuid());
         if (oldName == null) return;
         ScoreboardObjective oldObjective = PlayerCompat.server(player).getScoreboard().getNullableObjective(oldName);

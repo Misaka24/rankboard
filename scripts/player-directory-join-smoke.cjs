@@ -90,7 +90,7 @@ function join() {
   const first = await join();
   await delay(2500);
   const firstChats = first.chats.join('\n');
-  if (!firstChats.includes('欢迎来到') || !firstChats.includes('展开榜单信息')
+  if (!firstChats.includes('查看排行榜单相关内容') || firstChats.includes('欢迎来到')
       || firstChats.includes('请选择语言') || firstChats.includes('[白名单]')) {
     throw new Error('Non-OP did not receive the simplified join button');
   }
@@ -119,11 +119,26 @@ function join() {
   const operator = await join();
   await delay(2500);
   const operatorChats = operator.chats.join('\n');
-  if (!operatorChats.includes('请选择语言') || !operatorChats.includes('/leaderboard help') || operatorChats.includes('展开榜单信息')) {
-    throw new Error('OP did not receive the full menu');
+  if (!operatorChats.includes('查看排行榜单相关内容') || operatorChats.includes('请选择语言') || operatorChats.includes('/leaderboard help')) {
+    throw new Error('OP did not receive only the compact join button');
   }
-  console.log('OP_FULL_JOIN_OK');
+  console.log('OP_COMPACT_JOIN_OK');
+  operator.chats.length = 0;
+  operator.client.chat('/leaderboard');
+  await delay(1500);
+  const expanded = operator.chats.join('\n');
+  if (!expanded.includes('请选择语言') || !expanded.includes('/leaderboard help') || !expanded.includes('其他模组计分板')) {
+    throw new Error('Opening the compact entry did not expose the operator menu');
+  }
+  console.log('OP_EXPANDED_MENU_OK');
   operator.client.end('smokeComplete');
+  await rcon.command('leaderboard config set join-message-mode detailed');
+  await delay(1500);
+  const detailed = await join();
+  await delay(2500);
+  if (!detailed.chats.join('\n').includes('/leaderboard help')) throw new Error('Detailed join mode was not restored');
+  console.log('DETAILED_JOIN_OK');
+  detailed.client.end('smokeComplete');
   socket.end();
   clearTimeout(timeout);
   console.log('JOIN_OK');

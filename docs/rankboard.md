@@ -55,11 +55,9 @@
 
 ### 进服体验
 
-玩家进入服务器后会依次看到：
+默认 `join-message-mode=simple`：玩家和 OP 进服时都只看到 **[查看排行榜单相关内容]**，点击执行 `/leaderboard` 后展开查询、榜单、网站和帮助。语言、白名单和其他模组计分板管理提示仍按原权限与设置状态保留，OP 打开菜单后再展示。
 
-1. **欢迎语**：显示服务器名称（可在配置中关闭）
-2. **排行榜菜单**：可点击的按钮列表，包含查询分数、开启/关闭榜单、轮播开关、网站入口和帮助
-3. **网页提示**（默认关闭）：提示网页排行榜地址
+OP 可执行 `/leaderboard config set join-message-mode detailed` 恢复原详细进服流程（欢迎语、菜单及已开启的网页提示），执行 `/leaderboard config set join-message-mode simple` 恢复简洁模式；下次进服生效。`join-menu-enabled=false` 仍可关闭进服入口。帮助中的玩家分组说明简洁入口，管理员配置分组说明模式切换。
 
 ### 使用排行榜菜单
 
@@ -216,6 +214,10 @@ OP 可控制轮播标题是否跟随当前榜单颜色：
 | `/leaderboard cache threads status` | 查看配置值与实际使用的扫描线程数 |
 | `/leaderboard lookup <UUID\|whitelist>` | 查询 Mojang UUID 对应的玩家名 |
 | `/leaderboard ratelimit clear` | 清空全部网页 IP 限流与累计冷却 |
+| `/leaderboard data get <玩家> <榜单>` | 查询玩家当前榜单值（OP；玩家需在线） |
+| `/leaderboard data set <玩家> <榜单> <数值>` | 设置 RankBoard 测试覆盖值，不修改原版统计（OP） |
+| `/leaderboard data add <玩家> <榜单> <数值>` | 在当前榜单值上增加测试值（OP） |
+| `/leaderboard data reset <玩家> <榜单\|all>` | 恢复实际榜单值或清除该玩家全部测试覆盖（OP） |
 | `/leaderboard config <list\|reload\|get\|set>` | 查看、修改或重载配置 |
 | `/leaderboard lookmenu global <true\|false\|status>` | OP 开关或查询全服抬头+蹲起菜单 |
 | `/leaderboard carousel color <true\|false\|status>` | 轮播标题是否跟随榜单颜色 |
@@ -229,6 +231,8 @@ OP 可控制轮播标题是否跟随当前榜单颜色：
 | `/leaderboard label reset <榜单\|all>` | 恢复单个或全部默认名称 |
 | `/leaderboard webtheme <icon\|blue\|rgb #RRGGBB\|true\|false\|status>` | 设置网页主题模式 |
 | `/leaderboard webswitch <name\|weight\|add\|remove\|list\|status>` | 管理网页服务器切换列表 |
+
+测试示例：`/leaderboard data set Steve elytra 9000000000000` 可验证超过原版整数范围的飞行榜格式；测试结束用 `/leaderboard data reset Steve elytra` 恢复真实统计。飞行榜的新增距离现在由 RankBoard 用 64 位累计并保存到世界数据中，旧的原版距离会作为迁移起点。
 
 `true/false` 是推荐的新语法。旧的 `on/off` 和 `enable/disable` 仍作为兼容别名保留。
 
@@ -250,6 +254,7 @@ welcome-enabled=true                        # 玩家进服时发送欢迎语
 welcome-name=auto                           # 欢迎语服务器名；auto 自动读取
 default-language=zh_cn                      # 全服默认聊天语言；新玩家和全服设置后使用
 join-menu-enabled=true                      # 玩家进服时换出聊天栏面板
+join-message-mode=simple                    # 默认仅显示 [查看排行榜单相关内容]；detailed 恢复详细提示（包含 OP）
 join-web-hint-enabled=false                 # 玩家进服时提示网页排行榜地址
 website-button-enabled=true                 # 菜单和帮助中是否显示 [打开网站]
 web-public-address=                         # 网站按钮地址；留空默认 http://127.0.0.1:8765
@@ -433,19 +438,19 @@ gradlew.bat build
 每个平台/版本家族都直接编译为一个 JAR，不再把多个小版本 JAR 嵌套到 `META-INF/jars`。PowerShell 构建命令：
 
 ```text
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
-powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.1.x -OutputDirectory release -ModVersion 1.10.6
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-fabric.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.9
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.x -OutputDirectory release -ModVersion 1.10.9
 ```
 
 每次成功构建会单独归档到 `mod-builds/` 的时间戳目录，并记录 SHA-256 与构建命令。
 
 ## GitHub Actions 发布
 
-先在 GitHub 创建并发布 Release（标签使用 `1.10.6`）。发布事件会触发两个相互独立的流程：
+先在 GitHub 创建并发布 Release（标签使用 `1.10.9`）。发布事件会触发两个相互独立的流程：
 
 - `.github/workflows/release.yml` 只构建 Fabric。
 - `.github/workflows/release-neoforge.yml` 只构建 NeoForge。
 
-两个流程分别上传自己的 JAR，并分别发布到 Modrinth 与 CurseForge；SHA-256 只作为本地 sidecar 校验文件，不会作为额外发布资产上传。NeoForge 工作流的版本筛选填 `1.21.x` 或 `26.1.x` 时会直接构建一个对应家族 JAR；26.2、26.3 也各自直接构建一个目标 JAR。需要补发已有版本时，在对应流程选择 **Run workflow**。仓库需要配置 `MODRINTH_TOKEN`、`CURSEFORGE_TOKEN`；项目 ID 可用 Repository Variables 覆盖。
+两个流程只构建 `1.21.x` 和 `26.x` 两个版本家族，总计四个 JAR（两个加载器各两个），不再发布 26.1.x、26.2、26.3 的独立包，也没有 universal 后缀。每个家族直接编译一个 JAR，并非构建后合并。SHA-256 只作为本地校验文件，不上传为发布资产。需要补发已有版本时，在对应流程选择 **Run workflow**。仓库需要配置 `MODRINTH_TOKEN`、`CURSEFORGE_TOKEN`；项目 ID 可用 Repository Variables 覆盖。

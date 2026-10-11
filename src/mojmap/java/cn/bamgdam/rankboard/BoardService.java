@@ -34,6 +34,7 @@ final class BoardService {
     private static final Map<UUID, Selection> SELECTIONS = new HashMap<>();
     private static final Map<UUID, RankBoardMod.Period> OVERVIEW_SELECTIONS = new HashMap<>();
     private static final Map<UUID, String> CLIENT_OBJECTIVES = new HashMap<>();
+    private static final Map<UUID, SidebarUpdateState> CLIENT_UPDATES = new HashMap<>();
     private static final Map<UUID, Long> NEXT_CAROUSEL_AT = new HashMap<>();
     private static final Map<ActivityKey, Long> LAST_ACTIVITY_VALUES = new HashMap<>();
     private static final Map<RankBoardMod.Metric, ActivityRate> ACTIVITY_RATES = new EnumMap<>(RankBoardMod.Metric.class);
@@ -54,6 +55,7 @@ final class BoardService {
         SELECTIONS.remove(player.getUUID());
         OVERVIEW_SELECTIONS.remove(player.getUUID());
         CLIENT_OBJECTIVES.remove(player.getUUID());
+        CLIENT_UPDATES.remove(player.getUUID());
         NEXT_CAROUSEL_AT.remove(player.getUUID());
         LAST_ACTIVITY_VALUES.keySet().removeIf(key -> key.uuid.equals(player.getUUID()));
     }
@@ -62,6 +64,7 @@ final class BoardService {
         SELECTIONS.clear();
         OVERVIEW_SELECTIONS.clear();
         CLIENT_OBJECTIVES.clear();
+        CLIENT_UPDATES.clear();
         NEXT_CAROUSEL_AT.clear();
         LAST_ACTIVITY_VALUES.clear();
         ACTIVITY_RATES.clear();
@@ -374,6 +377,8 @@ final class BoardService {
         boolean carousel = preference != null && preference.carousel();
         Objective objective = syncObjective(PlayerCompat.server(player), period, metric, true, carousel);
         sendPackets(player, objective, RankBoardMod.entries(PlayerCompat.server(player), period, metric), metric);
+        // Explicit selection also restores the sidebar if another mod replaced its slot.
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
     }
 
     static int enableOverview(CommandSourceStack source, RankBoardMod.Period period) {
@@ -403,36 +408,33 @@ final class BoardService {
         Component title = Component.literal(period.label + (partialPeriod ? "（部分）" : "") + " 我的总览");
         if (objective == null) objective = scoreboard.addObjective(name, ObjectiveCriteria.DUMMY, title,
                 ObjectiveCriteria.RenderType.INTEGER, false, null);
-        else { objective.setDisplayName(title); scoreboard.onObjectiveChanged(objective); }
-        removePrivateObjective(player);
-        player.connection.send(new ClientboundSetObjectivePacket(objective, ClientboundSetObjectivePacket.METHOD_ADD));
-        CLIENT_OBJECTIVES.put(player.getUUID(), name);
+        else if (!objective.getDisplayName().equals(title)) { objective.setDisplayName(title); }
+        List<ClientboundSetScorePacket> updates = new java.util.ArrayList<>();
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
             long raw = metric.read(player);
             long value = period == RankBoardMod.Period.ALL ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUUID(), metric));
             if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
             int score = scoreboardValue(metric, value);
-            player.connection.send(new ClientboundSetScorePacket(metric.label(), name, score, Optional.empty(), scoreboardFormat(metric, score)));
+            updates.add(new ClientboundSetScorePacket(metric.label(), name, score, Optional.empty(), scoreboardFormat(metric, value)));
         }
-        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
+        sendSidebarUpdate(player, objective, updates);
     }
 
     private static void sendPackets(ServerPlayer player, Objective objective,
                                     List<RankBoardMod.Entry> entries, RankBoardMod.Metric metric) {
-        removePrivateObjective(player);
         List<RankBoardMod.Entry> visibleEntries = RankBoardConfig.get().clientScoreboardShowZero
                 ? entries : entries.stream().filter(entry -> entry.value() != 0L).toList();
         Map<UUID, ServerPlayer> onlinePlayers = new HashMap<>();
         for (ServerPlayer onlinePlayer : PlayerCompat.server(player).getPlayerList().getPlayers()) {
             onlinePlayers.put(onlinePlayer.getUUID(), onlinePlayer);
         }
-        player.connection.send(new ClientboundSetObjectivePacket(objective, ClientboundSetObjectivePacket.METHOD_ADD));
-        CLIENT_OBJECTIVES.put(player.getUUID(), objective.getName());
-        int totalValue = scoreboardValue(metric, RankBoardMod.total(entries));
-        player.connection.send(new ClientboundSetScorePacket(
+        List<ClientboundSetScorePacket> updates = new java.util.ArrayList<>();
+        long total = RankBoardMod.total(entries);
+        int totalValue = scoreboardValue(metric, total);
+        updates.add(new ClientboundSetScorePacket(
                 privateScoreHolder("total"), objective.getName(), totalValue,
-                Optional.of(Component.literal("总和")), scoreboardFormat(metric, totalValue)));
+                Optional.of(Component.literal("总和")), scoreboardFormat(metric, total)));
         for (int i = 0; i < Math.min(14, visibleEntries.size()); i++) {
             RankBoardMod.Entry entry = visibleEntries.get(i);
             int value = scoreboardValue(metric, entry.value());
@@ -452,11 +454,18 @@ final class BoardService {
                 boolean entryCarousel = entryPreference != null && entryPreference.carousel();
                 displayComponent = RankBoardColors.text(displayText, entrySelection.metric, entryCarousel);
             }
-            player.connection.send(new ClientboundSetScorePacket(
+            updates.add(new ClientboundSetScorePacket(
                     privateScoreHolder(entry.uuid()), objective.getName(), value,
-                    Optional.of(displayComponent), scoreboardFormat(metric, value)));
+                    Optional.of(displayComponent), scoreboardFormat(metric, entry.value())));
         }
-        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
+        sendSidebarUpdate(player, objective, updates);
+    }
+
+    private static void sendSidebarUpdate(ServerPlayer player, Objective objective,
+                                          List<ClientboundSetScorePacket> updates) {
+        CLIENT_UPDATES.computeIfAbsent(player.getUUID(), uuid -> new SidebarUpdateState())
+                .refresh(objective, updates, packet -> player.connection.send(packet));
+        CLIENT_OBJECTIVES.put(player.getUUID(), objective.getName());
     }
 
     static int writeVanilla(CommandSourceStack source, RankBoardMod.Period period, RankBoardMod.Metric metric) {
@@ -578,7 +587,8 @@ final class BoardService {
         String name = objectiveName(period, metric, personal);
         Scoreboard scoreboard = server.getScoreboard();
         Objective objective = scoreboard.getObjective(name);
-        String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）" : "";
+        String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）"
+                : metric == RankBoardMod.Metric.ELYTRA_DISTANCE ? "（km）" : "";
         boolean partialPeriod = period != RankBoardMod.Period.ALL
                 && !LeaderboardState.get(server).isPeriodComplete(period, metric);
         Component title = Component.literal(period.label + (partialPeriod ? "（部分）" : "")
@@ -592,41 +602,62 @@ final class BoardService {
         if (objective == null) {
             objective = scoreboard.addObjective(name, ObjectiveCriteria.DUMMY, title,
                     ObjectiveCriteria.RenderType.INTEGER, false, null);
-        } else {
+        } else if (!objective.getDisplayName().equals(title)) {
             objective.setDisplayName(title);
-            scoreboard.onObjectiveChanged(objective);
         }
 
-        for (ScoreHolder holder : List.copyOf(scoreboard.getTrackedPlayers())) {
-            scoreboard.resetSinglePlayerScore(holder, objective);
-        }
         List<RankBoardMod.Entry> entries = RankBoardMod.entries(server, period, metric);
-        int totalValue = scoreboardValue(metric, RankBoardMod.total(entries));
-        ScoreAccess totalScore = scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly("总和"), objective, true);
-        totalScore.set(totalValue);
-        totalScore.numberFormatOverride(scoreboardFormat(metric, totalValue).orElse(null));
+        Set<String> currentHolders = new HashSet<>();
+        currentHolders.add("总和");
+        entries.forEach(entry -> currentHolders.add(entry.name()));
+        for (var row : List.copyOf(scoreboard.listPlayerScores(objective))) {
+            if (!currentHolders.contains(row.owner())) scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(row.owner()), objective);
+        }
+        long total = RankBoardMod.total(entries);
+        int totalValue = scoreboardValue(metric, total);
+        updateScore(scoreboard, objective, "总和", totalValue, scoreboardFormat(metric, total).orElse(null));
         for (RankBoardMod.Entry entry : entries) {
             int value = scoreboardValue(metric, entry.value());
-            ScoreAccess score = scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(entry.name()), objective, true);
-            score.set(value);
-            score.numberFormatOverride(scoreboardFormat(metric, value).orElse(null));
+            updateScore(scoreboard, objective, entry.name(), value, scoreboardFormat(metric, entry.value()).orElse(null));
         }
         return objective;
+    }
+
+    private static void updateScore(Scoreboard scoreboard, Objective objective, String name,
+                                    int value, NumberFormat format) {
+        ScoreHolder holder = ScoreHolder.forNameOnly(name);
+        var previous = scoreboard.getPlayerScoreInfo(holder, objective);
+        boolean valueChanged = previous == null || previous.value() != value;
+        NumberFormat previousFormat = previous == null ? null : previous.numberFormat();
+        boolean formatChanged = previous == null || (previousFormat == null) != (format == null)
+                || (format != null && previousFormat != null && !previousFormat.format(value).equals(format.format(value)));
+        if (!valueChanged && !formatChanged) return;
+        ScoreAccess score = scoreboard.getOrCreatePlayerScore(holder, objective, true);
+        if (valueChanged) score.set(value);
+        if (formatChanged) score.numberFormatOverride(format);
     }
 
     private static int clamp(long value) { return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value)); }
     private static int scoreboardValue(RankBoardMod.Metric metric, long value) {
         return clamp(metric == RankBoardMod.Metric.PLAY_TIME ? value / 72_000L : value);
     }
-    private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, int value) {
-        if (metric != RankBoardMod.Metric.PLAY_TIME) return Optional.empty();
-        return Optional.of(new FixedFormat(Component.literal(value + "h").withStyle(ChatFormatting.RED)));
+    private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long rawValue) {
+        if (metric == RankBoardMod.Metric.PLAY_TIME) {
+            return Optional.of(new FixedFormat(Component.literal(scoreboardValue(metric, rawValue) + "h")
+                    .withStyle(ChatFormatting.RED)));
+        }
+        if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
+            return Optional.of(new FixedFormat(Component.literal(RankBoardMod.format(metric, rawValue))
+                    .withStyle(ChatFormatting.RED)));
+        }
+        return Optional.empty();
     }
     private static String describe(RuntimeException exception) {
         return exception.getClass().getSimpleName()
                 + (exception.getMessage() == null ? "" : " - " + exception.getMessage());
     }
     private static void removePrivateObjective(ServerPlayer player) {
+        CLIENT_UPDATES.remove(player.getUUID());
         String oldName = CLIENT_OBJECTIVES.remove(player.getUUID());
         if (oldName == null) return;
         Objective oldObjective = PlayerCompat.server(player).getScoreboard().getObjective(oldName);

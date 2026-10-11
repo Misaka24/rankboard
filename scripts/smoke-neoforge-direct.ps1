@@ -7,13 +7,19 @@ param(
     [int]$TimeoutSeconds = 420,
     [switch]$StartupOnly,
     [switch]$PlayerDirectoryRegression,
-    [switch]$OfflineDirectoryRegression
+    [switch]$OfflineDirectoryRegression,
+    [switch]$FlightLeaderboardRegression
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'player-directory-fixture.ps1')
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $neoForgeProject = Join-Path $projectRoot 'neoforge'
+$projectProperties = Get-Content (Join-Path $projectRoot 'gradle.properties') |
+    Where-Object { $_ -match '^mod_version=' } |
+    Select-Object -First 1
+if (-not $projectProperties) { throw 'mod_version is missing from gradle.properties.' }
+$modVersion = ($projectProperties -split '=', 2)[1].Trim()
 $artifact = (Resolve-Path -LiteralPath $ModJar).Path
 $gradle = Join-Path $projectRoot 'gradlew.bat'
 $node = 'C:\Program Files\nodejs\node.exe'
@@ -55,7 +61,7 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
 server-port=$serverPort
 online-mode=false
 enable-query=false
-enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression).ToString().ToLowerInvariant())
+enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression).ToString().ToLowerInvariant())
 rcon.port=$rconPort
 rcon.password=rankboard-smoke-only
 level-name=world
@@ -90,7 +96,7 @@ pause-when-empty-seconds=0
         "-Pminecraft_version=$version", "-Pminecraft_version_range=$range",
         "-Pneo_version=$($neoVersions[$version])", "-Pneo_dependency_version=$dependency",
         "-Pparchment_minecraft_version=$version", '-Pparchment_mappings_version=none',
-        '-Pmod_version=1.10.9', '--no-daemon', '--console=plain'
+        "-Pmod_version=$modVersion", '--no-daemon', '--console=plain'
     )
     $argumentLine = ($command | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
     $process = $null
@@ -130,7 +136,9 @@ pause-when-empty-seconds=0
             if (-not $apiPassed) { $failure = "Offline directory API regression failed: $apiOutput" }
         }
         if ($ready -and -not $StartupOnly -and -not $failure) {
-            if ($PlayerDirectoryRegression) {
+            if ($FlightLeaderboardRegression) {
+                $joinOutput = & $node (Join-Path $PSScriptRoot 'flight-leaderboard-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
+            } elseif ($PlayerDirectoryRegression) {
                 $joinOutput = & $node (Join-Path $projectRoot 'scripts/player-directory-join-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
             } else {
                 $joinOutput = & $node $joinClient $serverPort $joinVersion 2>&1 | Out-String
@@ -138,6 +146,9 @@ pause-when-empty-seconds=0
             $joinOutput | Set-Content -LiteralPath (Join-Path $testDirectory 'join-smoke.log') -Encoding utf8
             $joined = $LASTEXITCODE -eq 0 -and $joinOutput.Contains('JOIN_OK')
             if (-not $joined) { $failure = "Offline player join failed: $joinOutput" }
+            if ($FlightLeaderboardRegression -and -not $joinOutput.Contains('FLIGHT_LEADERBOARD_OK')) {
+                $failure = "Long flight leaderboard regression failed: $joinOutput"
+            }
             $text = Get-Content -Raw -LiteralPath $gameLog
             if ($text -notmatch 'RankBoard NeoForge initialized|RankBoard initialized') { $failure = 'RankBoard did not initialize.' }
             if ($text -match 'NoClassDefFoundError|NoSuchMethodError|Exception in server tick loop|Couldn.t place player in world') {
@@ -163,3 +174,4 @@ $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $testRo
 $results | Format-Table -AutoSize
 Write-Host "Isolated NeoForge smoke data: $testRoot"
 if ($results | Where-Object { $_.Result -notlike 'PASS*' }) { exit 1 }
+exit 0
