@@ -152,6 +152,11 @@ When name colors are enabled (default), player names change color based on the m
 /leaderboard namecolor status           Check current mode
 ```
 
+When another mod manages chat names, TAB names, or overhead nametags, use `scoreboard-only`.
+The matching main configuration setting is `scoreboard-name-color-enabled=scoreboard-only`.
+The command saves the setting and applies it immediately. Fabric and NeoForge use the same
+three modes in both the `1.21.x` and `26.x` families.
+
 Render mode can be `legacy` (nearest vanilla 16 colors) or `rgb` (exact RGB):
 
 ```text

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.11
+
+- 补齐 Fabric 26.x 与 NeoForge 各版本的功能：繁殖榜、摸鱼榜、破基岩榜及配置、个人进服菜单开关、同端口网页服务器中继、OP 切服名称提醒，以及分组帮助和语言说明。
+- 明确名字颜色模式：`true` 同步排行榜、聊天、TAB 和头顶名牌；`false` 全部关闭；`scoreboard-only` 仅在排行榜内着色，方便与名字颜色模组共存。
+- 对齐 Fabric 1.21.x、Fabric 26.x、NeoForge 1.21.x 和 NeoForge 26.x 的配置、指令、榜单顺序、语言及运行时统计功能。
+- 自动构建新增跨版本功能清单检查，并增加多版本服务端启动及网页连通性回归。
+
 ## 1.10.10
 
 - Added a simple join experience by default: regular players see one clickable leaderboard entry; operators retain their administration controls, and help documents the mode switch.

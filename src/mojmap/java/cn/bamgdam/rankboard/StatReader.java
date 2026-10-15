@@ -473,6 +473,8 @@ final class StatReader {
             case PLACED -> sumMatching(stats, "minecraft:used", BLOCK_ITEMS);
             case MINED -> sumMatching(stats, "minecraft:mined", BLOCK_IDS);
             case JUMPS -> stat(stats, "minecraft:custom", "minecraft:jump");
+            case BREEDING -> stat(stats, "minecraft:custom", "minecraft:animals_bred");
+            case BEDROCK_BROKEN, AFK_TIME -> 0L;
             case KILLS -> stat(stats, "minecraft:custom", "minecraft:mob_kills") + stat(stats, "minecraft:custom", "minecraft:player_kills");
             case PVP_KILLS -> stat(stats, "minecraft:custom", "minecraft:player_kills");
             case DEATHS -> stat(stats, "minecraft:custom", "minecraft:deaths");

@@ -152,6 +152,10 @@ OP 可控制轮播标题是否跟随当前榜单颜色：
 /leaderboard namecolor status           查看当前模式
 ```
 
+如果同时使用修改聊天名字、TAB 或头顶名牌的其他模组，建议设置为 `scoreboard-only`。
+对应主配置项是 `scoreboard-name-color-enabled=scoreboard-only`；修改指令会立即生效并保存。
+Fabric 与 NeoForge 的 `1.21.x`、`26.x` 使用相同的三种模式。
+
 渲染模式可选 `legacy`（原版 16 色）或 `rgb`（精确 RGB）：
 
 ```text

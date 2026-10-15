@@ -8,7 +8,8 @@ param(
     [switch]$StartupOnly,
     [switch]$PlayerDirectoryRegression,
     [switch]$OfflineDirectoryRegression,
-    [switch]$FlightLeaderboardRegression
+    [switch]$FlightLeaderboardRegression,
+    [switch]$FeatureParityRegression
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,7 +62,7 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
 server-port=$serverPort
 online-mode=false
 enable-query=false
-enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression).ToString().ToLowerInvariant())
+enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression -or $FeatureParityRegression).ToString().ToLowerInvariant())
 rcon.port=$rconPort
 rcon.password=rankboard-smoke-only
 level-name=world
@@ -136,7 +137,9 @@ pause-when-empty-seconds=0
             if (-not $apiPassed) { $failure = "Offline directory API regression failed: $apiOutput" }
         }
         if ($ready -and -not $StartupOnly -and -not $failure) {
-            if ($FlightLeaderboardRegression) {
+            if ($FeatureParityRegression) {
+                $joinOutput = & $node (Join-Path $PSScriptRoot 'feature-parity-smoke.cjs') $serverPort $joinVersion $rconPort $webPort 2>&1 | Out-String
+            } elseif ($FlightLeaderboardRegression) {
                 $joinOutput = & $node (Join-Path $PSScriptRoot 'flight-leaderboard-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
             } elseif ($PlayerDirectoryRegression) {
                 $joinOutput = & $node (Join-Path $projectRoot 'scripts/player-directory-join-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
@@ -148,6 +151,9 @@ pause-when-empty-seconds=0
             if (-not $joined) { $failure = "Offline player join failed: $joinOutput" }
             if ($FlightLeaderboardRegression -and -not $joinOutput.Contains('FLIGHT_LEADERBOARD_OK')) {
                 $failure = "Long flight leaderboard regression failed: $joinOutput"
+            }
+            if ($FeatureParityRegression -and -not $joinOutput.Contains('FEATURE_SYNC_OK')) {
+                $failure = "Feature synchronization regression failed: $joinOutput"
             }
             $text = Get-Content -Raw -LiteralPath $gameLog
             if ($text -notmatch 'RankBoard NeoForge initialized|RankBoard initialized') { $failure = 'RankBoard did not initialize.' }

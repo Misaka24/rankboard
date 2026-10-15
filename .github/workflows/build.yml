@@ -20,7 +20,7 @@ jobs:
         include:
           - loader: fabric
             target: 1.21.x
-            java: '21'
+            java: '25'
           - loader: fabric
             target: 26.x
             java: '25'
@@ -47,6 +47,9 @@ jobs:
           cache: gradle
 
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Check cross-version feature parity
+        run: python scripts/check-feature-parity.py
 
       - name: Build one direct family JAR
         shell: pwsh

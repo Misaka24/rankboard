@@ -39,7 +39,7 @@ class Rcon {
   async command(command) {
     const response = await this.request(2, command);
     console.log(`COMMAND ${command}: ${response}`);
-    if (/NoSuchMethod|Exception|Unknown or incomplete command|An unexpected error/.test(response)) {
+    if (/NoSuchMethod|Exception|Unknown or incomplete command|Incorrect argument for command|An unexpected error/.test(response)) {
       throw new Error(response);
     }
     return response;

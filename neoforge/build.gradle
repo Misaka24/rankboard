@@ -108,7 +108,9 @@ import org.slf4j.Logger;''')
     private void onServerStarted(ServerStartedEvent event) {
         MinecraftServer server = event.getServer();
         RankBoardConfig.load(server);
+        RankBoardLanguage.load(server);
         RankBoardWhitelist.load(server);
+        RuntimeMetricTracker.start(server);
         BoardService.enforceForeignScoreboardPolicy(server);
         StatReader.startWarmup(server);
         WebDashboard.start(server);
@@ -116,7 +118,7 @@ import org.slf4j.Logger;''')
 
     private void onServerStopping(ServerStoppingEvent event) {
         MinecraftServer server = event.getServer();
-        FlightMetricTracker.stop(server);
+        RuntimeMetricTracker.stop(server);
         PlayerNameColors.clear(server);
         BoardService.clearSessions();
         WebDashboard.stop();
@@ -129,7 +131,7 @@ import org.slf4j.Logger;''')
         MinecraftServer server = PlayerCompat.server(player);
         StatReader.updateName(player.getUUID(), player.getScoreboardName());
         LeaderboardState.get(server).ensurePlayer(player);
-        FlightMetricTracker.join(server, player);
+        RuntimeMetricTracker.join(server, player);
         AvatarCache.cacheOnJoin(server, player);
         BoardService.restore(player);
         sendJoinExperience(player);
@@ -138,7 +140,7 @@ import org.slf4j.Logger;''')
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         MinecraftServer server = PlayerCompat.server(player);
-        FlightMetricTracker.disconnect(server, player);
+        RuntimeMetricTracker.disconnect(server, player);
         StatReader.capturePlayer(server, player);
         StatReader.reloadPlayer(server, player.getUUID());
         LOOK_MENU_HELD.remove(player.getUUID());
@@ -147,7 +149,7 @@ import org.slf4j.Logger;''')
 
     private void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = event.getServer();
-        FlightMetricTracker.tick(server);
+        RuntimeMetricTracker.tick(server);
         BoardService.tickCarousel(server);
         BoardService.tickActivity(server);
         handleLookUpSneakMenu(server);

@@ -587,7 +587,7 @@ final class BoardService {
         String name = objectiveName(period, metric, personal);
         Scoreboard scoreboard = server.getScoreboard();
         Objective objective = scoreboard.getObjective(name);
-        String unit = metric == RankBoardMod.Metric.PLAY_TIME ? "（h）"
+        String unit = metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME ? "（h）"
                 : metric == RankBoardMod.Metric.ELYTRA_DISTANCE ? "（km）" : "";
         boolean partialPeriod = period != RankBoardMod.Period.ALL
                 && !LeaderboardState.get(server).isPeriodComplete(period, metric);
@@ -639,10 +639,10 @@ final class BoardService {
 
     private static int clamp(long value) { return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value)); }
     private static int scoreboardValue(RankBoardMod.Metric metric, long value) {
-        return clamp(metric == RankBoardMod.Metric.PLAY_TIME ? value / 72_000L : value);
+        return clamp(metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME ? value / 72_000L : value);
     }
     private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long rawValue) {
-        if (metric == RankBoardMod.Metric.PLAY_TIME) {
+        if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {
             return Optional.of(new FixedFormat(Component.literal(scoreboardValue(metric, rawValue) + "h")
                     .withStyle(ChatFormatting.RED)));
         }

@@ -32,8 +32,8 @@ public final class JoinMessageConfigTest {
             if (!(exception.getCause() instanceof IllegalArgumentException)) throw exception;
         }
         Class<?> language = Class.forName("cn.bamgdam.rankboard.RankBoardLanguage");
-        var zh = language.getDeclaredField("ZH");
-        var en = language.getDeclaredField("EN");
+        var zh = language.getDeclaredField("ZH_CN");
+        var en = language.getDeclaredField("EN_US");
         zh.setAccessible(true); en.setAccessible(true);
         expect("查看排行榜单相关内容".equals(((Map<?, ?>) zh.get(null)).get("menu.join_compact")), "exact Chinese label");
         expect("View leaderboard information".equals(((Map<?, ?>) en.get(null)).get("menu.join_compact")), "English label");

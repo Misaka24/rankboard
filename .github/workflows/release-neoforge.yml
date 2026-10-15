@@ -136,6 +136,8 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
+      - name: Check cross-version feature parity
+        run: python scripts/check-feature-parity.py
       - name: Build one direct NeoForge family JAR
         if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
         shell: pwsh

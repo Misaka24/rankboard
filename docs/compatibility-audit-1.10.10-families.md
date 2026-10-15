@@ -2,6 +2,10 @@
 
 Date: 2026-10-11
 
+**2026-10-13 update:** Cross-version feature synchronization, new archived JARs, four player-login feature regressions, a 26.3 shared-port test, and a fresh 34/34 startup matrix are documented in [the feature synchronization report](feature-sync-1.10.11.md). The paths below record the earlier build and test run.
+
+**2026-10-15 update:** Version 1.10.11 was built for all four loader/family combinations and passed a fresh 34/34 startup plus dashboard HTTP matrix. Current artifacts and logs are listed in the same [feature synchronization report](feature-sync-1.10.11.md).
+
 ## Artifacts
 
 Fabric and NeoForge each produce one direct JAR for `1.21.x` and one for `26.x`. The family JARs contain no embedded per-minor JARs.
