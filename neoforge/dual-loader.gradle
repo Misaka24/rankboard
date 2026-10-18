@@ -1,0 +1,93 @@
+// Build one shared implementation, not a bundle of separately built mod JARs.
+if (!(minecraft_version in ['26.1.2', '26.3'])) {
+    throw new GradleException('The dual-loader implementation must compile against a validated 26.x baseline')
+}
+def baseline26 = minecraft_version == '26.1.2'
+base.archivesName = 'rankboard-dual-loader-prototype'
+repositories { maven { url = 'https://maven.fabricmc.net/' } }
+dependencies {
+    compileOnly "net.fabricmc:fabric-loader:${baseline26 ? '0.19.3' : '0.19.5'}"
+    compileOnly "net.fabricmc.fabric-api:fabric-api:${baseline26 ? '0.155.2+26.1.2' : '0.160.5+26.3'}"
+}
+sourceSets.main.java.srcDir('src/dual-loader/java')
+
+tasks.named('generateNeoForgeSources').configure {
+    inputs.file('dual-loader.gradle')
+    inputs.property('dualLoaderPrototype', true)
+    doLast {
+        def source = layout.buildDirectory.file('generated/sources/rankboardNeoForge/java/cn/bamgdam/rankboard/RankBoardMod.java').get().asFile
+        def text = source.getText('UTF-8').replace('\r\n', '\n')
+        text = text.replaceAll(/(?m)^import net\.neoforged\.[^\n]+\n/, '')
+                .replace('@Mod(RankBoardMod.MOD_ID)\n', '')
+        def start = text.indexOf('    public RankBoardMod() {')
+        def end = text.indexOf('    private void cleanupServerState(', start)
+        if (start < 0 || end < 0) throw new GradleException('Cannot isolate the platform-neutral lifecycle')
+        def lifecycle = '''    public void start(MinecraftServer server) {
+        LOGGER.info("RankBoard dual-loader prototype initialized");
+        RankBoardConfig.load(server);
+        RankBoardLanguage.load(server);
+        RankBoardWhitelist.load(server);
+        RuntimeMetricTracker.start(server);
+        BoardService.enforceForeignScoreboardPolicy(server);
+        StatReader.initialize(server);
+        WebDashboard.start(server);
+    }
+
+    public void stop(MinecraftServer server) { cleanupServerState(server); }
+
+    public void join(ServerPlayer player) {
+        MinecraftServer server = PlayerCompat.server(player);
+        StatReader.updateName(player.getUUID(), player.getScoreboardName());
+        LeaderboardState.get(server).ensurePlayer(player);
+        RuntimeMetricTracker.join(server, player);
+        AvatarCache.cacheOnJoin(server, player);
+        BoardService.restore(player);
+        sendJoinExperience(player);
+    }
+
+    public void disconnect(ServerPlayer player) {
+        MinecraftServer server = PlayerCompat.server(player);
+        RuntimeMetricTracker.disconnect(server, player);
+        StatReader.capturePlayer(server, player);
+        LOOK_MENU_HELD.remove(player.getUUID());
+        BoardService.disconnect(player);
+    }
+
+    public void tick(MinecraftServer server) {
+        RuntimeMetricTracker.tick(server);
+        try (var reads = LeaderboardReadScope.open(server)) {
+            BoardService.tickCarousel(server);
+            BoardService.tickActivity(server);
+            handleLookUpSneakMenu(server);
+            if (++ticks >= REFRESH_INTERVAL_TICKS) {
+                ticks = 0;
+                LeaderboardState.get(server).rollPeriods(server);
+                BoardService.refreshAll(server);
+                BoardService.enforceForeignScoreboardPolicy(server);
+            }
+        }
+    }
+
+'''
+        text = text.substring(0, start) + lifecycle + text.substring(end)
+        def registration = '''    private void registerCommands(RegisterCommandsEvent event) {
+        var dispatcher = event.getDispatcher();
+        CommandBuildContext registryAccess = event.getBuildContext();
+        Commands.CommandSelection environment = event.getCommandSelection();'''
+        if (!text.contains(registration)) throw new GradleException('Cannot isolate command registration')
+        text = text.replace(registration, '''    public void registerCommands(com.mojang.brigadier.CommandDispatcher<CommandSourceStack> dispatcher,
+                                 CommandBuildContext registryAccess, Commands.CommandSelection environment) {''')
+        if (text.contains('net.fabricmc.') || text.contains('net.neoforged.')) {
+            throw new GradleException('The shared implementation still links to a loader')
+        }
+        source.setText(text, 'UTF-8')
+    }
+}
+
+tasks.named('processResources').configure {
+    inputs.property('dualLoaderPrototype', true)
+    filesMatching('fabric.mod.json') {
+        expand version: project.version, minecraft_version: baseline26 ? '>=26.1 <26.4' : '26.3', minimum_loader_version: '0.19.3', minimum_java_version: '25'
+        filter { line -> line.replace('cn.bamgdam.rankboard.RankBoardMod', 'cn.bamgdam.rankboard.DualFabricEntrypoint') }
+    }
+}

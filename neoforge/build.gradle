@@ -93,8 +93,11 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.slf4j.Logger;''')
                 text = text.replace('public final class RankBoardMod implements ModInitializer {', '@Mod(RankBoardMod.MOD_ID)\npublic final class RankBoardMod {')
                 def lifecycleStart = text.indexOf('    @Override\n    public void onInitialize()')
+                def cleanupStart = text.indexOf('    private void cleanupServerState(', lifecycleStart)
                 def commandsStart = text.indexOf('    private void registerCommands(', lifecycleStart)
-                if (lifecycleStart < 0 || commandsStart < 0) throw new GradleException('Could not locate Fabric lifecycle block')
+                if (lifecycleStart < 0 || cleanupStart < 0 || commandsStart < cleanupStart) {
+                    throw new GradleException('Could not locate shared lifecycle and cleanup blocks')
+                }
                 def lifecycle = '''    public RankBoardMod() {
         LOGGER.info("RankBoard NeoForge initialized for Minecraft 1.21.1");
         NeoForge.EVENT_BUS.addListener(this::registerCommands);
@@ -112,18 +115,12 @@ import org.slf4j.Logger;''')
         RankBoardWhitelist.load(server);
         RuntimeMetricTracker.start(server);
         BoardService.enforceForeignScoreboardPolicy(server);
-        StatReader.startWarmup(server);
+        StatReader.initialize(server);
         WebDashboard.start(server);
     }
 
     private void onServerStopping(ServerStoppingEvent event) {
-        MinecraftServer server = event.getServer();
-        RuntimeMetricTracker.stop(server);
-        PlayerNameColors.clear(server);
-        BoardService.clearSessions();
-        WebDashboard.stop();
-        StatReader.stopWarmup();
-        LOOK_MENU_HELD.clear();
+        cleanupServerState(event.getServer());
     }
 
     private void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
@@ -142,7 +139,6 @@ import org.slf4j.Logger;''')
         MinecraftServer server = PlayerCompat.server(player);
         RuntimeMetricTracker.disconnect(server, player);
         StatReader.capturePlayer(server, player);
-        StatReader.reloadPlayer(server, player.getUUID());
         LOOK_MENU_HELD.remove(player.getUUID());
         BoardService.disconnect(player);
     }
@@ -150,19 +146,21 @@ import org.slf4j.Logger;''')
     private void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = event.getServer();
         RuntimeMetricTracker.tick(server);
-        BoardService.tickCarousel(server);
-        BoardService.tickActivity(server);
-        handleLookUpSneakMenu(server);
-        if (++ticks >= REFRESH_INTERVAL_TICKS) {
-            ticks = 0;
-            LeaderboardState.get(server).rollPeriods(server);
-            BoardService.refreshAll(server);
-            BoardService.enforceForeignScoreboardPolicy(server);
+        try (var reads = LeaderboardReadScope.open(server)) {
+            BoardService.tickCarousel(server);
+            BoardService.tickActivity(server);
+            handleLookUpSneakMenu(server);
+            if (++ticks >= REFRESH_INTERVAL_TICKS) {
+                ticks = 0;
+                LeaderboardState.get(server).rollPeriods(server);
+                BoardService.refreshAll(server);
+                BoardService.enforceForeignScoreboardPolicy(server);
+            }
         }
     }
 
 '''
-                text = text.substring(0, lifecycleStart) + lifecycle + text.substring(commandsStart)
+                text = text.substring(0, lifecycleStart) + lifecycle + text.substring(cleanupStart)
                 text = text.replace('RankBoard NeoForge initialized for Minecraft 1.21.1',
                         "RankBoard NeoForge initialized for Minecraft ${minecraft_version}")
                 text = text.replaceFirst(/private void registerCommands\([^\{]+\) \{/, '''private void registerCommands(RegisterCommandsEvent event) {
@@ -233,8 +231,13 @@ sourceSets.main.resources.srcDir generateModMetadata
 sourceSets.main.resources.srcDir('../src/main/resources')
 processResources {
     dependsOn webBuild
-    exclude 'fabric.mod.json'
+    if (!project.hasProperty('dual_loader_prototype')) exclude 'fabric.mod.json'
     from('../web/dist') { into 'rankboard-web' }
+}
+
+// Opt-in experiment only: release builds keep their existing family artifacts.
+if (project.hasProperty('dual_loader_prototype')) {
+    apply from: 'dual-loader.gradle'
 }
 if (project.hasProperty('universal_smoke')) {
     // Smoke tests load the packaged candidate from build/run-server/mods.
@@ -246,4 +249,8 @@ if (project.hasProperty('universal_smoke')) {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = compileRelease
+}
+
+if (project.hasProperty('rankboard_unified_namespace')) {
+    apply from: '../unified/namespace-sources.gradle'
 }

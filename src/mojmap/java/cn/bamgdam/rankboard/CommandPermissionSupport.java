@@ -20,9 +20,12 @@ final class CommandPermissionSupport {
             }
         }
 
-        Object permissionSet = permissionSet(source);
+        PermissionSetAccess access = permissionSet(source);
+        Object permissionSet = access.value();
         Method hasPermission = null;
-        for (Method method : permissionSet.getClass().getMethods()) {
+        // PermissionSet.ALL/NONE can be hidden lambda classes. Invoke the
+        // public accessor's declared API, never a lambda implementation method.
+        for (Method method : access.apiType().getMethods()) {
             if (!method.getName().equals("hasPermission") || method.getParameterCount() != 1
                     || method.getReturnType() != boolean.class) continue;
             if (method.getDeclaringClass().isInterface() && Modifier.isPublic(method.getDeclaringClass().getModifiers())) {
@@ -41,19 +44,21 @@ final class CommandPermissionSupport {
         }
     }
 
-    private static Object permissionSet(Object source) {
+    private static PermissionSetAccess permissionSet(Object source) {
         for (Method method : source.getClass().getMethods()) {
             if (method.getParameterCount() != 0 || method.getReturnType() == void.class
                     || !(method.getName().equals("permissions") || method.getName().equals("getPermissions"))) continue;
             try {
                 Object permissions = method.invoke(source);
-                if (permissions != null) return permissions;
+                if (permissions != null) return new PermissionSetAccess(permissions, method.getReturnType());
             } catch (ReflectiveOperationException exception) {
                 throw new IllegalStateException("Could not read Minecraft permission set", exception);
             }
         }
         throw new IllegalStateException("Could not find Minecraft command permissions");
     }
+
+    private record PermissionSetAccess(Object value, Class<?> apiType) { }
 
     private static Object commandLevelPermission(Class<?> permissionType, int level, ClassLoader loader) {
         try {

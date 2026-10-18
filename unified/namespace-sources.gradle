@@ -1,0 +1,45 @@
+// Compile isolated API families from maintained sources, not prebuilt JARs.
+def namespace = project.property('rankboard_unified_namespace').toString()
+def originalRoots = sourceSets.main.java.srcDirs.toList()
+def originalExcludes = sourceSets.main.java.excludes.toList()
+def trees = originalRoots.collect { directory ->
+    fileTree(directory) { include '**/*.java'; exclude originalExcludes }
+}
+def generated = layout.buildDirectory.dir('generated/sources/unified/java')
+def generator = tasks.register('generateUnifiedSources') {
+    if (tasks.findByName('generateNeoForgeSources') != null) dependsOn 'generateNeoForgeSources'
+    inputs.files(trees)
+    inputs.file(rootProject.file('namespace-sources.gradle'))
+    inputs.property('namespace', namespace)
+    outputs.dir(generated)
+    doLast {
+        def output = generated.get().asFile
+        delete output
+        trees.each { tree -> tree.files.each { source ->
+            def content = source.getText('UTF-8').replace('\r\n', '\n')
+                    .replace('cn.bamgdam.rankboard', namespace)
+                    .replace('@Mod(RankBoardMod.MOD_ID)\n', '')
+                    .replace('@Mod("rankboard")\n', '')
+            def mixinPackage = 'cn.bamgdam.rankboard.unified.mixins.' + namespace.tokenize('.').last()
+            content = content.replace("package ${namespace}.mixin;", "package ${mixinPackage};")
+            def packageMatch = content =~ /(?m)^package ([\w.]+);/
+            if (!packageMatch.find()) throw new GradleException("Missing package: $source")
+            def target = new File(output, packageMatch.group(1).replace('.', '/') + '/' + source.name)
+            if (target.exists()) throw new GradleException("Duplicate unified source: $target")
+            target.parentFile.mkdirs()
+            target.setText(content, 'UTF-8')
+        } }
+    }
+}
+sourceSets.main.java.setSrcDirs([generated])
+sourceSets.main.java.setExcludes([])
+tasks.named('compileJava').configure { dependsOn generator }
+// JDK 25 reads Minecraft 26 APIs, but emits bytecode old loader scanners can parse.
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+java.sourceCompatibility = JavaVersion.VERSION_21
+java.targetCompatibility = JavaVersion.VERSION_21
+if (project.minecraft_version.toString().startsWith('26.')) {
+    configurations.configureEach {
+        if (canBeResolved) attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+    }
+}

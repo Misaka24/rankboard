@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"rankboard_test_probe","version":"1.0.0","name":"RankBoard isolated regression probe","environment":"server","entrypoints":{"main":["cn.bamgdam.rankboardtest.FabricProbeEntrypoint"]},"mixins":["rankboard-probe.mixins.json"],"depends":{"minecraft":">=26.1 <27","java":">=25"}}

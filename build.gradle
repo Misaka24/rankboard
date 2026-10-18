@@ -123,3 +123,7 @@ java {
     sourceCompatibility = targetJava
     targetCompatibility = targetJava
 }
+
+if (project.hasProperty('rankboard_unified_namespace')) {
+    apply from: 'unified/namespace-sources.gradle'
+}

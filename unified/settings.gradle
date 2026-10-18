@@ -1,0 +1,18 @@
+pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id in ['fabric-loom', 'net.fabricmc.fabric-loom']) {
+                useModule("net.fabricmc:fabric-loom:${requested.version}")
+            }
+        }
+    }
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        gradlePluginPortal()
+    }
+}
+rootProject.name = 'rankboard-unified'
+include 'fabric121', 'neo121', 'mojang26'
+project(':fabric121').projectDir = file('..')
+project(':neo121').projectDir = file('../neoforge')
+project(':mojang26').projectDir = file('../neoforge')

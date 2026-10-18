@@ -2,12 +2,25 @@ package cn.bamgdam.rankboard;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-/** Reads an item component across the 1.21 ComponentMap API split. */
+/** Reads an item component across Minecraft 1.21 ComponentMap API revisions. */
 final class ComponentLookupCompat {
+    private static final Map<LookupKey, Method> GETTERS = new ConcurrentHashMap<>();
     private ComponentLookupCompat() { }
 
     static boolean has(Object components, Object componentType) {
+        Method getter = GETTERS.computeIfAbsent(new LookupKey(components.getClass(), componentType.getClass()),
+                ignored -> resolve(components, componentType));
+        try {
+            return getter.invoke(components, componentType) != null;
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Could not read item component " + componentType, exception);
+        }
+    }
+
+    private static Method resolve(Object components, Object componentType) {
         Method fallback = null;
         for (Method method : components.getClass().getMethods()) {
             if (method.getParameterCount() == 1
@@ -24,11 +37,8 @@ final class ComponentLookupCompat {
         }
         if (fallback == null) throw new IllegalStateException("Could not find a component getter on "
                 + components.getClass().getName());
-        try {
-            if (!fallback.canAccess(components)) fallback.setAccessible(true);
-            return fallback.invoke(components, componentType) != null;
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Could not read item component " + componentType, exception);
-        }
+        if (!fallback.canAccess(components)) fallback.setAccessible(true);
+        return fallback;
     }
+    private record LookupKey(Class<?> container, Class<?> componentType) { }
 }

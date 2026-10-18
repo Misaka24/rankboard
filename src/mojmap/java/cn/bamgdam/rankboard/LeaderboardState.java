@@ -33,6 +33,7 @@ public final class LeaderboardState extends SavedData {
     private static final String STATE_ID = "rankboard/" + LEGACY_STATE_ID;
     private static final String HISTORY_SCHEMA = "4";
     private static final LocalTime COMPLETE_BOUNDARY_LIMIT = LocalTime.of(0, 5);
+    private static final Set<MinecraftServer> STORAGE_PREPARED = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
     private boolean whitelistOnly;
     // New worlds choose a whitelist mode from the RankBoard menu. Worlds saved
@@ -53,6 +54,8 @@ public final class LeaderboardState extends SavedData {
     private BoardPreference globalBoardPreference;
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
     private final Set<LocalDate> partialSnapshotDates = new HashSet<>();
+    private LocalDate lastPeriodReadDate;
+    private long lastPeriodReadRevision = -1L;
     LeaderboardState() { }
 
     public static LeaderboardState get(MinecraftServer server) {
@@ -61,13 +64,17 @@ public final class LeaderboardState extends SavedData {
     }
 
     private static synchronized void prepareStorage(MinecraftServer server) {
+        if (STORAGE_PREPARED.contains(server)) return;
         Path dataDirectory = server.getWorldPath(LevelResource.ROOT).resolve("data");
         Path rankBoardDirectory = dataDirectory.resolve("rankboard");
         Path legacy = dataDirectory.resolve(LEGACY_STATE_ID + ".dat");
         Path target = rankBoardDirectory.resolve(LEGACY_STATE_ID + ".dat");
         try {
             Files.createDirectories(rankBoardDirectory);
-            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) return;
+            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) {
+                STORAGE_PREPARED.add(server);
+                return;
+            }
             Path temporary = target.resolveSibling(target.getFileName() + ".migrating");
             Files.copy(legacy, temporary, StandardCopyOption.REPLACE_EXISTING);
             try {
@@ -76,6 +83,7 @@ public final class LeaderboardState extends SavedData {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
             Files.delete(legacy);
+            STORAGE_PREPARED.add(server);
             RankBoardMod.LOGGER.info("Migrated RankBoard world data from {} to {}", legacy, target);
         } catch (IOException exception) {
             RankBoardMod.LOGGER.warn("Could not migrate RankBoard world data from {} to {}; the legacy file was kept",
@@ -264,6 +272,8 @@ public final class LeaderboardState extends SavedData {
     public void rollPeriods(MinecraftServer server) {
         if (!StatReader.isReady()) return;
         LocalDate now = LocalDate.now();
+        long revision = StatReader.periodDataRevision();
+        if (now.equals(lastPeriodReadDate) && revision == lastPeriodReadRevision) return;
         boolean nearMidnight = !LocalTime.now().isAfter(COMPLETE_BOUNDARY_LIMIT);
         boolean changed = false;
         List<StatSnapshot> snapshots = StatReader.readAll(server);
@@ -290,10 +300,16 @@ public final class LeaderboardState extends SavedData {
             partialSnapshotDates.add(now);
             changed = true;
         }
+        lastPeriodReadDate = now;
+        lastPeriodReadRevision = revision;
         if (changed) setDirty();
     }
     public void ensurePlayer(ServerPlayer player) {
         rollPeriods(PlayerCompat.server(player));
+        if (periods.isEmpty() || periods.values().stream().allMatch(data -> {
+            Map<RankBoardMod.Metric, Long> values = data.players.get(player.getUUID());
+            return values != null && values.size() == RankBoardMod.Metric.values().length;
+        })) return;
         StatSnapshot snapshot = StatSnapshot.fromPlayer(player);
         boolean changed = false;
         for (PeriodData data : periods.values()) if (data.players.putIfAbsent(snapshot.uuid(), snapshot.values()) == null) changed = true;
@@ -447,6 +463,16 @@ public final class LeaderboardState extends SavedData {
         if (overrides != null) overrides.forEach(values::put);
         return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
     }
+
+    StatSnapshot applyStoredCustomMetrics(StatSnapshot snapshot) {
+        EnumMap<RankBoardMod.Metric, Long> values = new EnumMap<>(snapshot.values());
+        EnumMap<RankBoardMod.Metric, Long> custom = customMetricValues.get(snapshot.uuid());
+        if (custom != null) custom.forEach((metric, value) -> {
+            if (metric.isCustomMetric()) values.put(metric, value);
+        });
+        return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
+    }
+
     public StatSnapshot applyCustomMetric(StatSnapshot snapshot, RankBoardMod.Metric metric) {
         if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
             ensureCustomMetric(snapshot.uuid(), metric, snapshot.value(metric));

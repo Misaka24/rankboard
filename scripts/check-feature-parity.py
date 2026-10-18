@@ -43,12 +43,25 @@ def main():
                 errors.append(f"{root.parent.parent.parent.name}: runtime tracker hook {hook} missing")
         if not tracker.is_file():
             errors.append(f"{root}: runtime metric tracker missing")
+        for feature in ("CacheComparisonService", "LeaderboardReadScope"):
+            if not (root / f"{feature}.java").is_file():
+                errors.append(f"{root}: {feature} missing")
+        if "StatReader.flushPersistentCache(server);" not in mod:
+            errors.append(f"{root}: final cache flush missing")
+        if "LeaderboardReadScope.open(server)" not in mod:
+            errors.append(f"{root}: tick-scoped reads missing")
+        if mod.find("StatReader.flushPersistentCache(server);") > mod.find("StatReader.stopWarmup();"):
+            errors.append(f"{root}: cache is stopped before its final flush")
     neoforge_build = (ROOT / "neoforge/build.gradle").read_text(encoding="utf-8")
-    for hook in ("start", "stop", "join", "disconnect", "tick"):
+    for hook in ("start", "join", "disconnect", "tick"):
         if f"RuntimeMetricTracker.{hook}(" not in neoforge_build:
             errors.append(f"NeoForge generated lifecycle: runtime tracker hook {hook} missing")
     if "RankBoardLanguage.load(server);" not in neoforge_build:
         errors.append("NeoForge generated lifecycle: language initialization missing")
+    for required in ("cleanupServerState(event.getServer());", "text.substring(cleanupStart)",
+                     "StatReader.initialize(server);", "LeaderboardReadScope.open(server)"):
+        if required not in neoforge_build:
+            errors.append(f"NeoForge generated lifecycle: {required} missing")
     if errors:
         raise SystemExit("Feature parity failed:\n" + "\n".join(errors))
     print("FEATURE_PARITY_OK")

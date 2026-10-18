@@ -5,14 +5,22 @@ param(
         '1.21.6', '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11'
     ),
     [int]$TimeoutSeconds = 420,
+    [ValidateRange(0, 2000)][int]$PortOffset = 0,
     [switch]$StartupOnly,
     [switch]$PlayerDirectoryRegression,
     [switch]$OfflineDirectoryRegression,
     [switch]$FlightLeaderboardRegression,
-    [switch]$FeatureParityRegression
+    [switch]$FeatureParityRegression,
+    [switch]$CacheComparisonRegression,
+    [string]$ComparisonHelperJar = '',
+    [switch]$SyntheticPlayerRegression
 )
 
 $ErrorActionPreference = 'Stop'
+if ($SyntheticPlayerRegression -and -not $ComparisonHelperJar) { throw 'Synthetic player regression requires the test helper.' }
+if ($ComparisonHelperJar -and (-not $CacheComparisonRegression -or $StartupOnly)) {
+    throw 'ComparisonHelperJar requires CacheComparisonRegression without StartupOnly.'
+}
 . (Join-Path $PSScriptRoot 'player-directory-fixture.ps1')
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $neoForgeProject = Join-Path $projectRoot 'neoforge'
@@ -52,17 +60,18 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
     $configDirectory = Join-Path $testDirectory 'config/rankboard'
     New-Item -ItemType Directory -Force -Path $mods,$configDirectory | Out-Null
     Copy-Item -LiteralPath $artifact -Destination (Join-Path $mods 'rankboard.jar') -Force
+    if ($ComparisonHelperJar) { Copy-Item -LiteralPath $ComparisonHelperJar -Destination (Join-Path $mods 'comparison-test-helper.jar') }
 
-    $serverPort = 25800 + $index
-    $webPort = 28800 + $index
-    $rconPort = 29800 + $index
+    $serverPort = 25800 + $PortOffset + $index
+    $webPort = 28800 + $PortOffset + $index
+    $rconPort = 29800 + $PortOffset + $index
     $encoding = [System.Text.UTF8Encoding]::new($false)
     [System.IO.File]::WriteAllText((Join-Path $testDirectory 'eula.txt'), "eula=true`n", $encoding)
     [System.IO.File]::WriteAllText((Join-Path $testDirectory 'server.properties'), @"
 server-port=$serverPort
 online-mode=false
 enable-query=false
-enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression -or $FeatureParityRegression).ToString().ToLowerInvariant())
+enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression -or $FeatureParityRegression -or $CacheComparisonRegression).ToString().ToLowerInvariant())
 rcon.port=$rconPort
 rcon.password=rankboard-smoke-only
 level-name=world
@@ -84,7 +93,7 @@ pause-when-empty-seconds=0
         default { $version }
     }
     $stdout = Join-Path $testDirectory 'gradle.stdout.log'
-    if ($OfflineDirectoryRegression) { Initialize-DirectoryRegressionFixture $testDirectory $version }
+    if ($OfflineDirectoryRegression -or $CacheComparisonRegression) { Initialize-DirectoryRegressionFixture $testDirectory $version }
     $stderr = Join-Path $testDirectory 'gradle.stderr.log'
     $gameLog = Join-Path $testDirectory 'logs/latest.log'
     $range = if ($version.StartsWith('26.1')) { '[26.1,26.2)' } elseif ($version -eq '26.2') { '[26.2]' } elseif ($version -eq '26.3') { '[26.3]' } else { '[1.21,1.22)' }
@@ -137,7 +146,10 @@ pause-when-empty-seconds=0
             if (-not $apiPassed) { $failure = "Offline directory API regression failed: $apiOutput" }
         }
         if ($ready -and -not $StartupOnly -and -not $failure) {
-            if ($FeatureParityRegression) {
+            if ($CacheComparisonRegression) {
+                $comparisonMode = if ($ComparisonHelperJar) { 'headless' } else { 'network' }
+                $joinOutput = & $node (Join-Path $PSScriptRoot 'cache-comparison-smoke.cjs') $serverPort $joinVersion $rconPort $testDirectory $version $comparisonMode 2>&1 | Out-String
+            } elseif ($FeatureParityRegression) {
                 $joinOutput = & $node (Join-Path $PSScriptRoot 'feature-parity-smoke.cjs') $serverPort $joinVersion $rconPort $webPort 2>&1 | Out-String
             } elseif ($FlightLeaderboardRegression) {
                 $joinOutput = & $node (Join-Path $PSScriptRoot 'flight-leaderboard-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
@@ -148,15 +160,23 @@ pause-when-empty-seconds=0
             }
             $joinOutput | Set-Content -LiteralPath (Join-Path $testDirectory 'join-smoke.log') -Encoding utf8
             $joined = $LASTEXITCODE -eq 0 -and $joinOutput.Contains('JOIN_OK')
-            if (-not $joined) { $failure = "Offline player join failed: $joinOutput" }
+            if (-not $joined -and -not $ComparisonHelperJar) { $failure = "Offline player join failed: $joinOutput" }
             if ($FlightLeaderboardRegression -and -not $joinOutput.Contains('FLIGHT_LEADERBOARD_OK')) {
                 $failure = "Long flight leaderboard regression failed: $joinOutput"
             }
             if ($FeatureParityRegression -and -not $joinOutput.Contains('FEATURE_SYNC_OK')) {
                 $failure = "Feature synchronization regression failed: $joinOutput"
             }
+            if ($CacheComparisonRegression -and -not $joinOutput.Contains('CACHE_COMPARISON_OK')) {
+                $failure = "Cache comparison regression failed: $joinOutput"
+            }
+            if ($SyntheticPlayerRegression -and -not $failure) {
+                $probeOutput = & $node (Join-Path $PSScriptRoot 'synthetic-player-smoke.cjs') $rconPort 2>&1 | Out-String
+                $probeOutput | Set-Content -LiteralPath (Join-Path $testDirectory 'synthetic-player-smoke.log') -Encoding utf8
+                if ($LASTEXITCODE -ne 0 -or -not $probeOutput.Contains('SYNTHETIC_PLAYER_OK')) { $failure = "Synthetic player regression failed: $probeOutput" }
+            }
             $text = Get-Content -Raw -LiteralPath $gameLog
-            if ($text -notmatch 'RankBoard NeoForge initialized|RankBoard initialized') { $failure = 'RankBoard did not initialize.' }
+            if ($text -notmatch 'RankBoard NeoForge initialized|RankBoard initialized|RankBoard dual-loader prototype initialized') { $failure = 'RankBoard did not initialize.' }
             if ($text -match 'NoClassDefFoundError|NoSuchMethodError|Exception in server tick loop|Couldn.t place player in world') {
                 $failure = 'NeoForge server log contains a Minecraft linkage/runtime exception.'
             }
@@ -170,9 +190,9 @@ pause-when-empty-seconds=0
             $process.WaitForExit()
         }
     }
-    $result = if ($failure) { $failure } elseif ($StartupOnly -and $OfflineDirectoryRegression) { 'PASS (startup, web, offline directory API; player login not tested)' } elseif ($StartupOnly) { 'PASS (server startup only)' } else { 'PASS' }
-    $results.Add([pscustomobject]@{ Minecraft = $version; NeoForge = $neoVersions[$version]; ServerReady = $ready; DashboardHttp = $dashboardHttp; PlayerJoined = $joined; OfflineDirectoryApi = if ($OfflineDirectoryRegression) { $apiPassed } else { $null }; Result = $result; TestDirectory = $testDirectory })
-    $joinResult = if ($StartupOnly) { 'not-tested' } else { [string]$joined }
+    $result = if ($failure) { $failure } elseif ($SyntheticPlayerRegression) { 'PASS (startup, web, comparison commands and synthetic player lifecycle; no TCP login)' } elseif ($ComparisonHelperJar) { 'PASS (startup, web and headless comparison commands; network login not tested)' } elseif ($StartupOnly -and $OfflineDirectoryRegression) { 'PASS (startup, web, offline directory API; player login not tested)' } elseif ($StartupOnly) { 'PASS (server startup only)' } else { 'PASS' }
+    $results.Add([pscustomobject]@{ Minecraft = $version; NeoForge = $neoVersions[$version]; ServerReady = $ready; DashboardHttp = $dashboardHttp; PlayerJoined = $joined; HeadlessComparison = [bool]$ComparisonHelperJar; OfflineDirectoryApi = if ($OfflineDirectoryRegression) { $apiPassed } else { $null }; Result = $result; TestDirectory = $testDirectory })
+    $joinResult = if ($StartupOnly -or $ComparisonHelperJar) { 'not-tested' } else { [string]$joined }
     Write-Host "$version NeoForge=$($neoVersions[$version]) ready=$ready web-http=$dashboardHttp join=$joinResult result=$result"
 }
 

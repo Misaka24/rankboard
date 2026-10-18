@@ -280,6 +280,12 @@ final class BoardService {
 
     /** Polls live vanilla statistics and refreshes only scoreboards watching a changed metric. */
     static void tickActivity(MinecraftServer server) {
+        try (var reads = LeaderboardReadScope.open(server)) {
+            tickActivityScoped(server);
+        }
+    }
+
+    private static void tickActivityScoped(MinecraftServer server) {
         RankBoardConfig config = RankBoardConfig.get();
         if (!StatReader.isReady() || !config.scoreboardLiveUpdateEnabled
                 || (SELECTIONS.isEmpty() && OVERVIEW_SELECTIONS.isEmpty() && globalSelection == null)) return;
@@ -288,20 +294,30 @@ final class BoardService {
         if (!OVERVIEW_SELECTIONS.isEmpty()) for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) activeMetrics.add(metric);
         if (globalSelection != null) activeMetrics.add(globalSelection.metric);
         long now = System.currentTimeMillis();
+        Set<RankBoardMod.Metric> changedMetrics = new HashSet<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             for (RankBoardMod.Metric metric : activeMetrics) {
                 long value;
-                try { value = metric.read(player); }
+                try { value = LeaderboardReadScope.read(player, metric); }
                 catch (RuntimeException exception) { continue; }
                 ActivityKey key = new ActivityKey(player.getUUID(), metric);
                 Long previous = LAST_ACTIVITY_VALUES.put(key, value);
                 if (previous == null || previous == value) continue;
-                ActivityRate rate = ACTIVITY_RATES.computeIfAbsent(metric, ignored -> new ActivityRate());
-                if (rate.shouldSend(now, config.scoreboardLiveUpdateWindowSeconds * 1000L,
-                        config.scoreboardLiveUpdateThreshold, config.scoreboardLiveUpdateThrottleSeconds * 1000L)) {
-                    refreshMetric(server, metric);
-                }
+                changedMetrics.add(metric);
             }
+        }
+        boolean refreshed = false;
+        for (RankBoardMod.Metric metric : changedMetrics) {
+            ActivityRate rate = ACTIVITY_RATES.computeIfAbsent(metric, ignored -> new ActivityRate());
+            if (rate.shouldSend(now, config.scoreboardLiveUpdateWindowSeconds * 1000L,
+                    config.scoreboardLiveUpdateThreshold, config.scoreboardLiveUpdateThrottleSeconds * 1000L)) {
+                refreshMetric(server, metric);
+                refreshed = true;
+            }
+        }
+        if (refreshed) for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            RankBoardMod.Period period = OVERVIEW_SELECTIONS.get(player.getUUID());
+            if (period != null) sendOverview(player, period);
         }
     }
 
@@ -311,10 +327,6 @@ final class BoardService {
         LeaderboardState state = LeaderboardState.get(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (!canReceive(player)) continue;
-            RankBoardMod.Period overviewPeriod = OVERVIEW_SELECTIONS.get(player.getUUID());
-            if (overviewPeriod != null) {
-                try { sendOverview(player, overviewPeriod); } catch (RuntimeException exception) { RankBoardMod.LOGGER.warn("Could not refresh overview", exception); }
-            }
             Selection selection = SELECTIONS.get(player.getUUID());
             if (selection == null || selection.metric != metric) continue;
             if (!state.isMetricDisplayEnabled(metric)) {
@@ -338,6 +350,12 @@ final class BoardService {
     }
 
     static void refreshAll(MinecraftServer server) {
+        try (var reads = LeaderboardReadScope.open(server)) {
+            refreshAllScoped(server);
+        }
+    }
+
+    private static void refreshAllScoped(MinecraftServer server) {
         if (!StatReader.isReady()) return;
         Map<Selection, Objective> objectives = new HashMap<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -371,6 +389,12 @@ final class BoardService {
     }
 
     private static void sendPrivate(ServerPlayer player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
+        try (var reads = LeaderboardReadScope.open(PlayerCompat.server(player))) {
+            sendPrivateScoped(player, period, metric);
+        }
+    }
+
+    private static void sendPrivateScoped(ServerPlayer player, RankBoardMod.Period period, RankBoardMod.Metric metric) {
         if (!canReceive(player)) return;
         LeaderboardState.BoardPreference preference = LeaderboardState.get(PlayerCompat.server(player))
                 .boardPreference(player.getUUID());
@@ -412,7 +436,7 @@ final class BoardService {
         List<ClientboundSetScorePacket> updates = new java.util.ArrayList<>();
         for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
             if (!state.isMetricDisplayEnabled(metric)) continue;
-            long raw = metric.read(player);
+            long raw = LeaderboardReadScope.read(player, metric);
             long value = period == RankBoardMod.Period.ALL ? raw : Math.max(0L, raw - state.getBaseline(period, player.getUUID(), metric));
             if (!RankBoardConfig.get().clientScoreboardShowZero && value == 0L) continue;
             int score = scoreboardValue(metric, value);

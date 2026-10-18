@@ -1,0 +1,9 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+[[mods]]
+modId="rankboard_test_probe"
+version="1.0.0"
+displayName="RankBoard isolated regression probe"
+[[mixins]]
+config="rankboard-probe.mixins.json"

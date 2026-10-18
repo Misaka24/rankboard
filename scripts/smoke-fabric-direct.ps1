@@ -5,20 +5,27 @@ param(
         '1.21.6', '1.21.7', '1.21.8', '1.21.9', '1.21.10', '1.21.11'
     ),
     [int]$TimeoutSeconds = 180,
+    [ValidateRange(0, 2000)][int]$PortOffset = 0,
     [switch]$StartupOnly,
     [switch]$PlayerDirectoryRegression,
     [switch]$OfflineDirectoryRegression,
     [switch]$FlightLeaderboardRegression,
     [switch]$FeatureParityRegression,
+    [switch]$CacheComparisonRegression,
+    [string]$ComparisonHelperJar = '',
+    [string]$JavaHome = '',
     [string]$FixtureRoot = 'wrapper-smoke'
 )
 
 $ErrorActionPreference = 'Stop'
+if ($ComparisonHelperJar -and (-not $CacheComparisonRegression -or $StartupOnly)) {
+    throw 'ComparisonHelperJar requires CacheComparisonRegression without StartupOnly.'
+}
 . (Join-Path $PSScriptRoot 'player-directory-fixture.ps1')
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $artifact = (Resolve-Path -LiteralPath $ModJar).Path
 $testRoot = Join-Path $projectRoot ('.tmp/fabric-direct-smoke-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-$java = 'C:\Program Files\Java\jdk-25.0.3\bin\java.exe'
+$java = if ($JavaHome) { Join-Path (Resolve-Path -LiteralPath $JavaHome).Path 'bin/java.exe' } else { 'C:\Program Files\Java\jdk-25.0.3\bin\java.exe' }
 $node = 'C:\Program Files\nodejs\node.exe'
 $joinClient = Join-Path $projectRoot '.tmp/mc-join/join-smoke.js'
 $results = [System.Collections.Generic.List[object]]::new()
@@ -47,6 +54,7 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
     if (-not (Test-Path -LiteralPath $apiSource)) { throw "Cached Fabric API is missing: $apiSource" }
     New-Item -ItemType HardLink -Path (Join-Path $mods 'fabric-api.jar') -Target $apiSource | Out-Null
     Copy-Item -LiteralPath $artifact -Destination (Join-Path $mods 'rankboard.jar')
+    if ($ComparisonHelperJar) { Copy-Item -LiteralPath $ComparisonHelperJar -Destination (Join-Path $mods 'comparison-test-helper.jar') }
 
     foreach ($directoryName in @('libraries', 'versions', '.fabric')) {
         $sourceDirectory = Join-Path $source $directoryName
@@ -56,9 +64,9 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
         }
     }
 
-    $serverPort = 25700 + $index
-    $webPort = 28700 + $index
-    $rconPort = 29700 + $index
+    $serverPort = 25700 + $PortOffset + $index
+    $webPort = 28700 + $PortOffset + $index
+    $rconPort = 29700 + $PortOffset + $index
     # minecraft-protocol does not carry metadata for every point release. Use a
     # client build with the same protocol number; the server under test remains
     # the exact version represented by this fixture.
@@ -77,7 +85,7 @@ for ($index = 0; $index -lt $Versions.Count; $index++) {
 server-port=$serverPort
 online-mode=false
 enable-query=false
-enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression -or $FeatureParityRegression).ToString().ToLowerInvariant())
+enable-rcon=$(($PlayerDirectoryRegression -or $OfflineDirectoryRegression -or $FlightLeaderboardRegression -or $FeatureParityRegression -or $CacheComparisonRegression).ToString().ToLowerInvariant())
 rcon.port=$rconPort
 rcon.password=rankboard-smoke-only
 level-name=world
@@ -93,7 +101,7 @@ pause-when-empty-seconds=0
         "host=127.0.0.1`nport=$webPort`n", $encoding)
 
     $stdout = Join-Path $testDirectory 'stdout.log'
-    if ($OfflineDirectoryRegression) { Initialize-DirectoryRegressionFixture $testDirectory $version }
+    if ($OfflineDirectoryRegression -or $CacheComparisonRegression) { Initialize-DirectoryRegressionFixture $testDirectory $version }
     $stderr = Join-Path $testDirectory 'stderr.log'
     $process = $null
     $ready = $false
@@ -136,7 +144,10 @@ pause-when-empty-seconds=0
             if (-not $apiPassed) { $failure = "Offline directory API regression failed: $apiOutput" }
         }
         if ($ready -and -not $StartupOnly -and -not $failure) {
-            if ($FeatureParityRegression) {
+            if ($CacheComparisonRegression) {
+                $comparisonMode = if ($ComparisonHelperJar) { 'headless' } else { 'network' }
+                $joinOutput = & $node (Join-Path $PSScriptRoot 'cache-comparison-smoke.cjs') $serverPort $joinVersion $rconPort $testDirectory $version $comparisonMode 2>&1 | Out-String
+            } elseif ($FeatureParityRegression) {
                 $joinOutput = & $node (Join-Path $PSScriptRoot 'feature-parity-smoke.cjs') $serverPort $joinVersion $rconPort $webPort 2>&1 | Out-String
             } elseif ($FlightLeaderboardRegression) {
                 $joinOutput = & $node (Join-Path $PSScriptRoot 'flight-leaderboard-smoke.cjs') $serverPort $joinVersion $rconPort 2>&1 | Out-String
@@ -147,9 +158,9 @@ pause-when-empty-seconds=0
             }
             $joinOutput | Set-Content -LiteralPath (Join-Path $testDirectory 'join-smoke.log') -Encoding utf8
             $joined = $LASTEXITCODE -eq 0 -and $joinOutput.Contains('JOIN_OK')
-            if (-not $joined) { $failure = "Offline player join failed: $joinOutput" }
+            if (-not $joined -and -not $ComparisonHelperJar) { $failure = "Offline player join failed: $joinOutput" }
             $logText = Get-Content -Raw -LiteralPath $latestLog
-            if ($logText -notmatch 'RankBoard initialized') { $failure = 'RankBoard did not initialize.' }
+            if ($logText -notmatch 'RankBoard initialized|RankBoard dual-loader prototype initialized') { $failure = 'RankBoard did not initialize.' }
             if ($logText -match 'NoClassDefFoundError|NoSuchMethodError|Exception in server tick loop') {
                 $failure = 'Server log contains a Minecraft linkage/runtime exception.'
             }
@@ -159,6 +170,9 @@ pause-when-empty-seconds=0
             if ($FeatureParityRegression -and $joinOutput -notmatch 'FEATURE_SYNC_OK') {
                 $failure = "Feature synchronization regression failed: $joinOutput"
             }
+            if ($CacheComparisonRegression -and $joinOutput -notmatch 'CACHE_COMPARISON_OK') {
+                $failure = "Cache comparison regression failed: $joinOutput"
+            }
         }
     } finally {
         if ($null -ne $process -and -not $process.HasExited) {
@@ -167,17 +181,19 @@ pause-when-empty-seconds=0
         }
     }
 
+    $result = if ($failure) { $failure } elseif ($ComparisonHelperJar) { 'PASS (startup, web and headless comparison commands; network login not tested)' } else { $passResult }
     $results.Add([pscustomobject]@{
         Minecraft = $version
         ServerReady = $ready
         DashboardHttp = $dashboardHttp
         PlayerJoined = $joined
-        Result = if ($failure) { $failure } else { $passResult }
+        Result = $result
+        HeadlessComparison = [bool]$ComparisonHelperJar
         OfflineDirectoryApi = if ($OfflineDirectoryRegression) { $apiPassed } else { $null }
         TestDirectory = $testDirectory
     })
-    $joinResult = if ($StartupOnly) { 'not-tested' } else { [string]$joined }
-    Write-Host "$version server-ready=$ready web-http=$dashboardHttp join=$joinResult result=$(if($failure){$failure}else{$passResult})"
+    $joinResult = if ($StartupOnly -or $ComparisonHelperJar) { 'not-tested' } else { [string]$joined }
+    Write-Host "$version server-ready=$ready web-http=$dashboardHttp join=$joinResult result=$result"
 }
 
 $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $testRoot 'test-results.json') -Encoding utf8

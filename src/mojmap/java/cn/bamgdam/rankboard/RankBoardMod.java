@@ -105,14 +105,16 @@ public final class RankBoardMod implements ModInitializer {
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             RuntimeMetricTracker.tick(server);
-            BoardService.tickCarousel(server);
-            BoardService.tickActivity(server);
-            handleLookUpSneakMenu(server);
-            if (++ticks >= REFRESH_INTERVAL_TICKS) {
-                ticks = 0;
-                LeaderboardState.get(server).rollPeriods(server);
-                BoardService.refreshAll(server);
-                BoardService.enforceForeignScoreboardPolicy(server);
+            try (var reads = LeaderboardReadScope.open(server)) {
+                BoardService.tickCarousel(server);
+                BoardService.tickActivity(server);
+                handleLookUpSneakMenu(server);
+                if (++ticks >= REFRESH_INTERVAL_TICKS) {
+                    ticks = 0;
+                    LeaderboardState.get(server).rollPeriods(server);
+                    BoardService.refreshAll(server);
+                    BoardService.enforceForeignScoreboardPolicy(server);
+                }
             }
         });
     }
@@ -121,7 +123,9 @@ public final class RankBoardMod implements ModInitializer {
         RuntimeMetricTracker.stop(server);
         PlayerNameColors.clear(server);
         BoardService.clearSessions();
+        CacheComparisonService.clear(server);
         WebDashboard.stop();
+        StatReader.flushPersistentCache(server);
         StatReader.stopWarmup();
         LOOK_MENU_HELD.clear();
     }
@@ -327,6 +331,7 @@ public final class RankBoardMod implements ModInitializer {
         root.then(Commands.literal("cache").requires(source -> CommandPermissionCompat.has(source, 2))
                 .then(Commands.literal("status").executes(context -> cacheStatus(context.getSource())))
                 .then(Commands.literal("reload").executes(context -> reloadCache(context.getSource())))
+                .then(cacheCompareCommands())
                 .then(Commands.literal("threads")
                         .executes(context -> cacheThreadsStatus(context.getSource()))
                         .then(Commands.literal("status").executes(context -> cacheThreadsStatus(context.getSource())))
@@ -509,6 +514,8 @@ public final class RankBoardMod implements ModInitializer {
                         "/leaderboard config set web-port-fallback-enabled ", "端口被占用时启用共享网页端口中继，关闭后第二个服务器不会启动网页");
                 helpCommand(source, "/leaderboard config list|get|set|reload", "/leaderboard config ", "查看或修改配置");
                 helpCommand(source, "/leaderboard ratelimit clear", "/leaderboard ratelimit clear", "清除网页限流");
+                if (op) helpCommand(source, "/leaderboard cache compare [玩家]", "/leaderboard cache compare ",
+                        "重新读取榜单数据并对比；可预览差异，确认后仅更新 RankBoard 缓存");
                 source.sendSuccess(() -> Component.literal(
                         "配置文件：config/rankboard/rankboard-web.properties"), false);
             }
@@ -1847,6 +1854,50 @@ public final class RankBoardMod implements ModInitializer {
         return 1;
     }
 
+    private LiteralArgumentBuilder<CommandSourceStack> cacheCompareCommands() {
+        return Commands.literal("compare")
+                .executes(context -> CacheComparisonService.compare(context.getSource(), null))
+                .then(Commands.argument("player", StringArgumentType.word())
+                        .executes(context -> CacheComparisonService.compare(context.getSource(),
+                                StringArgumentType.getString(context, "player"))))
+                .then(Commands.literal("list")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                        .executes(context -> CacheComparisonService.list(context.getSource(),
+                                                StringArgumentType.getString(context, "id"),
+                                                IntegerArgumentType.getInteger(context, "page"))))))
+                .then(Commands.literal("player")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .then(Commands.argument("uuid", StringArgumentType.word())
+                                        .executes(context -> CacheComparisonService.player(context.getSource(),
+                                                StringArgumentType.getString(context, "id"),
+                                                StringArgumentType.getString(context, "uuid"))))))
+                .then(Commands.literal("apply-all")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .executes(context -> CacheComparisonService.prepareApplyAll(context.getSource(),
+                                        StringArgumentType.getString(context, "id")))))
+                .then(Commands.literal("apply-player")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .then(Commands.argument("uuid", StringArgumentType.word())
+                                        .executes(context -> CacheComparisonService.prepareApplyPlayer(
+                                                context.getSource(), StringArgumentType.getString(context, "id"),
+                                                StringArgumentType.getString(context, "uuid"))))))
+                .then(Commands.literal("confirm-all")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .executes(context -> CacheComparisonService.confirmAll(context.getSource(),
+                                        StringArgumentType.getString(context, "id")))))
+                .then(Commands.literal("confirm-player")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .then(Commands.argument("uuid", StringArgumentType.word())
+                                        .executes(context -> CacheComparisonService.confirmPlayer(
+                                                context.getSource(), StringArgumentType.getString(context, "id"),
+                                                StringArgumentType.getString(context, "uuid"))))))
+                .then(Commands.literal("cancel")
+                        .then(Commands.argument("id", StringArgumentType.word())
+                                .executes(context -> CacheComparisonService.cancel(context.getSource(),
+                                        StringArgumentType.getString(context, "id")))));
+    }
+
     private int cacheThreadsStatus(CommandSourceStack source) {
         int configured = RankBoardConfig.get().historyScanThreads;
         int resolved = StatReader.resolvedScanThreads();
@@ -1945,6 +1996,12 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+        try (var reads = LeaderboardReadScope.open(server)) {
+            return LeaderboardReadScope.entries(server, period, metric, () -> readEntries(server, period, metric));
+        }
+    }
+
+    private static List<Entry> readEntries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
         LeaderboardState state = LeaderboardState.get(server);
         if (!state.isMetricDisplayEnabled(metric)) return List.of();
         state.rollPeriods(server);
@@ -2037,13 +2094,13 @@ public final class RankBoardMod implements ModInitializer {
         }
     }
 
-    private static long foodUsed(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(item -> ComponentLookupCompat.has(item.components(), DataComponents.FOOD)).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
-    private static long mined(ServerPlayer player) { return BuiltInRegistries.BLOCK.stream().mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
-    private static long placed(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(BlockItem.class::isInstance).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
-    private static long dropped(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_DROPPED.get(item))).sum(); }
-    private static long pickedUp(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_PICKED_UP.get(item))).sum(); }
-    private static long crafted(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_CRAFTED.get(item))).sum(); }
-    private static long redstonePlaced(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(RankBoardMod::isRedstoneComponent).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
+    private static long foodUsed(ServerPlayer player) { return StatReader.foodCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
+    private static long mined(ServerPlayer player) { return StatReader.counterBlocks().stream().mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
+    private static long placed(ServerPlayer player) { return StatReader.blockCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
+    private static long dropped(ServerPlayer player) { return StatReader.counterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_DROPPED.get(item))).sum(); }
+    private static long pickedUp(ServerPlayer player) { return StatReader.counterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_PICKED_UP.get(item))).sum(); }
+    private static long crafted(ServerPlayer player) { return StatReader.counterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_CRAFTED.get(item))).sum(); }
+    private static long redstonePlaced(ServerPlayer player) { return StatReader.redstoneCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
     static boolean isRedstoneComponent(Item item) {
         String path = RegistryKeyCompat.path(BuiltInRegistries.ITEM, item);
         return REDSTONE_COMPONENTS.contains(path) || path.endsWith("_button") || path.endsWith("_pressure_plate")
