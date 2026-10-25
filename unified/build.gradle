@@ -1,0 +1,122 @@
+import net.fabricmc.tinyremapper.TinyRemapper
+import net.fabricmc.tinyremapper.TinyUtils
+import net.fabricmc.tinyremapper.OutputConsumerPath
+import net.fabricmc.tinyremapper.extension.mixin.MixinExtension
+
+plugins {
+    id 'java-library'
+    id 'fabric-loom' version '1.18.0-alpha.9' apply false
+    id 'net.fabricmc.fabric-loom' version '1.18.0-alpha.9' apply false
+    id 'net.neoforged.moddev' version '2.0.147' apply false
+}
+group = 'cn.bamgdam'
+version = "${mod_version}+mc1.21-26.3+${new Date().format('yyMMddHHmm', TimeZone.getTimeZone('Asia/Shanghai'))}"
+base.archivesName = 'rankboard'
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
+tasks.withType(JavaCompile).configureEach { options.release = 21; options.encoding = 'UTF-8' }
+def common = [mod_version: mod_version, mod_id: 'rankboard', mod_name: 'RankBoard', mod_license: 'MIT',
+              mod_group_id: 'cn.bamgdam', maven_group: 'cn.bamgdam', archives_base_name: 'rankboard',
+              loader_version_range: '[1,)', parchment_mappings_version: 'none']
+subprojects { child ->
+    common.each { key, value -> child.ext.set(key, value) }
+    child.layout.buildDirectory = rootProject.layout.buildDirectory.dir(child.name)
+}
+project(':fabric121') {
+    ext.minecraft_version = '1.21.4'
+    ext.mapping_type = 'yarn'
+    ext.yarn_mappings = '1.21.4+build.8'
+    ext.loader_version = '0.16.10'
+    ext.fabric_version = '0.119.4+1.21.4'
+    ext.minecraft_dependency = '>=1.21 <1.22'
+    ext.rankboard_unified_namespace = 'cn.bamgdam.rankboard.impl.fabric121'
+}
+project(':neo121') {
+    ext.minecraft_version = '1.21.4'
+    ext.minecraft_version_range = '[1.21,1.22)'
+    ext.neo_version = '21.4.157'
+    ext.neo_dependency_version = '21.0'
+    ext.parchment_minecraft_version = '1.21.4'
+    ext.rankboard_unified_namespace = 'cn.bamgdam.rankboard.impl.neo121'
+}
+project(':mojang26') {
+    ext.minecraft_version = '26.1.2'
+    ext.minecraft_version_range = '[26.1,26.4)'
+    ext.neo_version = '26.1.2.94'
+    ext.neo_dependency_version = '26.1.0'
+    ext.parchment_minecraft_version = '26.1.2'
+    ext.dual_loader_prototype = true
+    ext.rankboard_unified_namespace = 'cn.bamgdam.rankboard.impl.mojang26'
+}
+evaluationDependsOn(':fabric121')
+evaluationDependsOn(':neo121')
+evaluationDependsOn(':mojang26')
+dependencies {
+    compileOnly files(rootProject.project(':fabric121').configurations.compileClasspath)
+    compileOnly files(rootProject.project(':neo121').configurations.compileClasspath)
+}
+def remappedFabric = layout.buildDirectory.dir('remapped/fabric121')
+tasks.register('remapFabricClasses') {
+    dependsOn ':fabric121:compileJava'
+    def fabric = project(':fabric121')
+    inputs.files(fabric.sourceSets.main.output.classesDirs)
+    outputs.dir(remappedFabric)
+    doLast {
+        def output = remappedFabric.get().asFile.toPath()
+        delete output.toFile()
+        def mappings = fabric.extensions.getByName('loom').mappingConfiguration.tinyMappings
+        def remapper = TinyRemapper.newRemapper()
+                .withMappings(TinyUtils.createTinyMappingProvider(mappings, 'named', 'intermediary'))
+                .extension(new MixinExtension()).build()
+        try {
+            remapper.readClassPath(fabric.configurations.compileClasspath.files.collect { it.toPath() } as java.nio.file.Path[])
+            remapper.readInputs(fabric.sourceSets.main.output.classesDirs.files.collect { it.toPath() } as java.nio.file.Path[])
+            def consumer = new OutputConsumerPath.Builder(output).assumeArchive(false).build()
+            try { remapper.apply(consumer) } finally { consumer.close() }
+        } finally { remapper.finish() }
+    }
+}
+tasks.named('processResources').configure {
+    inputs.property('version', project.version)
+    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml']) { expand version: project.version }
+}
+tasks.named('jar').configure {
+    dependsOn 'remapFabricClasses', ':neo121:compileJava', ':mojang26:compileJava', ':fabric121:webBuild'
+    from(remappedFabric)
+    from(project(':neo121').sourceSets.main.output.classesDirs)
+    from(project(':mojang26').sourceSets.main.output.classesDirs)
+    from('../web/dist') { into 'rankboard-web' }
+    from('../src/main/resources/assets') { into 'assets' }
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    manifest { attributes 'Automatic-Module-Name': 'rankboard' }
+}
+tasks.register('verifyUnifiedJar') {
+    dependsOn 'jar'
+    doLast {
+        def archive = tasks.named('jar').get().archiveFile.get().asFile
+        def zip = new java.util.zip.ZipFile(archive)
+        try {
+            def classes = zip.entries().toList().findAll { it.name.endsWith('.class') }
+            classes.each { entry ->
+                def stream = new DataInputStream(zip.getInputStream(entry))
+                try {
+                    if (stream.readInt() != (int) 0xCAFEBABE) throw new GradleException("Invalid class: ${entry.name}")
+                    stream.readUnsignedShort()
+                    if (stream.readUnsignedShort() > 65) throw new GradleException("Not Java 21 scanner-safe: ${entry.name}")
+                } finally { stream.close() }
+            }
+            if (zip.entries().toList().any { it.name.endsWith('.jar') }) throw new GradleException('Nested JARs are forbidden')
+            ['fabric121', 'neo121', 'mojang26'].each { family ->
+                if (!zip.getEntry("cn/bamgdam/rankboard/impl/$family/RankBoardMod.class")) throw new GradleException("Missing compiled family $family")
+            }
+            logger.lifecycle("UNIFIED_JAR_VERIFIED: ${classes.size()} Java 21-compatible classes; no nested JARs")
+        } finally { zip.close() }
+    }
+}
+tasks.named('assemble').configure { dependsOn 'verifyUnifiedJar' }
+
+gradle.taskGraph.whenReady { graph ->
+    def intermediateJars = graph.allTasks.findAll { it.project != rootProject && it instanceof Jar }
+    if (!intermediateJars.isEmpty()) {
+        throw new GradleException('Use :assemble (with leading colon): unified builds compile classes, never child mod JARs')
+    }
+}

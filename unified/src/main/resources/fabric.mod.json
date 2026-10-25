@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "rankboard",
+  "version": "${version}",
+  "name": "RankBoard",
+  "environment": "*",
+  "entrypoints": {"main": ["cn.bamgdam.rankboard.unified.FabricEntrypoint"]},
+  "mixins": [{"config": "rankboard.mixins.json", "environment": "server"}],
+  "depends": {"fabricloader": ">=0.15.11", "minecraft": [">=1.21 <1.22", ">=26.1 <26.4"], "java": ">=21", "fabric-api": "*"}
+}

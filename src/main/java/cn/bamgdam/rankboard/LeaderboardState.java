@@ -34,19 +34,30 @@ public final class LeaderboardState extends PersistentState {
     private static final String STATE_ID = "rankboard/" + LEGACY_STATE_ID;
     private static final int HISTORY_SCHEMA = 5;
     private static final LocalTime COMPLETE_BOUNDARY_LIMIT = LocalTime.of(0, 5);
+    private static final Set<MinecraftServer> STORAGE_PREPARED = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private final Map<RankBoardMod.Period, PeriodData> periods = new EnumMap<>(RankBoardMod.Period.class);
-    private boolean whitelistOnly = true;
+    private boolean whitelistOnly;
+    // New worlds choose a whitelist mode from the RankBoard menu. Worlds saved
+    // before this flag existed are treated as already configured on upgrade.
+    private boolean whitelistModeConfigured;
     private boolean botFilterEnabled = true;
     private boolean customPlayerFilterEnabled = true;
     private boolean onlineOnly;
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
     private final Set<UUID> lookMenuDisabledPlayers = new HashSet<>();
+    private final Set<UUID> joinMenuDisabledPlayers = new HashSet<>();
+    private final Map<UUID, String> playerLanguages = new HashMap<>();
+    /** Runtime metrics which are not present in vanilla statistics JSON files. */
+    private final Map<UUID, EnumMap<RankBoardMod.Metric, Long>> customMetricValues = new HashMap<>();
+    private final Map<UUID, EnumMap<RankBoardMod.Metric, Long>> metricOverrides = new HashMap<>();
     private final Map<UUID, BoardPreference> boardPreferences = new HashMap<>();
     private BoardPreference globalBoardPreference;
     private final NavigableMap<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> dailySnapshots = new TreeMap<>();
     private final Set<LocalDate> partialSnapshotDates = new HashSet<>();
     private HistorySnapshotStore historyStore;
+    private LocalDate lastPeriodReadDate;
+    private long lastPeriodReadRevision = -1L;
     LeaderboardState() { }
 
     public static LeaderboardState get(MinecraftServer server) {
@@ -73,13 +84,17 @@ public final class LeaderboardState extends PersistentState {
         }
     }
     private static synchronized void prepareStorage(MinecraftServer server) {
+        if (STORAGE_PREPARED.contains(server)) return;
         Path dataDirectory = server.getSavePath(WorldSavePath.ROOT).resolve("data");
         Path rankBoardDirectory = dataDirectory.resolve("rankboard");
         Path legacy = dataDirectory.resolve(LEGACY_STATE_ID + ".dat");
         Path target = rankBoardDirectory.resolve(LEGACY_STATE_ID + ".dat");
         try {
             Files.createDirectories(rankBoardDirectory);
-            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) return;
+            if (Files.isRegularFile(target) || !Files.isRegularFile(legacy)) {
+                STORAGE_PREPARED.add(server);
+                return;
+            }
             Path temporary = target.resolveSibling(target.getFileName() + ".migrating");
             Files.copy(legacy, temporary, StandardCopyOption.REPLACE_EXISTING);
             try {
@@ -88,6 +103,7 @@ public final class LeaderboardState extends PersistentState {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
             Files.delete(legacy);
+            STORAGE_PREPARED.add(server);
             RankBoardMod.LOGGER.info("Migrated RankBoard world data from {} to {}", legacy, target);
         } catch (IOException exception) {
             RankBoardMod.LOGGER.warn("Could not migrate RankBoard world data from {} to {}; the legacy file was kept",
@@ -97,6 +113,8 @@ public final class LeaderboardState extends PersistentState {
     static LeaderboardState fromNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup lookup) {
         LeaderboardState state = new LeaderboardState();
         if (nbt.contains("whitelistOnly")) state.whitelistOnly = NbtCompat.getBoolean(nbt, "whitelistOnly");
+        state.whitelistModeConfigured = nbt.contains("whitelistModeConfigured")
+                ? NbtCompat.getBoolean(nbt, "whitelistModeConfigured") : true;
         if (nbt.contains("botFilterEnabled")) state.botFilterEnabled = NbtCompat.getBoolean(nbt, "botFilterEnabled");
         if (nbt.contains("customPlayerFilterEnabled")) state.customPlayerFilterEnabled = NbtCompat.getBoolean(nbt, "customPlayerFilterEnabled");
         if (nbt.contains("onlineOnly")) state.onlineOnly = NbtCompat.getBoolean(nbt, "onlineOnly");
@@ -111,6 +129,45 @@ public final class LeaderboardState extends PersistentState {
         for (NbtElement element : NbtCompat.getList(nbt, "lookMenuDisabledPlayers", NbtElement.STRING_TYPE)) {
             try { state.lookMenuDisabledPlayers.add(UUID.fromString(NbtCompat.asString(element))); }
             catch (IllegalArgumentException ignored) { }
+        }
+        for (NbtElement element : NbtCompat.getList(nbt, "joinMenuDisabledPlayers", NbtElement.STRING_TYPE)) {
+            try { state.joinMenuDisabledPlayers.add(UUID.fromString(NbtCompat.asString(element))); }
+            catch (IllegalArgumentException ignored) { }
+        }
+        for (NbtElement element : NbtCompat.getList(nbt, "playerLanguages", NbtElement.COMPOUND_TYPE)) {
+            try {
+                NbtCompound entry = (NbtCompound) element;
+                String language = NbtCompat.getString(entry, "language");
+                if (language.matches("[a-z0-9_-]{2,32}")) {
+                    state.playerLanguages.put(NbtCompat.getUuid(entry, "uuid"), language);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        for (NbtElement element : NbtCompat.getList(nbt, "customMetricValues", NbtElement.COMPOUND_TYPE)) {
+            try {
+                NbtCompound entry = (NbtCompound) element;
+                UUID uuid = NbtCompat.getUuid(entry, "uuid");
+                NbtCompound values = NbtCompat.getCompound(entry, "values");
+                EnumMap<RankBoardMod.Metric, Long> custom = new EnumMap<>(RankBoardMod.Metric.class);
+                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                    if (metric.isCustomMetric() && values.contains(metric.command)) {
+                        custom.put(metric, NbtCompat.getLong(values, metric.command));
+                    }
+                }
+                if (!custom.isEmpty()) state.customMetricValues.put(uuid, custom);
+            } catch (RuntimeException ignored) { }
+        }
+        for (NbtElement element : NbtCompat.getList(nbt, "metricOverrides", NbtElement.COMPOUND_TYPE)) {
+            try {
+                NbtCompound entry = (NbtCompound) element;
+                UUID uuid = NbtCompat.getUuid(entry, "uuid");
+                NbtCompound values = NbtCompat.getCompound(entry, "values");
+                EnumMap<RankBoardMod.Metric, Long> overrides = new EnumMap<>(RankBoardMod.Metric.class);
+                for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
+                    if (values.contains(metric.command)) overrides.put(metric, Math.max(0L, NbtCompat.getLong(values, metric.command)));
+                }
+                if (!overrides.isEmpty()) state.metricOverrides.put(uuid, overrides);
+            } catch (RuntimeException ignored) { }
         }
         String historySchema = NbtCompat.getString(nbt, "historySchema");
         boolean legacyHistory = historySchema.isEmpty();
@@ -160,6 +217,7 @@ public final class LeaderboardState extends PersistentState {
         periods.values().forEach(data -> list.add(data.toNbt()));
         nbt.put("periods", list);
         nbt.putBoolean("whitelistOnly", whitelistOnly);
+        nbt.putBoolean("whitelistModeConfigured", whitelistModeConfigured);
         nbt.putBoolean("botFilterEnabled", botFilterEnabled);
         nbt.putBoolean("customPlayerFilterEnabled", customPlayerFilterEnabled);
         nbt.putBoolean("onlineOnly", onlineOnly);
@@ -172,6 +230,39 @@ public final class LeaderboardState extends PersistentState {
         NbtList disabledLookMenus = new NbtList();
         lookMenuDisabledPlayers.forEach(uuid -> disabledLookMenus.add(NbtString.of(uuid.toString())));
         nbt.put("lookMenuDisabledPlayers", disabledLookMenus);
+        NbtList disabledJoinMenus = new NbtList();
+        joinMenuDisabledPlayers.forEach(uuid -> disabledJoinMenus.add(NbtString.of(uuid.toString())));
+        nbt.put("joinMenuDisabledPlayers", disabledJoinMenus);
+        NbtList languages = new NbtList();
+        playerLanguages.forEach((uuid, language) -> {
+            NbtCompound entry = new NbtCompound();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            entry.putString("language", language);
+            languages.add(entry);
+        });
+        nbt.put("playerLanguages", languages);
+        NbtList customMetrics = new NbtList();
+        customMetricValues.forEach((uuid, values) -> {
+            NbtCompound entry = new NbtCompound();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            NbtCompound valueCompound = new NbtCompound();
+            values.forEach((metric, value) -> {
+                if (metric.isCustomMetric()) valueCompound.putLong(metric.command, value);
+            });
+            entry.put("values", valueCompound);
+            customMetrics.add(entry);
+        });
+        nbt.put("customMetricValues", customMetrics);
+        NbtList metricOverrideList = new NbtList();
+        metricOverrides.forEach((uuid, values) -> {
+            NbtCompound entry = new NbtCompound();
+            NbtCompat.putUuid(entry, "uuid", uuid);
+            NbtCompound valueCompound = new NbtCompound();
+            values.forEach((metric, value) -> valueCompound.putLong(metric.command, value));
+            entry.put("values", valueCompound);
+            metricOverrideList.add(entry);
+        });
+        nbt.put("metricOverrides", metricOverrideList);
         NbtList snapshots = new NbtList();
         dailySnapshots.forEach((date, players) -> {
             NbtCompound snapshot = new NbtCompound();
@@ -207,6 +298,8 @@ public final class LeaderboardState extends PersistentState {
         if (!StatReader.isReady()) return;
         LocalDate now = LocalDate.now();
         LocalTime boundaryTime = LocalTime.now();
+        long revision = StatReader.periodDataRevision();
+        if (now.equals(lastPeriodReadDate) && revision == lastPeriodReadRevision) return;
         boolean nearMidnight = !boundaryTime.isAfter(COMPLETE_BOUNDARY_LIMIT);
         boolean changed = false;
         List<StatSnapshot> snapshots = StatReader.readAll(server);
@@ -248,15 +341,40 @@ public final class LeaderboardState extends PersistentState {
         } catch (IOException exception) {
             RankBoardMod.LOGGER.error("Could not update RankBoard history snapshot in {}", historyStore.directory(), exception);
         }
+        lastPeriodReadDate = now;
+        lastPeriodReadRevision = revision;
         if (changed) markDirty();
     }
 
     public void ensurePlayer(ServerPlayerEntity player) {
         rollPeriods(PlayerCompat.server(player));
+        if (periods.isEmpty() || periods.values().stream().allMatch(data -> {
+            Map<RankBoardMod.Metric, Long> values = data.players.get(player.getUuid());
+            return values != null && values.size() == RankBoardMod.Metric.values().length;
+        })) return;
         StatSnapshot snapshot = StatSnapshot.fromPlayer(player);
         boolean changed = false;
         for (PeriodData data : periods.values()) if (data.players.putIfAbsent(snapshot.uuid(), snapshot.values()) == null) changed = true;
         if (changed) markDirty();
+    }
+    public boolean needsLanguageChoice(UUID uuid) { return !playerLanguages.containsKey(uuid); }
+    public String language(UUID uuid) {
+        return playerLanguages.getOrDefault(uuid, RankBoardConfig.get().defaultLanguage);
+    }
+    public void setLanguage(UUID uuid, String language) {
+        if (!language.matches("[a-z0-9_-]{2,32}")) throw new IllegalArgumentException("unsupported language");
+        if (!language.equals(playerLanguages.put(uuid, language))) markDirty();
+    }
+    /** Applies a server-wide language choice to all known and currently online players. */
+    public int setLanguageForAll(MinecraftServer server, String language) {
+        Set<UUID> players = new HashSet<>(playerLanguages.keySet());
+        server.getPlayerManager().getPlayerList().forEach(player -> players.add(player.getUuid()));
+        boolean changed = false;
+        for (UUID uuid : players) {
+            if (!language.equals(playerLanguages.put(uuid, language))) changed = true;
+        }
+        if (changed) markDirty();
+        return players.size();
     }
     public OptionalLong periodDelta(RankBoardMod.Period period, UUID uuid,
                                     RankBoardMod.Metric metric, long currentValue) {
@@ -268,6 +386,13 @@ public final class LeaderboardState extends PersistentState {
         long baseline = values.get(metric);
         if (currentValue < baseline) return OptionalLong.empty();
         return OptionalLong.of(currentValue - baseline);
+    }
+    /** Raw baseline captured for the given period, or 0 when the period never observed the player. */
+    public long getBaseline(RankBoardMod.Period period, UUID uuid, RankBoardMod.Metric metric) {
+        PeriodData data = periods.get(period);
+        if (data == null) return 0L;
+        Map<RankBoardMod.Metric, Long> values = data.players.get(uuid);
+        return values == null ? 0L : values.getOrDefault(metric, 0L);
     }
     public boolean isPeriodComplete(RankBoardMod.Period period) {
         if (period == RankBoardMod.Period.ALL) return true;
@@ -283,6 +408,13 @@ public final class LeaderboardState extends PersistentState {
     public void setWhitelistOnly(boolean whitelistOnly) {
         if (this.whitelistOnly != whitelistOnly) {
             this.whitelistOnly = whitelistOnly;
+            markDirty();
+        }
+    }
+    public boolean needsWhitelistModeSetup() { return !whitelistModeConfigured; }
+    public void setWhitelistModeConfigured() {
+        if (!whitelistModeConfigured) {
+            whitelistModeConfigured = true;
             markDirty();
         }
     }
@@ -307,11 +439,104 @@ public final class LeaderboardState extends PersistentState {
             markDirty();
         }
     }
-    public boolean isMetricDisplayEnabled(RankBoardMod.Metric metric) { return !disabledDisplayMetrics.contains(metric); }
+    public boolean isMetricDisplayEnabled(RankBoardMod.Metric metric) {
+        if (metric == RankBoardMod.Metric.BEDROCK_BROKEN && !RankBoardConfig.get().bedrockBreakLeaderboardEnabled) return false;
+        return !disabledDisplayMetrics.contains(metric);
+    }
     public void setMetricDisplayEnabled(RankBoardMod.Metric metric, boolean enabled) {
         boolean changed = enabled ? disabledDisplayMetrics.remove(metric) : disabledDisplayMetrics.add(metric);
         if (changed) markDirty();
     }
+
+    public long customMetric(UUID uuid, RankBoardMod.Metric metric) {
+        return customMetricValues.getOrDefault(uuid, new EnumMap<>(RankBoardMod.Metric.class))
+                .getOrDefault(metric, 0L);
+    }
+
+    public boolean hasCustomMetric(UUID uuid, RankBoardMod.Metric metric) {
+        EnumMap<RankBoardMod.Metric, Long> values = customMetricValues.get(uuid);
+        return values != null && values.containsKey(metric);
+    }
+
+    public void ensureCustomMetric(UUID uuid, RankBoardMod.Metric metric, long initialValue) {
+        if (!metric.isCustomMetric() || hasCustomMetric(uuid, metric)) return;
+        long value = metric == RankBoardMod.Metric.ELYTRA_DISTANCE && initialValue < 0
+                ? Integer.MAX_VALUE : Math.max(0L, initialValue);
+        customMetricValues.computeIfAbsent(uuid, ignored -> new EnumMap<>(RankBoardMod.Metric.class))
+                .put(metric, value);
+        markDirty();
+    }
+
+    public void setMetricOverride(UUID uuid, RankBoardMod.Metric metric, long value) {
+        if (value < 0) throw new IllegalArgumentException("Metric override cannot be negative");
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.computeIfAbsent(
+                uuid, ignored -> new EnumMap<>(RankBoardMod.Metric.class));
+        if (!java.util.Objects.equals(overrides.put(metric, value), value)) markDirty();
+    }
+
+    public boolean clearMetricOverride(UUID uuid, RankBoardMod.Metric metric) {
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.get(uuid);
+        if (overrides == null || overrides.remove(metric) == null) return false;
+        if (overrides.isEmpty()) metricOverrides.remove(uuid);
+        markDirty();
+        return true;
+    }
+
+    public int clearMetricOverrides(UUID uuid) {
+        EnumMap<RankBoardMod.Metric, Long> removed = metricOverrides.remove(uuid);
+        if (removed == null || removed.isEmpty()) return 0;
+        markDirty();
+        return removed.size();
+    }
+
+    public void addCustomMetric(UUID uuid, RankBoardMod.Metric metric, long amount) {
+        if (!metric.isCustomMetric() || amount <= 0) return;
+        EnumMap<RankBoardMod.Metric, Long> values = customMetricValues.computeIfAbsent(
+                uuid, ignored -> new EnumMap<>(RankBoardMod.Metric.class));
+        long previous = values.getOrDefault(metric, 0L);
+        long updated;
+        try { updated = Math.addExact(previous, amount); }
+        catch (ArithmeticException ignored) { updated = Long.MAX_VALUE; }
+        if (updated != previous) {
+            values.put(metric, updated);
+            markDirty();
+        }
+    }
+
+    public StatSnapshot applyCustomMetrics(StatSnapshot snapshot) {
+        ensureCustomMetric(snapshot.uuid(), RankBoardMod.Metric.ELYTRA_DISTANCE,
+                snapshot.value(RankBoardMod.Metric.ELYTRA_DISTANCE));
+        EnumMap<RankBoardMod.Metric, Long> values = new EnumMap<>(snapshot.values());
+        EnumMap<RankBoardMod.Metric, Long> custom = customMetricValues.get(snapshot.uuid());
+        if (custom != null) custom.forEach((metric, value) -> values.put(metric, value));
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.get(snapshot.uuid());
+        if (overrides != null) overrides.forEach(values::put);
+        return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
+    }
+    StatSnapshot applyStoredCustomMetrics(StatSnapshot snapshot) {
+        EnumMap<RankBoardMod.Metric, Long> values = new EnumMap<>(snapshot.values());
+        EnumMap<RankBoardMod.Metric, Long> custom = customMetricValues.get(snapshot.uuid());
+        if (custom != null) custom.forEach((metric, value) -> {
+            if (metric.isCustomMetric()) values.put(metric, value);
+        });
+        return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
+    }
+
+    public StatSnapshot applyCustomMetric(StatSnapshot snapshot, RankBoardMod.Metric metric) {
+        if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
+            ensureCustomMetric(snapshot.uuid(), metric, snapshot.value(metric));
+        }
+        if (!snapshot.values().containsKey(metric)) return snapshot;
+        long value = snapshot.value(metric);
+        EnumMap<RankBoardMod.Metric, Long> custom = customMetricValues.get(snapshot.uuid());
+        if (custom != null && custom.containsKey(metric)) value = custom.get(metric);
+        EnumMap<RankBoardMod.Metric, Long> overrides = metricOverrides.get(snapshot.uuid());
+        if (overrides != null && overrides.containsKey(metric)) value = overrides.get(metric);
+        EnumMap<RankBoardMod.Metric, Long> values = new EnumMap<>(snapshot.values());
+        values.put(metric, value);
+        return new StatSnapshot(snapshot.uuid(), snapshot.name(), values);
+    }
+
     public boolean isNameColorEnabled(UUID uuid) { return !nameColorDisabledPlayers.contains(uuid); }
     public void setNameColorEnabled(UUID uuid, boolean enabled) {
         boolean changed = enabled ? nameColorDisabledPlayers.remove(uuid) : nameColorDisabledPlayers.add(uuid);
@@ -321,6 +546,12 @@ public final class LeaderboardState extends PersistentState {
     public boolean isLookMenuEnabled(UUID uuid) { return !lookMenuDisabledPlayers.contains(uuid); }
     public void setLookMenuEnabled(UUID uuid, boolean enabled) {
         boolean changed = enabled ? lookMenuDisabledPlayers.remove(uuid) : lookMenuDisabledPlayers.add(uuid);
+        if (changed) markDirty();
+    }
+
+    public boolean isJoinMenuEnabled(UUID uuid) { return !joinMenuDisabledPlayers.contains(uuid); }
+    public void setJoinMenuEnabled(UUID uuid, boolean enabled) {
+        boolean changed = enabled ? joinMenuDisabledPlayers.remove(uuid) : joinMenuDisabledPlayers.add(uuid);
         if (changed) markDirty();
     }
 

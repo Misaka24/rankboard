@@ -1,0 +1,24 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+[[mods]]
+modId="rankboard"
+version="${version}"
+displayName="RankBoard"
+displayURL="https://modrinth.com/project/rankboard"
+authors="halfkite"
+description='''Server-side leaderboards for Fabric and NeoForge.'''
+[[mixins]]
+config="rankboard.mixins.json"
+[[dependencies.rankboard]]
+modId="neoforge"
+type="required"
+versionRange="[21.0,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.rankboard]]
+modId="minecraft"
+type="required"
+versionRange="[1.21,1.22),[26.1,26.4)"
+ordering="NONE"
+side="BOTH"

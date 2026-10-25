@@ -28,11 +28,13 @@ final class RankBoardConfig {
             option("mod-whitelist-enabled", "false", FileKind.MAIN, "玩家筛选", "是否只读取 config/rankboard/rankboard-whitelist.json 中的玩家；默认 false。"),
             option("scoreboard-recipient-filter", "fake-only", FileKind.MAIN, "客户端计分板", "个人榜单数据接收过滤；fake-only 不发送给假人，false 不过滤，whitelist 仅名单内接收，blacklist 仅名单外接收。"),
             option("web-icon-request-interval-seconds", "3", FileKind.WEB, "请求限流", "图片基础请求间隔秒数；默认 3。30 秒内超过 6 次后，30 分钟内改为每 15 秒一次。"),
-            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每个扫描线程每秒检查的玩家统计文件数；默认 50，范围 1-1000；总上限为该值乘以实际扫描线程数。"),
-            option("history-scan-threads", "0", FileKind.MAIN, "历史统计", "历史统计扫描线程数；默认 0 自动使用最多 50% 可用处理器，手动值同样不会超过 50%。"),
+            option("history-files-per-second", "50", FileKind.MAIN, "历史统计", "每个扫描线程每秒检查的玩家统计文件数；默认 50，范围 1-1000；仅首次安装、缓存无效或执行 /leaderboard cache reload 时读取。"),
+            option("history-scan-threads", "0", FileKind.MAIN, "历史统计", "历史统计扫描线程数；默认 0 自动使用最多 50% 可用处理器，手动值同样不会超过 50%；修改后下次 cache reload 生效。"),
             option("welcome-enabled", "true", FileKind.MAIN, "进服提示", "是否发送“欢迎来到”提示；默认 true。"),
             option("welcome-name", "auto", FileKind.MAIN, "进服提示", "欢迎语名称；默认 auto，自动读取服务器 MOTD 或单人存档名。"),
+            option("default-language", "zh_cn", FileKind.MAIN, "语言", "全服默认聊天语言；新玩家和点击全服默认按钮后使用；可填写语言文件名，如 zh_cn 或 en_us。"),
             option("join-menu-enabled", "true", FileKind.MAIN, "进服提示", "玩家进服时是否显示 /leaderboard 菜单；默认 true。"),
+            option("join-message-mode", "simple", FileKind.MAIN, "进服提示", "进服提示模式；simple 仅显示查看入口（默认，包含 OP），detailed 保留欢迎语与详细管理提示。"),
             option("join-web-hint-enabled", "false", FileKind.MAIN, "进服提示", "玩家进服时是否提示网页排行榜地址；默认 false。"),
             option("website-button-enabled", "true", FileKind.MAIN, "进服提示", "是否在排行榜菜单和帮助中显示打开网站按钮；默认 true。"),
             option("web-public-address", "", FileKind.MAIN, "进服提示", "对玩家展示的网页地址；默认留空，根据网页 host 和 port 生成。"),
@@ -41,6 +43,7 @@ final class RankBoardConfig {
             option("carousel-enabled", "true", FileKind.MAIN, "客户端计分板", "是否允许玩家使用榜单轮播；默认 true。"),
             option("carousel-interval-seconds", "30", FileKind.MAIN, "客户端计分板", "榜单轮播间隔秒数；默认 30，范围 3-3600。"),
             option("carousel-color-follow-metric", "true", FileKind.MAIN, "客户端计分板", "轮播计分板标题是否跟随当前榜单颜色；false 时固定使用青色；默认 true。"),
+            option("bedrock-break-leaderboard-enabled", "false", FileKind.MAIN, "榜单功能", "是否启用破基岩榜；启用后记录玩家周围 5 格内消失的基岩；默认 false。"),
             option("client-scoreboard-show-zero", "false", FileKind.MAIN, "客户端计分板", "个人侧边栏是否显示当前榜单数值为 0 的玩家；默认 false。"),
             option("scoreboard-switch-message-enabled", "true", FileKind.MAIN, "客户端计分板", "切换个人榜单后是否发送“已显示……”提示；默认 true。"),
             option("scoreboard-name-color-enabled", "true", FileKind.MAIN, "客户端计分板", "玩家名字颜色模式；true 同步排行榜、聊天、TAB 和头顶名牌，false 全部关闭，scoreboard-only 仅排行榜；默认 true。"),
@@ -50,11 +53,13 @@ final class RankBoardConfig {
             option("metric-label-jumps", "跳跃榜", FileKind.MAIN, "榜单名称", "跳跃榜在游戏和网页结果中显示的名称。"),
             option("metric-label-mined", "挖掘榜", FileKind.MAIN, "榜单名称", "挖掘榜在游戏和网页结果中显示的名称。"),
             option("metric-label-placed", "放置榜", FileKind.MAIN, "榜单名称", "放置榜在游戏和网页结果中显示的名称。"),
+            option("metric-label-breeding", "繁殖榜", FileKind.MAIN, "榜单名称", "繁殖动物数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-kills", "击杀榜", FileKind.MAIN, "榜单名称", "击杀榜在游戏和网页结果中显示的名称。"),
             option("metric-label-pvp", "PvP榜", FileKind.MAIN, "榜单名称", "击杀其他玩家数量榜在游戏和网页结果中显示的名称。"),
             option("metric-label-deaths", "死亡榜", FileKind.MAIN, "榜单名称", "死亡榜在游戏和网页结果中显示的名称。"),
             option("metric-label-trades", "交易榜", FileKind.MAIN, "榜单名称", "交易榜在游戏和网页结果中显示的名称。"),
             option("metric-label-playtime", "在线榜", FileKind.MAIN, "榜单名称", "在线榜在游戏和网页结果中显示的名称。"),
+            option("metric-label-afk", "摸鱼榜", FileKind.MAIN, "榜单名称", "停止移动超过 3 分钟后累计的摸鱼时间榜。"),
             option("metric-label-elytra", "飞行榜", FileKind.MAIN, "榜单名称", "飞行榜在游戏和网页结果中显示的名称。"),
             option("metric-label-fishing", "钓鱼榜", FileKind.MAIN, "榜单名称", "钓鱼榜在游戏和网页结果中显示的名称。"),
             option("metric-label-damage", "受伤榜", FileKind.MAIN, "榜单名称", "受伤榜在游戏和网页结果中显示的名称。"),
@@ -77,11 +82,13 @@ final class RankBoardConfig {
             option("metric-color-jumps", "#FF55FF", FileKind.MAIN, "榜单颜色", "跳跃榜颜色；格式 #RRGGBB。"),
             option("metric-color-mined", "#5555FF", FileKind.MAIN, "榜单颜色", "挖掘榜颜色；默认蓝色，格式 #RRGGBB。"),
             option("metric-color-placed", "#00AAAA", FileKind.MAIN, "榜单颜色", "放置榜颜色；默认深青色，格式 #RRGGBB。"),
+            option("metric-color-breeding", "#00AAAA", FileKind.MAIN, "榜单颜色", "繁殖榜颜色；跟随放置榜，默认深青色，格式 #RRGGBB。"),
             option("metric-color-kills", "#FF5555", FileKind.MAIN, "榜单颜色", "击杀榜颜色；格式 #RRGGBB。"),
             option("metric-color-pvp", "#AA0000", FileKind.MAIN, "榜单颜色", "PvP榜颜色；默认深红色，格式 #RRGGBB。"),
             option("metric-color-deaths", "#AA0000", FileKind.MAIN, "榜单颜色", "死亡榜颜色；格式 #RRGGBB。"),
             option("metric-color-trades", "#55FF55", FileKind.MAIN, "榜单颜色", "交易榜颜色；默认绿色，格式 #RRGGBB。"),
             option("metric-color-playtime", "#55FFFF", FileKind.MAIN, "榜单颜色", "在线榜颜色；默认青色，格式 #RRGGBB。"),
+            option("metric-color-afk", "#55FFFF", FileKind.MAIN, "榜单颜色", "摸鱼榜颜色；跟随在线榜，默认青色，格式 #RRGGBB。"),
             option("metric-color-elytra", "#FF55FF", FileKind.MAIN, "榜单颜色", "鞘翅飞行榜颜色；格式 #RRGGBB。"),
             option("metric-color-fishing", "#0000AA", FileKind.MAIN, "榜单颜色", "钓鱼榜颜色；默认深蓝色，格式 #RRGGBB。"),
             option("metric-color-damage", "#FF5555", FileKind.MAIN, "榜单颜色", "受伤榜颜色；默认红色，格式 #RRGGBB。"),
@@ -100,19 +107,28 @@ final class RankBoardConfig {
             option("metric-color-totem", "#FFFF55", FileKind.MAIN, "榜单颜色", "死里逃生榜颜色；格式 #RRGGBB。"),
             option("metric-color-music", "#FF55FF", FileKind.MAIN, "榜单颜色", "音乐家榜颜色；格式 #RRGGBB。"),
             option("metric-color-target", "#FF5555", FileKind.MAIN, "榜单颜色", "神射手榜颜色；格式 #RRGGBB。"),
+            option("metric-label-bedrock", "破基岩榜", FileKind.MAIN, "榜单名称", "周围 5 格内消失的基岩数量榜在游戏和网页结果中显示的名称。"),
+            option("metric-color-bedrock", "#5555FF", FileKind.MAIN, "榜单颜色", "破基岩榜颜色；跟随挖掘榜，默认蓝色，格式 #RRGGBB。"),
             option("scoreboard-title-color-enabled", "true", FileKind.MAIN, "客户端计分板", "是否让计分板标题跟随当前榜单颜色；默认 true。"),
             option("scoreboard-live-update-enabled", "true", FileKind.MAIN, "客户端计分板", "玩家行为改变统计时是否即时刷新对应榜单；默认 true。"),
             option("scoreboard-live-update-window-seconds", "30", FileKind.MAIN, "客户端计分板", "高频行为统计窗口秒数；默认 30，范围 1-300。"),
             option("scoreboard-live-update-threshold", "100", FileKind.MAIN, "客户端计分板", "窗口内超过此次数后进入降频；默认 100，范围 1-100000。"),
-            option("scoreboard-live-update-throttle-seconds", "30", FileKind.MAIN, "客户端计分板", "高频榜单的最短刷新间隔秒数；默认 30，范围 1-3600。"),
+            option("scoreboard-live-update-throttle-seconds", "3", FileKind.MAIN, "客户端计分板", "高频榜单的最短刷新间隔秒数；默认 3，范围 1-3600。"),
             option("help-visibility", "all", FileKind.MAIN, "权限与帮助", "帮助可见范围；默认 all，可选 all、op、hidden。"),
             option("avatar-cache-enabled", "true", FileKind.MAIN, "玩家头像缓存", "是否缓存进服玩家的皮肤头像；默认 true。"),
             option("avatar-cache-days", "7", FileKind.MAIN, "玩家头像缓存", "头像缓存有效天数；默认 7，范围 1-365。"),
+            option("web-enabled", "true", FileKind.WEB, "网页监听", "网页服务总开关；false 时不启动网页监听，也不会占用网页端口；默认 true。"),
             option("host", "0.0.0.0", FileKind.WEB, "网页监听", "网页监听地址；默认 0.0.0.0，表示监听所有 IPv4 地址。"),
             option("port", "8765", FileKind.WEB, "网页监听", "网页监听端口；默认 8765，范围 1-65535。"),
+            option("web-port-fallback-enabled", "true", FileKind.WEB, "网页监听", "端口被占用时是否启用本机共享端口中继；默认 true。关闭后第二个服务器不会启动网页。"),
             option("web-data-requests-per-second", "1", FileKind.WEB, "请求限流", "同一 IP 对同一数据接口或网页资源每秒最多请求次数；默认 1，范围 1-100。"),
             option("web-ranking-refresh-interval-seconds", "30", FileKind.WEB, "网页数据", "网页排行榜数据快照刷新间隔秒数；默认 30，范围 1-3600。"),
             option("server-name", "auto", FileKind.WEB, "网页显示", "网页显示的服务器名称；默认 auto，自动读取服务器 MOTD。"),
+            option("web-default-language", "zh_cn", FileKind.WEB, "网页显示", "网页默认语言；可选 zh_cn、en_us 或 auto（auto 跟随浏览器），默认 zh_cn。"),
+            option("web-switcher-name", "auto", FileKind.WEB, "网页切换", "服务器切换按钮名称；auto 使用服务器名称和默认游戏模式。"),
+            option("web-switcher-weight", "100", FileKind.WEB, "网页切换", "服务器切换按钮排序权重；数值越小越靠前，1 最先显示。"),
+            option("web-switcher-peers", "", FileKind.WEB, "网页切换", "其他 RankBoard 网页地址，逗号分隔；省略端口时沿用当前网页端口。"),
+            option("web-switcher-op-hint-enabled", "true", FileKind.WEB, "网页切换", "是否在 OP 进服时提醒设置服务器切换显示名称；默认 true。"),
             option("website-icon", "server-icon.png", FileKind.WEB, "网页显示", "网页图标路径；默认 server-icon.png，相对路径以服务端根目录为基准。"),
             option("web-theme-follow-icon", "true", FileKind.WEB, "网页主题", "true 从左上角网站图标提取网页配色；false 使用默认蓝色系；默认 true。"),
             option("web-theme-base", "auto", FileKind.WEB, "网页主题", "主题基础色；图标取色模式会在开服时自动写入检测到的 #RRGGBB，也可手动设置。"),
@@ -134,11 +150,13 @@ final class RankBoardConfig {
     final int historyScanThreads;
     final boolean welcomeEnabled;
     final boolean joinMenuEnabled;
+    final boolean simpleJoinMessages;
     final boolean restoreBoardOnJoin;
     final boolean lookUpSneakMenuEnabled;
     final boolean carouselEnabled;
     final int carouselIntervalSeconds;
     final boolean carouselColorFollowMetric;
+    final boolean bedrockBreakLeaderboardEnabled;
     final boolean clientScoreboardShowZero;
     final boolean scoreboardSwitchMessageEnabled;
     final NameColorMode nameColorMode;
@@ -156,6 +174,7 @@ final class RankBoardConfig {
     final boolean avatarCacheEnabled;
     final int avatarCacheDays;
     final String welcomeName;
+    final String defaultLanguage;
     final String webPublicAddress;
     final HelpVisibility helpVisibility;
 
@@ -164,11 +183,13 @@ final class RankBoardConfig {
         historyScanThreads = integer(properties, "history-scan-threads", 0, 0, 256);
         welcomeEnabled = bool(properties, "welcome-enabled", true);
         joinMenuEnabled = bool(properties, "join-menu-enabled", true);
+        simpleJoinMessages = !properties.getProperty("join-message-mode", "simple").strip().equalsIgnoreCase("detailed");
         restoreBoardOnJoin = bool(properties, "restore-scoreboard-on-join", true);
         lookUpSneakMenuEnabled = bool(properties, "look-up-sneak-menu-enabled", true);
         carouselEnabled = bool(properties, "carousel-enabled", true);
         carouselIntervalSeconds = integer(properties, "carousel-interval-seconds", 30, 3, 3600);
         carouselColorFollowMetric = bool(properties, "carousel-color-follow-metric", true);
+        bedrockBreakLeaderboardEnabled = bool(properties, "bedrock-break-leaderboard-enabled", false);
         clientScoreboardShowZero = bool(properties, "client-scoreboard-show-zero", false);
         scoreboardSwitchMessageEnabled = bool(properties, "scoreboard-switch-message-enabled", true);
         nameColorMode = NameColorMode.parse(properties.getProperty("scoreboard-name-color-enabled", "true"));
@@ -177,7 +198,7 @@ final class RankBoardConfig {
         scoreboardLiveUpdateEnabled = bool(properties, "scoreboard-live-update-enabled", true);
         scoreboardLiveUpdateWindowSeconds = integer(properties, "scoreboard-live-update-window-seconds", 30, 1, 300);
         scoreboardLiveUpdateThreshold = integer(properties, "scoreboard-live-update-threshold", 100, 1, 100000);
-        scoreboardLiveUpdateThrottleSeconds = integer(properties, "scoreboard-live-update-throttle-seconds", 30, 1, 3600);
+        scoreboardLiveUpdateThrottleSeconds = integer(properties, "scoreboard-live-update-throttle-seconds", 3, 1, 3600);
         foreignScoreboardPolicy = ForeignScoreboardPolicy.parse(
                 properties.getProperty("foreign-scoreboard-blocking-mode", "ask"));
         modWhitelistEnabled = bool(properties, "mod-whitelist-enabled", false);
@@ -187,6 +208,7 @@ final class RankBoardConfig {
         avatarCacheEnabled = bool(properties, "avatar-cache-enabled", true);
         avatarCacheDays = integer(properties, "avatar-cache-days", 7, 1, 365);
         welcomeName = properties.getProperty("welcome-name", "auto").strip();
+        defaultLanguage = configuredLanguageCode(properties.getProperty("default-language", "zh_cn"));
         webPublicAddress = properties.getProperty("web-public-address", "").strip();
         helpVisibility = HelpVisibility.parse(properties.getProperty("help-visibility", "all"));
     }
@@ -296,7 +318,9 @@ final class RankBoardConfig {
         String host = web.getProperty("host", "").strip();
         if (host.isEmpty() || host.equals("0.0.0.0") || host.equals("::")) host = "127.0.0.1";
         if (host == null || host.isBlank()) host = "127.0.0.1";
-        return host + ":" + web.getProperty("port", "8765").strip();
+        String configuredPort = web.getProperty("port", "8765").strip();
+        int activePort = WebDashboard.activePort();
+        return host + ":" + (activePort > 0 ? activePort : configuredPort);
     }
 
     private static Properties loadMigratedProperties(MinecraftServer server, String fileName,
@@ -421,11 +445,16 @@ final class RankBoardConfig {
             return value.equalsIgnoreCase("auto") ? "auto" : normalizedColor(value);
         }
         return switch (option.key) {
+            case "join-message-mode" -> switch (value.toLowerCase(Locale.ROOT)) {
+                case "simple", "detailed" -> value.toLowerCase(Locale.ROOT);
+                default -> throw new IllegalArgumentException("可用值：simple、detailed");
+            };
             case "history-files-per-second" -> normalizedInteger(value, 1, 1000);
             case "history-scan-threads" -> normalizedInteger(value, 0, 256);
             case "carousel-interval-seconds" -> normalizedInteger(value, 3, 3600);
             case "avatar-cache-days" -> normalizedInteger(value, 1, 365);
             case "port" -> normalizedInteger(value, 1, 65535);
+            case "web-switcher-weight" -> normalizedInteger(value, 1, 10000);
             case "web-data-requests-per-second" -> normalizedInteger(value, 1, 100);
             case "web-icon-request-interval-seconds" -> normalizedInteger(value, 1, 3600);
             case "scoreboard-live-update-window-seconds" -> normalizedInteger(value, 1, 300);
@@ -433,11 +462,11 @@ final class RankBoardConfig {
             case "scoreboard-live-update-throttle-seconds", "web-ranking-refresh-interval-seconds" -> normalizedInteger(value, 1, 3600);
             case "welcome-enabled", "join-menu-enabled", "join-web-hint-enabled", "website-button-enabled",
                     "restore-scoreboard-on-join", "look-up-sneak-menu-enabled", "carousel-enabled",
-                    "carousel-color-follow-metric",
+                    "carousel-color-follow-metric", "bedrock-break-leaderboard-enabled",
                     "client-scoreboard-show-zero", "scoreboard-switch-message-enabled",
                     "scoreboard-title-color-enabled",
                     "scoreboard-live-update-enabled", "avatar-cache-enabled", "mod-whitelist-enabled",
-                    "web-theme-follow-icon" -> normalizedBoolean(value);
+                    "web-enabled", "web-theme-follow-icon", "web-switcher-op-hint-enabled", "web-port-fallback-enabled" -> normalizedBoolean(value);
             case "help-visibility" -> switch (value.toLowerCase(Locale.ROOT)) {
                 case "all" -> "all";
                 case "op", "ops" -> "op";
@@ -457,7 +486,15 @@ final class RankBoardConfig {
                 if (value.isEmpty()) throw new IllegalArgumentException(option.key + " 不能为空");
                 yield value;
             }
-            case "welcome-name", "server-name" -> value.isEmpty() ? "auto" : value;
+            case "welcome-name", "server-name", "web-switcher-name" -> value.isEmpty() ? "auto" : normalizedLabel(value);
+            case "default-language" -> languageCode(value, "zh_cn");
+            case "web-default-language" -> switch (value.toLowerCase(Locale.ROOT)) {
+                case "zh", "zh_cn", "zh-cn" -> "zh_cn";
+                case "en", "en_us", "en-us" -> "en_us";
+                case "auto" -> "auto";
+                default -> throw new IllegalArgumentException("可用值：zh_cn、en_us、auto");
+            };
+            case "web-switcher-peers" -> normalizePeerList(value);
             case "web-public-address" -> value.equalsIgnoreCase("auto") ? "" : value;
             default -> value;
         };
@@ -471,6 +508,24 @@ final class RankBoardConfig {
         };
     }
 
+    private static String languageCode(String value, String fallback) {
+        String normalized = value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) return fallback;
+        if (!normalized.matches("[a-z0-9_-]{2,32}")) {
+            throw new IllegalArgumentException("语言代码只能包含 2-32 个字母、数字、下划线或连字符");
+        }
+        return normalized;
+    }
+
+    private static String configuredLanguageCode(String value) {
+        try {
+            return languageCode(value, "zh_cn");
+        } catch (IllegalArgumentException exception) {
+            RankBoardMod.LOGGER.warn("Invalid default-language '{}'; falling back to zh_cn", value);
+            return "zh_cn";
+        }
+    }
+
     private static String normalizedColor(String value) {
         if (!value.matches("#[0-9a-fA-F]{6}")) throw new IllegalArgumentException("颜色格式必须为 #RRGGBB");
         return value.toUpperCase(Locale.ROOT);
@@ -480,6 +535,20 @@ final class RankBoardConfig {
         if (value.isEmpty() || value.length() > 32) throw new IllegalArgumentException("榜单名称长度必须为 1-32 个字符");
         if (value.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException("榜单名称不能包含控制字符");
         return value;
+    }
+
+    private static String normalizePeerList(String value) {
+        if (value.isEmpty()) return "";
+        java.util.LinkedHashSet<String> peers = new java.util.LinkedHashSet<>();
+        for (String raw : value.split(",")) {
+            String peer = raw.strip();
+            if (peer.isEmpty()) continue;
+            if (peer.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException("网页地址不能包含控制字符");
+            }
+            peers.add(peer);
+        }
+        return String.join(",", peers);
     }
 
     private static String normalizedInteger(String value, int minimum, int maximum) {

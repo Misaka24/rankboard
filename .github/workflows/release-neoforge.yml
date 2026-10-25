@@ -1,0 +1,238 @@
+name: Publish RankBoard NeoForge
+
+run-name: Publish RankBoard NeoForge ${{ github.event.release.tag_name || inputs.tag }}
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published GitHub Release tag
+        required: true
+        type: string
+      destinations:
+        description: External publication targets
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - modrinth
+          - curseforge
+      versions:
+        description: NeoForge targets to rebuild (1.21.x, 26.x; comma-separated or all)
+        required: false
+        type: string
+        default: all
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-neoforge-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    # Fabric releases use the fabric- prefix so the two loader pipelines stay isolated.
+    if: ${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.release.tag_name, 'fabric-') }}
+    name: Inspect published Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      version_type: ${{ steps.metadata.outputs.version_type }}
+      destinations: ${{ steps.metadata.outputs.destinations }}
+      versions: ${{ steps.metadata.outputs.versions }}
+    steps:
+      - name: Resolve Release metadata
+        id: metadata
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DESTINATIONS: ${{ inputs.destinations }}
+          INPUT_VERSIONS: ${{ inputs.versions }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$EVENT_TAG"
+          destinations="$INPUT_DESTINATIONS"
+          versions="$INPUT_VERSIONS"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            destinations="all"
+            versions="all"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "Release tag is empty" >&2
+            exit 1
+          fi
+          destinations="${destinations:-all}"
+          versions="${versions:-all}"
+          versions="${versions// /}"
+          if [[ "$versions" != "all" ]]; then
+            IFS=',' read -ra requested <<< "$versions"
+            for target in "${requested[@]}"; do
+              case "$target" in
+                1.21.x|26.x) ;;
+                *) echo "Unsupported release family '$target'; use 1.21.x,26.x or all." >&2; exit 1 ;;
+              esac
+            done
+          fi
+
+          version="$tag"
+          version="${version#release-}"
+          version="${version#neoforge-}"
+          version="${version#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Could not derive a semantic version from tag '$tag'." >&2
+            exit 1
+          fi
+
+          prerelease="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')"
+          version_type="release"
+          if [[ "$prerelease" == "true" ]]; then
+            version_type="beta"
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "version_type=$version_type"
+            echo "destinations=$destinations"
+            echo "versions=$versions"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build NeoForge ${{ matrix.target }}
+    needs: inspect
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - target: 1.21.x
+            java: '21'
+          - target: 26.x
+            java: '25'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.tag }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check cross-version feature parity
+        run: python scripts/check-feature-parity.py
+      - name: Build one direct NeoForge family JAR
+        if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.inspect.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: ./scripts/build-direct-neoforge.ps1 -Target $env:TARGET -OutputDirectory release -ModVersion $env:VERSION
+      - name: Reject embedded per-version variants
+        if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
+        shell: bash
+        run: |
+          if unzip -Z1 release/*.jar | grep -q '^META-INF/jars/'; then
+            echo 'Embedded per-version JARs are not allowed.' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
+        with:
+          name: neoforge-${{ matrix.target }}
+          path: release
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish NeoForge ${{ matrix.target }}
+    needs: [inspect, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - target: 1.21.x
+            game_versions: |
+              1.21
+              1.21.1
+              1.21.2
+              1.21.3
+              1.21.4
+              1.21.5
+              1.21.6
+              1.21.7
+              1.21.8
+              1.21.9
+              1.21.10
+              1.21.11
+          - target: 26.x
+            game_versions: |
+              26.1
+              26.1.1
+              26.1.2
+              26.2
+              26.3
+    steps:
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
+        with:
+          name: neoforge-${{ matrix.target }}
+          path: release
+      - name: Upload family JAR to GitHub Release
+        if: ${{ needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target)) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" release/*.jar --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish NeoForge to modrinth
+        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'modrinth') }}
+        uses: Kira-NT/mc-publish@v3
+        with:
+          files: release/*.jar
+          name: RankBoard ${{ needs.inspect.outputs.version }} NeoForge ${{ matrix.target }}
+          version: ${{ needs.inspect.outputs.version }}
+          version-type: ${{ needs.inspect.outputs.version_type }}
+          loaders: neoforge
+          game-versions: ${{ matrix.game_versions }}
+          environment: server
+          changelog-file: CHANGELOG.md
+          modrinth-id: ${{ vars.MODRINTH_NEOFORGE_PROJECT_ID || vars.MODRINTH_PROJECT_ID || 'TcDzE8EJ' }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          retry-attempts: 3
+          retry-delay: 15000
+      - name: Publish NeoForge to curseforge
+        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'curseforge') }}
+        uses: Kira-NT/mc-publish@v3
+        with:
+          files: release/*.jar
+          name: RankBoard ${{ needs.inspect.outputs.version }} NeoForge ${{ matrix.target }}
+          version: ${{ needs.inspect.outputs.version }}
+          version-type: ${{ needs.inspect.outputs.version_type }}
+          loaders: neoforge
+          game-versions: ${{ matrix.game_versions }}
+          environment: server
+          changelog-file: CHANGELOG.md
+          curseforge-id: ${{ vars.CURSEFORGE_NEOFORGE_PROJECT_ID || vars.CURSEFORGE_PROJECT_ID || '1663124' }}
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          retry-attempts: 3
+          retry-delay: 15000

@@ -1,0 +1,1 @@
+{"required":true,"package":"cn.bamgdam.rankboard.unified.mixins","plugin":"cn.bamgdam.rankboard.unified.UnifiedMixinPlugin","compatibilityLevel":"JAVA_21","mixins":[],"injectors":{"defaultRequire":1}}

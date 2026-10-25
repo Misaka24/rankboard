@@ -28,6 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -43,23 +46,70 @@ final class StatReader {
     private static final AtomicInteger PROCESSED = new AtomicInteger();
     private static final AtomicInteger TOTAL = new AtomicInteger();
     private static final AtomicLong GENERATION = new AtomicLong();
+    private static final AtomicLong PERIOD_DATA_REVISION = new AtomicLong();
+    private static volatile List<Item> counterItems = List.of();
+    private static volatile List<Block> counterBlocks = List.of();
+    private static volatile List<Item> foodCounterItems = List.of();
+    private static volatile List<Item> blockCounterItems = List.of();
+    private static volatile List<Item> redstoneCounterItems = List.of();
     private static final int PERSISTENT_CACHE_SCHEMA = 7;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "RankBoard-HistoryLoader");
         thread.setDaemon(true);
         return thread;
     });
+    private static final long CACHE_SAVE_COALESCE_MILLIS = 1000L;
+    private static final Object SAVE_REQUEST_LOCK = new Object();
+    private static final Object CACHE_WRITE_LOCK = new Object();
+    private static final ScheduledExecutorService CACHE_WRITER = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "RankBoard-CacheWriter");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static ScheduledFuture<?> pendingSave;
+    private static MinecraftServer pendingSaveServer;
+    private static long saveTicket;
     private static volatile Future<?> warmupTask;
     private static volatile boolean ready;
     private static volatile boolean persistentCacheLoaded;
+    private static volatile boolean loadedFromPersistentCacheOnly;
 
     private StatReader() { }
 
+    /** Loads a complete persistent cache on ordinary startups. A filesystem scan
+     * is reserved for first installation, an invalid cache, or an OP request. */
+    static void initialize(MinecraftServer server) {
+        PERIOD_DATA_REVISION.incrementAndGet();
+        long generation = GENERATION.incrementAndGet();
+        Future<?> oldTask = warmupTask;
+        if (oldTask != null) oldTask.cancel(true);
+        warmupTask = null;
+        ready = false;
+        PROCESSED.set(0);
+        TOTAL.set(0);
+        CACHE.clear();
+        SOURCE_MODIFIED.clear();
+        prepareItemSets();
+        persistentCacheLoaded = loadPersistentCache(server);
+        if (!persistentCacheLoaded) {
+            startWarmup(server);
+            return;
+        }
+        if (generation != GENERATION.get()) return;
+        ready = true;
+        loadedFromPersistentCacheOnly = true;
+        TOTAL.set(CACHE.size());
+        PROCESSED.set(CACHE.size());
+        RankBoardMod.LOGGER.info("Loaded persistent history cache: {} player files; skipping startup stat scan", CACHE.size());
+    }
+
     static void startWarmup(MinecraftServer server) {
+        PERIOD_DATA_REVISION.incrementAndGet();
         long generation = GENERATION.incrementAndGet();
         Future<?> oldTask = warmupTask;
         if (oldTask != null) oldTask.cancel(true);
         ready = false;
+        loadedFromPersistentCacheOnly = false;
         PROCESSED.set(0);
         TOTAL.set(0);
         CACHE.clear();
@@ -77,6 +127,7 @@ final class StatReader {
         warmupTask = null;
         ready = false;
         persistentCacheLoaded = false;
+        loadedFromPersistentCacheOnly = false;
     }
 
     static void reloadPlayer(MinecraftServer server, UUID uuid) {
@@ -107,12 +158,77 @@ final class StatReader {
         WebDashboard.invalidateRankings();
     }
 
+    static Map<UUID, StatSnapshot> cacheSnapshot() {
+        return new HashMap<>(CACHE);
+    }
+
+    static Future<?> submitComparison(Runnable task) {
+        return LOADER.submit(task);
+    }
+
+    static Map<UUID, String> knownNamesForComparison(MinecraftServer server) {
+        return readKnownNames(server);
+    }
+
+    static java.util.Optional<StatSnapshot> readComparisonSnapshot(Path path, Map<UUID, String> names) {
+        return readSnapshot(path, names);
+    }
+
+    static UUID uuidFromStatPathOrNull(Path path) {
+        return uuidFromPathOrNull(path);
+    }
+
+    static StatFileVersion statFileVersion(Path path) {
+        if (!Files.isRegularFile(path)) return new StatFileVersion(-1L, -1L);
+        try {
+            return new StatFileVersion(Files.getLastModifiedTime(path).toMillis(), Files.size(path));
+        } catch (IOException exception) {
+            return new StatFileVersion(-1L, -1L);
+        }
+    }
+
+    static boolean applyComparison(MinecraftServer server, Map<UUID, StatSnapshot> expectedCache,
+                                   Map<UUID, StatSnapshot> latestSnapshots,
+                                   Map<UUID, StatFileVersion> sourceVersions) {
+        if (!ready || isChecking() || latestSnapshots.isEmpty()) return false;
+        for (Map.Entry<UUID, StatSnapshot> entry : latestSnapshots.entrySet()) {
+            UUID uuid = entry.getKey();
+            if (!java.util.Objects.equals(expectedCache.get(uuid), CACHE.get(uuid))) return false;
+
+            Path path = server.getSavePath(WorldSavePath.STATS).resolve(uuid + ".json");
+            ServerPlayerEntity online = server.getPlayerManager().getPlayer(uuid);
+            if (online != null) {
+                if (!fromPlayer(online).equals(entry.getValue())) return false;
+            } else if (!java.util.Objects.equals(sourceVersions.get(uuid), statFileVersion(path))) {
+                return false;
+            }
+        }
+
+        for (Map.Entry<UUID, StatSnapshot> entry : latestSnapshots.entrySet()) {
+            UUID uuid = entry.getKey();
+            CACHE.put(uuid, entry.getValue());
+            SOURCE_MODIFIED.put(uuid, statFileVersion(server.getSavePath(WorldSavePath.STATS)
+                    .resolve(uuid + ".json")).modifiedMillis());
+        }
+        savePersistentCache(server);
+        WebDashboard.invalidateRankings();
+        return true;
+    }
+
+    static long periodDataRevision() { return PERIOD_DATA_REVISION.get(); }
+    static List<Item> counterItems() { return counterItems; }
+    static List<Block> counterBlocks() { return counterBlocks; }
+    static List<Item> foodCounterItems() { return foodCounterItems; }
+    static List<Item> blockCounterItems() { return blockCounterItems; }
+    static List<Item> redstoneCounterItems() { return redstoneCounterItems; }
+
     static void updateName(UUID uuid, String name) {
         CACHE.computeIfPresent(uuid, (ignored, snapshot) -> new StatSnapshot(uuid, name, snapshot.values()));
     }
 
     static boolean isReady() { return ready; }
     static boolean isPersistentCacheLoaded() { return persistentCacheLoaded; }
+    static boolean isLoadedFromPersistentCacheOnly() { return loadedFromPersistentCacheOnly; }
     static boolean isChecking() { return warmupTask != null && !warmupTask.isDone(); }
     static int processed() { return PROCESSED.get(); }
     static int totalFiles() { return TOTAL.get(); }
@@ -136,7 +252,11 @@ final class StatReader {
                     && !RankBoardWhitelist.matches(server, player.getUuid(), player.getName().getString())) continue;
             snapshots.put(player.getUuid(), fromPlayer(player, onlyMetric));
         }
-        return new ArrayList<>(snapshots.values());
+        LeaderboardState state = LeaderboardState.get(server);
+        List<StatSnapshot> result = new ArrayList<>(snapshots.size());
+        snapshots.values().forEach(snapshot -> result.add(onlyMetric == null ? state.applyCustomMetrics(snapshot)
+                : state.applyCustomMetric(snapshot, onlyMetric)));
+        return result;
     }
 
     private static void warmup(MinecraftServer server, long generation, int filesPerSecond) {
@@ -209,7 +329,6 @@ final class StatReader {
                 LeaderboardState.get(server).rollPeriods(server);
                 BoardService.restoreGlobal(server);
                 for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) BoardService.restore(player);
-                BoardService.refreshAll(server);
                 WebDashboard.invalidateRankings();
             });
         } catch (InterruptedException exception) {
@@ -290,6 +409,49 @@ final class StatReader {
     }
 
     private static void savePersistentCache(MinecraftServer server) {
+        if (!ready) return;
+        synchronized (SAVE_REQUEST_LOCK) {
+            if (pendingSave != null && !pendingSave.isDone() && pendingSaveServer == server) return;
+            if (pendingSave != null) pendingSave.cancel(false);
+            pendingSaveServer = server;
+            long ticket = ++saveTicket;
+            long generation = GENERATION.get();
+            pendingSave = CACHE_WRITER.schedule(() -> {
+                synchronized (SAVE_REQUEST_LOCK) {
+                    if (ticket != saveTicket) return;
+                    pendingSave = null;
+                    pendingSaveServer = null;
+                }
+                writePersistentCache(server, generation);
+            }, CACHE_SAVE_COALESCE_MILLIS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Finish the last complete cache before a server is stopped or replaced. */
+    static void flushPersistentCache(MinecraftServer server) {
+        synchronized (SAVE_REQUEST_LOCK) {
+            ++saveTicket;
+            if (pendingSave != null) pendingSave.cancel(false);
+            pendingSave = null;
+            pendingSaveServer = null;
+        }
+        if (ready) for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            StatSnapshot snapshot = fromPlayer(player);
+            CACHE.put(snapshot.uuid(), snapshot);
+            SOURCE_MODIFIED.put(snapshot.uuid(), modifiedTime(server.getSavePath(WorldSavePath.STATS)
+                    .resolve(snapshot.uuid() + ".json")));
+        }
+        writePersistentCache(server, GENERATION.get());
+    }
+
+    private static void writePersistentCache(MinecraftServer server, long generation) {
+        synchronized (CACHE_WRITE_LOCK) {
+            if (!ready || generation != GENERATION.get()) return;
+            writePersistentCacheLocked(server, generation);
+        }
+    }
+
+    private static void writePersistentCacheLocked(MinecraftServer server, long generation) {
         Path path = persistentCachePath(server);
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try {
@@ -312,6 +474,10 @@ final class StatReader {
             });
             root.add("players", players);
             try (var writer = Files.newBufferedWriter(temporary)) { writer.write(root.toString()); }
+            if (!ready || generation != GENERATION.get()) {
+                Files.deleteIfExists(temporary);
+                return;
+            }
             try {
                 Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                         java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -390,24 +556,34 @@ final class StatReader {
         BLOCK_ITEMS.clear();
         BLOCK_IDS.clear();
         REDSTONE_COMPONENT_ITEMS.clear();
-        for (Block block : Registries.BLOCK) BLOCK_IDS.add(Registries.BLOCK.getId(block).toString());
+        counterBlocks = Registries.BLOCK.stream().toList();
+        counterItems = Registries.ITEM.stream().toList();
+        List<Item> food = new ArrayList<>();
+        List<Item> placed = new ArrayList<>();
+        List<Item> redstone = new ArrayList<>();
+        for (Block block : Registries.BLOCK) {
+            BLOCK_IDS.add(Registries.BLOCK.getId(block).toString());
+        }
         for (Item item : Registries.ITEM) {
             String id = Registries.ITEM.getId(item).toString();
-            if (item.getComponents().get(DataComponentTypes.FOOD) != null) FOOD_ITEMS.add(id);
-            if (item instanceof BlockItem) BLOCK_ITEMS.add(id);
-            if (RankBoardMod.isRedstoneComponent(item)) REDSTONE_COMPONENT_ITEMS.add(id);
+            if (ComponentLookupCompat.has(item.getComponents(), DataComponentTypes.FOOD)) { FOOD_ITEMS.add(id); food.add(item); }
+            if (item instanceof BlockItem) { BLOCK_ITEMS.add(id); placed.add(item); }
+            if (RankBoardMod.isRedstoneComponent(item)) { REDSTONE_COMPONENT_ITEMS.add(id); redstone.add(item); }
         }
+        foodCounterItems = List.copyOf(food);
+        blockCounterItems = List.copyOf(placed);
+        redstoneCounterItems = List.copyOf(redstone);
     }
 
     static StatSnapshot fromPlayer(ServerPlayerEntity player) { return fromPlayer(player, null); }
 
-    private static StatSnapshot fromPlayer(ServerPlayerEntity player, RankBoardMod.Metric onlyMetric) {
+    static StatSnapshot fromPlayer(ServerPlayerEntity player, RankBoardMod.Metric onlyMetric) {
         Map<RankBoardMod.Metric, Long> values = new EnumMap<>(RankBoardMod.Metric.class);
         if (onlyMetric != null) {
-            values.put(onlyMetric, onlyMetric.read(player));
+            values.put(onlyMetric, LeaderboardReadScope.read(player, onlyMetric));
         } else {
             for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
-                try { values.put(metric, metric.read(player)); }
+                try { values.put(metric, LeaderboardReadScope.read(player, metric)); }
                 catch (RuntimeException exception) {
                     RankBoardMod.LOGGER.warn("Failed to read live {} statistic for {}", metric.command,
                             player.getName().getString(), exception);
@@ -433,6 +609,8 @@ final class StatReader {
             case PLACED -> sumMatching(stats, "minecraft:used", BLOCK_ITEMS);
             case MINED -> sumMatching(stats, "minecraft:mined", BLOCK_IDS);
             case JUMPS -> stat(stats, "minecraft:custom", "minecraft:jump");
+            case ANIMALS_BRED -> stat(stats, "minecraft:custom", "minecraft:animals_bred");
+            case BEDROCK_BROKEN, AFK_TIME -> 0L;
             case KILLS -> stat(stats, "minecraft:custom", "minecraft:mob_kills") + stat(stats, "minecraft:custom", "minecraft:player_kills");
             case PVP_KILLS -> stat(stats, "minecraft:custom", "minecraft:player_kills");
             case DEATHS -> stat(stats, "minecraft:custom", "minecraft:deaths");
@@ -446,7 +624,6 @@ final class StatReader {
             case PICKED_UP -> sum(stats, "minecraft:picked_up");
             case CRAFTED -> sum(stats, "minecraft:crafted");
             case REDSTONE_PLACED -> sumMatching(stats, "minecraft:used", REDSTONE_COMPONENT_ITEMS);
-            case ANIMALS_BRED -> stat(stats, "minecraft:custom", "minecraft:animals_bred");
             case SHIELD_BLOCKED -> stat(stats, "minecraft:custom", "minecraft:damage_blocked_by_shield");
             case ENCHANTED -> stat(stats, "minecraft:custom", "minecraft:enchant_item");
             case SLEPT -> stat(stats, "minecraft:custom", "minecraft:sleep_in_bed");
@@ -504,6 +681,8 @@ final class StatReader {
         return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
     }
 }
+
+record StatFileVersion(long modifiedMillis, long size) { }
 
 record StatSnapshot(UUID uuid, String name, Map<RankBoardMod.Metric, Long> values) {
     long value(RankBoardMod.Metric metric) { return values.getOrDefault(metric, 0L); }

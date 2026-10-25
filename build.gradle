@@ -22,14 +22,23 @@ repositories {
 
 def versionParts = project.minecraft_version.tokenize('.').collect { it as int }
 def usesModernApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts[1] == 21 && versionParts.size() > 2 && versionParts[2] >= 5)
-def usesLateApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts[1] == 21 && versionParts.size() > 2 && versionParts[2] >= 10)
+def usesLateApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts[1] == 21 && versionParts.size() > 2 && versionParts[2] >= 9)
 def usesLatestApi = versionParts[0] >= 26 || (versionParts[0] == 1 && versionParts[1] == 21 && versionParts.size() > 2 && versionParts[2] >= 11)
+
+// Allow reproducible offline builds to point Loom at an already cached version
+// metadata JSON without changing the normal online resolution behavior.
+if (project.findProperty('loom_custom_metadata')) {
+    loom.customMinecraftMetadata = project.findProperty('loom_custom_metadata').toString()
+}
 
 sourceSets.main.java {
     srcDir 'src/common/java'
     if (versionParts[0] >= 26) {
         setSrcDirs(['src/mojmap/java'])
         srcDir 'src/common/java'
+        // The NeoForge bootstrap is packaged separately by the NeoForge project.
+        // Fabric 26.x builds must not compile this NeoForge-only entrypoint.
+        exclude 'cn/bamgdam/rankboard/UniversalNeoForgeEntrypoint.java'
     } else if (usesModernApi) {
         exclude 'cn/bamgdam/rankboard/NbtCompat.java'
         exclude 'cn/bamgdam/rankboard/PersistentStateCompat.java'
@@ -79,7 +88,9 @@ tasks.register('webBuild', Exec) {
     workingDir file('web')
     inputs.files(fileTree('web/src'), 'web/index.html', 'web/vite.config.ts',
             'web/tsconfig.json', 'web/tsconfig.app.json', 'web/tsconfig.node.json')
-    if (file('web/public').exists()) inputs.dir('web/public')
+    if (file('web/public').exists()) {
+        inputs.dir('web/public')
+    }
     outputs.dir('web/dist')
     commandLine npmExecutable, 'run', 'build'
 }
@@ -123,4 +134,16 @@ tasks.register('historyStoreTest', JavaExec) {
 tasks.named('test') {
     dependsOn tasks.named('historyStoreTest')
     failOnNoDiscoveredTests = false
+}
+
+// The menu/history regression suite is written against Yarn names. 26.x builds
+// compile against Mojang mappings, so the suite is only meaningful for 1.21.x.
+if (usesMojangNames) {
+    sourceSets.test.java.setSrcDirs([])
+    tasks.named('test') { enabled = false }
+    tasks.named('historyStoreTest') { enabled = false }
+}
+
+if (project.hasProperty('rankboard_unified_namespace')) {
+    apply from: 'unified/namespace-sources.gradle'
 }

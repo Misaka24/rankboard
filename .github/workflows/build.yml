@@ -1,0 +1,89 @@
+name: Build unified RankBoard JAR
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify one Fabric + NeoForge JAR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Check cross-version feature parity
+        run: python scripts/check-feature-parity.py
+
+      - name: Build one direct JAR from source
+        shell: pwsh
+        run: |
+          $env:JAVA_HOME = $env:JAVA_HOME_25_X64
+          ./scripts/build-unified.ps1 -Java21Home $env:JAVA_HOME_21_X64
+
+      - name: Verify artifact name and runtime selection
+        shell: pwsh
+        run: |
+          $artifacts = @(Get-ChildItem unified/build/libs -Filter 'rankboard-*.jar' -File)
+          if ($artifacts.Count -ne 1) { throw "Expected exactly one JAR, found $($artifacts.Count)." }
+          if ($artifacts[0].Name -match '\+fabric-neoforge') { throw 'The artifact name must not contain the loader suffix.' }
+          $versionLine = Get-Content gradle.properties | Where-Object { $_ -match '^mod_version=' } | Select-Object -First 1
+          $expected = ($versionLine -split '=', 2)[1].Trim()
+          if ($artifacts[0].Name -notlike "rankboard-$expected+mc1.21-26.3+*.jar") { throw "Unexpected filename: $($artifacts[0].Name)" }
+          $output = Join-Path $env:RUNNER_TEMP 'rankboard-runtime-selection-tests'
+          New-Item -ItemType Directory -Path $output | Out-Null
+          javac --release 21 -cp $artifacts[0].FullName -d $output tests/java/cn/bamgdam/rankboardtest/UnifiedRuntimeSelectionTest.java
+          $classpath = "$($artifacts[0].FullName)$([IO.Path]::PathSeparator)$output"
+          java -cp $classpath cn.bamgdam.rankboardtest.UnifiedRuntimeSelectionTest
+
+      - name: Run flight-distance math regression
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/rankboard-flight-distance-tests"
+          mkdir -p "$output"
+          javac --release 21 -d "$output" \
+            src/main/java/cn/bamgdam/rankboard/FlightDistanceMath.java \
+            tests/java/cn/bamgdam/rankboard/FlightDistanceMathTest.java
+          java -cp "$output" cn.bamgdam.rankboard.FlightDistanceMathTest
+
+      - name: Run permission API regression
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/rankboard-permission-tests"
+          mkdir -p "$output"
+          javac --release 21 -d "$output" \
+            src/mojmap/java/cn/bamgdam/rankboard/CommandPermissionSupport.java \
+            tests/java/cn/bamgdam/rankboardtest/fixture/PermissionSourceFixture.java \
+            tests/java/cn/bamgdam/rankboard/CommandPermissionSupportTest.java
+          java -cp "$output" cn.bamgdam.rankboard.CommandPermissionSupportTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rankboard-${{ github.sha }}
+          path: unified/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 14

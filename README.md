@@ -1,10 +1,11 @@
 # RankBoard
 
-RankBoard 是一个面向 Minecraft Fabric 服务端的排行榜模组。它直接读取原版玩家统计，提供聊天栏排行榜、个人侧边栏、全服侧边栏、自动轮播和网页排行榜。玩家无需安装客户端模组，也不需要重新开始存档。
+RankBoard 是一个面向 Minecraft 服务端的排行榜模组，同时提供 Fabric 与 NeoForge 版本。它直接读取原版玩家统计，提供聊天栏排行榜、个人侧边栏、全服侧边栏、自动轮播、榜单缓存对比和网页排行榜。玩家无需安装客户端模组，也不需要重新开始存档。
 
-当前版本：`1.10.3`
+当前版本：`2.1.0`
 
 - 项目仓库：[Misaka24/rankboard](https://github.com/Misaka24/rankboard)
+- 上游仓库：[halfkite/rankboard](https://github.com/halfkite/rankboard)
 - 下载：[GitHub Releases](https://github.com/Misaka24/rankboard/releases)
 - 许可证：[MIT](LICENSE)
 
@@ -19,31 +20,39 @@ RankBoard 适合生存服、活动服、好友服和长期周目服务器：
 - 离线玩家仍可参与排名。
 - 可按服务器白名单、RankBoard 独立白名单、在线状态与假人规则筛选。
 - 独立“生物受害”分类提供 9 个综合榜和 53 个单种生物受害者榜。
+- 新增摸鱼榜、破基岩榜，以及缓存差异对比、聊天语言切换和同端口多服务器网页切换。
 
 RankBoard 是服务端模组。正常使用聊天菜单、原版侧边栏和网页时，客户端不需要安装 RankBoard。
 
 ## 支持版本与下载选择
 
-每次正式发布提供三个 JAR：
+每次正式发布按加载器与版本家族提供 JAR：
 
-| 文件 | Minecraft | Java | Fabric Loader |
+| 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-1.10.3+mc1.21.x.jar` | 1.21–1.21.11 | Java 21+ | 0.15.11+ |
-| `rankboard-1.10.3+mc26.1.x.jar` | 26.1.x | Java 25+ | 0.18.6+ |
-| `rankboard-1.10.3+mc26.2.x.jar` | 26.2.x | Java 25+ | 0.18.6+ |
+| `rankboard-2.1.0+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.1.0+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
+| `rankboard-2.1.0+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
+| `rankboard-2.1.0+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
+| `rankboard-2.1.0+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.1.0+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
 
-还需要与 Minecraft 版本匹配的 Fabric API。请勿同时安装多个 RankBoard JAR。
+Fabric 还需要与 Minecraft 版本匹配的 Fabric API；NeoForge 不需要额外 API 模组。请勿同时安装多个 RankBoard JAR，也不要在同一服务器同时安装 Fabric 与 NeoForge 两个版本。
 
 ## 安装
 
-1. 安装对应版本的 Fabric Loader 与 Fabric API。
-2. 下载匹配服务端 Minecraft 版本的 RankBoard JAR。
-3. 将 JAR 放入服务端 `mods/`。
-4. 启动服务器。
-5. 首次启动后按需修改 `config/rankboard/`。
-6. 输入 `/leaderboard` 打开可点击菜单。
+Fabric：
 
-修改配置后可重启，或由 OP 执行 `/leaderboard config reload`。
+1. 安装对应版本的 Fabric Loader 与 Fabric API。
+2. 下载匹配服务端 Minecraft 版本的 Fabric JAR。
+3. 将 JAR 放入服务端 `mods/`。
+
+NeoForge：
+
+1. 安装对应 Minecraft 版本的 NeoForge。
+2. 将 `rankboard-2.1.0+neoforge+mc*.jar` 放入服务端 `mods/`。
+
+启动服务器，首次运行会生成 `config/rankboard/`。按需修改后重启，或由 OP 执行 `/leaderboard config reload`。输入 `/leaderboard` 打开可点击菜单。
 
 ## 游戏内菜单
 
@@ -397,11 +406,23 @@ world/data/rankboard/history/YYYY-MM.dat
 
 ## 从源码构建
 
-1.21.x 使用 JDK 21，26.x 使用 JDK 25。
+Gradle 需要 JDK 25 运行；1.21.x 目标使用 Java 21 字节码，26.x 目标使用 Java 25 字节码。
 
 ```text
 gradlew.bat build
-powershell -ExecutionPolicy Bypass -File scripts/build-universal-1.21.ps1
 ```
 
-普通产物位于 `build/libs/`，多版本发布产物位于 `multi-version-builds/`。
+指定目标版本（Fabric）：
+
+```text
+gradlew.bat build -Pminecraft_version=26.3 -Pmapping_type=none -Ploader_version=0.19.5 -Pfabric_version=0.160.5+26.3 -Pminecraft_dependency=26.3
+```
+
+NeoForge：
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 26.3
+powershell -ExecutionPolicy Bypass -File scripts/build-direct-neoforge.ps1 -Target 1.21.x
+```
+
+普通产物位于 `build/libs/` 或 `neoforge/build/libs/`。多个版本可用 `scripts/build-direct-fabric.ps1` / `scripts/build-direct-neoforge.ps1` 分别构建。
