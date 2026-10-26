@@ -2,7 +2,7 @@
 
 RankBoard 是一个面向 Minecraft 服务端的排行榜模组，同时提供 Fabric 与 NeoForge 版本。它直接读取原版玩家统计，提供聊天栏排行榜、个人侧边栏、全服侧边栏、自动轮播、榜单缓存对比和网页排行榜。玩家无需安装客户端模组，也不需要重新开始存档。
 
-当前版本：`2.1.0`
+当前版本：`2.1.1`
 
 - 项目仓库：[Misaka24/rankboard](https://github.com/Misaka24/rankboard)
 - 上游仓库：[halfkite/rankboard](https://github.com/halfkite/rankboard)
@@ -19,6 +19,7 @@ RankBoard 适合生存服、活动服、好友服和长期周目服务器：
 - 玩家可以独立选择个人侧边栏，OP 可以设置全服共享侧边栏。
 - 离线玩家仍可参与排名。
 - 可按服务器白名单、RankBoard 独立白名单、在线状态与假人规则筛选。
+- 手动隐藏指定玩家，或允许指定的 `bot_`/`unknown_` 玩家重新显示。
 - 独立“生物受害”分类提供 9 个综合榜和 53 个单种生物受害者榜。
 - 新增摸鱼榜、破基岩榜，以及缓存差异对比、聊天语言切换和同端口多服务器网页切换。
 
@@ -30,18 +31,18 @@ RankBoard 是服务端模组。正常使用聊天菜单、原版侧边栏和网�
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.1.0+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
+| `rankboard-2.1.1+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
 
 也可以按版本家族分别构建单加载器 JAR（见“从源码构建”）：
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.1.0+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.1.0+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
-| `rankboard-2.1.0+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
-| `rankboard-2.1.0+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
-| `rankboard-2.1.0+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.1.0+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
+| `rankboard-2.1.1+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.1.1+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
+| `rankboard-2.1.1+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
+| `rankboard-2.1.1+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
+| `rankboard-2.1.1+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.1.1+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
 
 Fabric 还需要与 Minecraft 版本匹配的 Fabric API；NeoForge 不需要额外 API 模组。请勿同时安装多个 RankBoard JAR，也不要在同一服务器同时安装 Fabric 与 NeoForge 两个版本。
 
@@ -56,7 +57,7 @@ Fabric：
 NeoForge：
 
 1. 安装对应 Minecraft 版本的 NeoForge。
-2. 将 `rankboard-2.1.0+neoforge+mc*.jar` 放入服务端 `mods/`。
+2. 将 `rankboard-2.1.1+neoforge+mc*.jar` 放入服务端 `mods/`。
 
 启动服务器，首次运行会生成 `config/rankboard/`。按需修改后重启，或由 OP 执行 `/leaderboard config reload`。输入 `/leaderboard` 打开可点击菜单。
 
@@ -232,6 +233,9 @@ OP 可控制全服入口：
 /leaderboard botfilter <true|false|status>
 /leaderboard customfilter <true|false|status>
 /leaderboard onlinefilter <true|false|status>
+/leaderboard playerfilter
+/leaderboard playerfilter add|allow|remove <玩家名|UUID>
+/leaderboard playerfilter list|clear|status
 /leaderboard modwhitelist add|remove <name|UUID>
 /leaderboard modwhitelist list|reload
 /leaderboard recipients <fake-only|false|whitelist|blacklist|status>
@@ -370,6 +374,25 @@ config/rankboard/
 ```
 
 启用后，扫描、缓存、游戏内与网页排行榜只接受名单玩家。若服务器白名单筛选也开启，则取交集。
+
+### 手动玩家过滤
+
+除了自动过滤 `bot_` 与 `unknown_` 前缀玩家，OP 还可以手动维护两个名单：
+
+- **隐藏名单**：名单内玩家不会出现在任何排行榜、侧边栏或网页中。
+- **允许显示名单**：名单内玩家即使带有 `bot_` 或 `unknown_` 前缀也会正常显示，适合需要保留的假人或历史玩家。
+
+```text
+/leaderboard playerfilter                 打开可点击面板
+/leaderboard playerfilter add <玩家>      加入隐藏名单
+/leaderboard playerfilter allow <玩家>    加入允许显示名单
+/leaderboard playerfilter remove <玩家>   从两个名单移除
+/leaderboard playerfilter list            查看名单
+/leaderboard playerfilter clear           清空两个名单
+/leaderboard playerfilter status          查看过滤状态与人数
+```
+
+玩家名支持在线或离线玩家；也接受 UUID。修改后立即刷新榜单。自动 `bot_`/`unknown_` 过滤仍由 `/leaderboard botfilter` 与 `/leaderboard customfilter` 控制，手动名单优先。
 
 ## 数据与快照位置
 

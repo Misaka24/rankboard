@@ -339,6 +339,29 @@ public final class RankBoardMod implements ModInitializer {
                                         StringArgumentType.getString(context, "player")))))
                 .then(Commands.literal("list").executes(context -> listModWhitelist(context.getSource())))
                 .then(Commands.literal("reload").executes(context -> reloadModWhitelist(context.getSource()))));
+        root.then(Commands.literal("playerfilter").requires(source -> CommandPermissionCompat.has(source, 2))
+                .executes(context -> playerFilterMenu(context.getSource()))
+                .then(Commands.literal("add")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        playerFilterCandidates(context.getSource().getServer()), builder))
+                                .executes(context -> addFilteredPlayer(context.getSource(),
+                                        StringArgumentType.getString(context, "player")))))
+                .then(Commands.literal("allow")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        playerFilterCandidates(context.getSource().getServer()), builder))
+                                .executes(context -> allowFilteredPlayer(context.getSource(),
+                                        StringArgumentType.getString(context, "player")))))
+                .then(Commands.literal("remove")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                        playerFilterCandidates(context.getSource().getServer()), builder))
+                                .executes(context -> removePlayerFilter(context.getSource(),
+                                        StringArgumentType.getString(context, "player")))))
+                .then(Commands.literal("list").executes(context -> listPlayerFilters(context.getSource())))
+                .then(Commands.literal("clear").executes(context -> clearPlayerFilters(context.getSource())))
+                .then(Commands.literal("status").executes(context -> playerFilterStatus(context.getSource()))));
         root.then(Commands.literal("recipients").requires(source -> CommandPermissionCompat.has(source, 2))
                 .executes(context -> recipientFilterStatus(context.getSource()))
                 .then(Commands.literal("status").executes(context -> recipientFilterStatus(context.getSource())))
@@ -670,6 +693,8 @@ public final class RankBoardMod implements ModInitializer {
                 helpCommand(source, "/leaderboard botfilter <true|false|status>", "/leaderboard botfilter ", "筛选 bot_ 前缀玩家；立即生效");
                 helpCommand(source, "/leaderboard customfilter <true|false|status>", "/leaderboard customfilter ", "筛选无法识别身份的历史玩家；立即生效");
                 helpCommand(source, "/leaderboard onlinefilter <true|false|status>", "/leaderboard onlinefilter ", "只显示在线玩家；立即生效");
+                helpCommand(source, "/leaderboard playerfilter add|allow|remove <玩家>", "/leaderboard playerfilter ", "手动隐藏玩家，或允许 bot_/unknown_ 玩家显示");
+                helpCommand(source, "/leaderboard playerfilter", "/leaderboard playerfilter", "打开玩家过滤面板");
                 helpCommand(source, "/leaderboard lookup <uuid|whitelist>", "/leaderboard lookup ", "查询 Mojang 玩家名或批量补全白名单名称");
             }
             case "admin-scoreboard" -> {
@@ -1036,7 +1061,9 @@ public final class RankBoardMod implements ModInitializer {
         if (CommandPermissionCompat.has(source, 2)) {
             Component adminRow = clickable("[全服侧边栏]", ChatFormatting.GOLD, "/leaderboard menu server", "设置或清除全服共享侧边栏")
                     .copy().append(Component.literal(" "))
-                    .append(clickable("[清除全服侧边栏]", ChatFormatting.RED, "/leaderboard scoreboard clear", "立即关闭全服共享侧边栏"));
+                    .append(clickable("[清除全服侧边栏]", ChatFormatting.RED, "/leaderboard scoreboard clear", "立即关闭全服共享侧边栏"))
+                    .append(Component.literal(" "))
+                    .append(clickable("[玩家过滤]", ChatFormatting.AQUA, "/leaderboard playerfilter", "手动隐藏或允许显示玩家"));
             source.sendSuccess(() -> adminRow, false);
         }
 
@@ -2338,6 +2365,177 @@ public final class RankBoardMod implements ModInitializer {
         source.sendSuccess(() -> prompt, false);
     }
 
+    private int addFilteredPlayer(CommandSourceStack source, String player) {
+        String name = player == null ? "" : player.trim();
+        if (name.isEmpty()) {
+            source.sendFailure(Component.literal("玩家名称不能为空。"));
+            return 0;
+        }
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        java.util.UUID uuid = resolvePlayerUuid(source.getServer(), name);
+        boolean changed = state.addFilteredPlayer(name, uuid);
+        if (changed) BoardService.refreshAll(source.getServer());
+        source.sendSuccess(() -> Component.literal(changed
+                ? "已加入隐藏名单：" + name + (uuid == null ? "（离线名称，出现时匹配）" : "")
+                : "该玩家已在隐藏名单：" + name), true);
+        return changed ? 1 : 0;
+    }
+
+    private int allowFilteredPlayer(CommandSourceStack source, String player) {
+        String name = player == null ? "" : player.trim();
+        if (name.isEmpty()) {
+            source.sendFailure(Component.literal("玩家名称不能为空。"));
+            return 0;
+        }
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        java.util.UUID uuid = resolvePlayerUuid(source.getServer(), name);
+        boolean changed = state.addAllowedPlayer(name, uuid);
+        if (changed) BoardService.refreshAll(source.getServer());
+        source.sendSuccess(() -> Component.literal(changed
+                ? "已允许显示：" + name + "（跳过 bot_/unknown_ 前缀过滤）"
+                : "该玩家已在允许名单：" + name), true);
+        return changed ? 1 : 0;
+    }
+
+    private int removePlayerFilter(CommandSourceStack source, String player) {
+        String name = player == null ? "" : player.trim();
+        boolean changed = LeaderboardState.get(source.getServer()).removePlayerFilter(name);
+        if (changed) BoardService.refreshAll(source.getServer());
+        if (changed) {
+            source.sendSuccess(() -> Component.literal("已从玩家过滤名单移除：" + name), true);
+            return 1;
+        }
+        source.sendFailure(Component.literal("玩家过滤名单中没有：" + name));
+        return 0;
+    }
+
+    private int clearPlayerFilters(CommandSourceStack source) {
+        int removed = LeaderboardState.get(source.getServer()).clearPlayerFilters();
+        if (removed > 0) BoardService.refreshAll(source.getServer());
+        source.sendSuccess(() -> Component.literal(removed > 0
+                ? "已清空玩家过滤名单（" + removed + " 项）。" : "玩家过滤名单已经是空的。"), true);
+        return removed > 0 ? 1 : 0;
+    }
+
+    private int listPlayerFilters(CommandSourceStack source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> hidden = state.filteredPlayerEntries();
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> allowed = state.allowedPlayerEntries();
+        source.sendSuccess(() -> Component.literal("隐藏名单（" + hidden.size() + "）："
+                + (hidden.isEmpty() ? "空" : joinPlayerFilterEntries(hidden))).withStyle(ChatFormatting.RED), false);
+        source.sendSuccess(() -> Component.literal("允许显示名单（" + allowed.size() + "）："
+                + (allowed.isEmpty() ? "空" : joinPlayerFilterEntries(allowed))).withStyle(ChatFormatting.GREEN), false);
+        source.sendSuccess(() -> Component.literal("使用 /leaderboard playerfilter add|allow|remove <玩家> 管理；"
+                + "无参数打开可点击面板。").withStyle(ChatFormatting.GRAY), false);
+        return hidden.size() + allowed.size();
+    }
+
+    private int playerFilterStatus(CommandSourceStack source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        int hidden = state.filteredPlayerEntries().size();
+        int allowed = state.allowedPlayerEntries().size();
+        source.sendSuccess(() -> Component.literal("玩家过滤：隐藏 " + hidden + " 人，允许显示 " + allowed
+                + " 人；自动 bot_ 过滤 " + (state.isBotFilterEnabled() ? "开启" : "关闭")
+                + "，unknown_ 过滤 " + (state.isCustomPlayerFilterEnabled() ? "开启" : "关闭") + "。"), false);
+        return hidden + allowed;
+    }
+
+    private int playerFilterMenu(CommandSourceStack source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        beginMenu(source, "玩家过滤");
+        source.sendSuccess(() -> Component.literal("自动过滤 bot_ " + (state.isBotFilterEnabled() ? "开启" : "关闭")
+                + " · unknown_ " + (state.isCustomPlayerFilterEnabled() ? "开启" : "关闭")
+                + "；手动名单优先。").withStyle(ChatFormatting.GRAY), false);
+
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> hidden = state.filteredPlayerEntries();
+        Component hiddenRow = Component.literal("隐藏名单：").withStyle(ChatFormatting.RED);
+        if (hidden.isEmpty()) {
+            hiddenRow = hiddenRow.copy().append(Component.literal("（空）").withStyle(ChatFormatting.GRAY));
+        } else {
+            for (java.util.Map.Entry<String, java.util.UUID> entry : hidden) {
+                hiddenRow = hiddenRow.copy().append(clickable("[" + entry.getKey() + "]", ChatFormatting.RED,
+                        "/leaderboard playerfilter remove " + entry.getKey(), "从隐藏名单移除"))
+                        .append(Component.literal(" "));
+            }
+        }
+        Component finalHiddenRow = hiddenRow;
+        source.sendSuccess(() -> finalHiddenRow, false);
+
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> allowed = state.allowedPlayerEntries();
+        Component allowedRow = Component.literal("允许显示：").withStyle(ChatFormatting.GREEN);
+        if (allowed.isEmpty()) {
+            allowedRow = allowedRow.copy().append(Component.literal("（空）").withStyle(ChatFormatting.GRAY));
+        } else {
+            for (java.util.Map.Entry<String, java.util.UUID> entry : allowed) {
+                allowedRow = allowedRow.copy().append(clickable("[" + entry.getKey() + "]", ChatFormatting.GREEN,
+                        "/leaderboard playerfilter remove " + entry.getKey(), "从允许名单移除"))
+                        .append(Component.literal(" "));
+            }
+        }
+        Component finalAllowedRow = allowedRow;
+        source.sendSuccess(() -> finalAllowedRow, false);
+
+        Component onlineRow = Component.literal("在线玩家：").withStyle(ChatFormatting.GOLD);
+        int shown = 0;
+        for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
+            if (shown >= 12) break;
+            String name = player.getScoreboardName();
+            if (state.isManuallyFiltered(player.getUUID(), name)) continue;
+            onlineRow = onlineRow.copy().append(clickable("[" + name + "]", ChatFormatting.AQUA,
+                    "/leaderboard playerfilter add " + name, "把 " + name + " 加入隐藏名单")).append(Component.literal(" "));
+            shown++;
+        }
+        if (shown == 0) onlineRow = onlineRow.copy().append(Component.literal("（无可添加）").withStyle(ChatFormatting.GRAY));
+        Component finalOnlineRow = onlineRow;
+        source.sendSuccess(() -> finalOnlineRow, false);
+
+        Component actions = clickable("[清空手动名单]", ChatFormatting.RED, "/leaderboard playerfilter clear", "清空隐藏与允许名单")
+                .copy().append(Component.literal(" "))
+                .append(clickable("[返回功能菜单]", ChatFormatting.GRAY, "/leaderboard menu home", "返回功能菜单"));
+        Component finalActions = actions;
+        source.sendSuccess(() -> finalActions, false);
+        source.sendSuccess(() -> Component.literal("添加离线玩家：/leaderboard playerfilter add <玩家名>；"
+                + "允许 bot_ 显示：/leaderboard playerfilter allow <玩家名>。").withStyle(ChatFormatting.DARK_GRAY), false);
+        return 1;
+    }
+
+    private static String joinPlayerFilterEntries(
+            java.util.List<java.util.Map.Entry<String, java.util.UUID>> entries) {
+        StringBuilder builder = new StringBuilder();
+        for (java.util.Map.Entry<String, java.util.UUID> entry : entries) {
+            if (builder.length() > 0) builder.append("，");
+            builder.append(entry.getKey());
+            if (entry.getValue() != null) builder.append(" (").append(entry.getValue()).append(')');
+        }
+        return builder.toString();
+    }
+
+    private static java.util.UUID resolvePlayerUuid(net.minecraft.server.MinecraftServer server, String name) {
+        for (StatSnapshot snapshot : StatReader.readAll(server)) {
+            if (snapshot.name().equalsIgnoreCase(name)) return snapshot.uuid();
+        }
+        try {
+            return java.util.UUID.fromString(name);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private static java.util.List<String> playerFilterCandidates(net.minecraft.server.MinecraftServer server) {
+        java.util.TreeSet<String> names = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        LeaderboardState state = LeaderboardState.get(server);
+        state.filteredPlayerEntries().forEach(entry -> names.add(entry.getKey()));
+        state.allowedPlayerEntries().forEach(entry -> names.add(entry.getKey()));
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            names.add(player.getScoreboardName());
+        }
+        for (StatSnapshot snapshot : StatReader.readAll(server)) {
+            if (names.size() >= 80) break;
+            names.add(snapshot.name());
+        }
+        return java.util.List.copyOf(names);
+    }
+
     private int setBotFilter(CommandSourceStack source, boolean enabled) {
         LeaderboardState.get(source.getServer()).setBotFilterEnabled(enabled);
         BoardService.refreshAll(source.getServer());
@@ -2615,10 +2813,12 @@ public final class RankBoardMod implements ModInitializer {
 
     static boolean isIncluded(net.minecraft.server.MinecraftServer server, LeaderboardState state,
                               java.util.UUID uuid, String name) {
+        if (state.isManuallyFiltered(uuid, name)) return false;
+        boolean bypassPrefixFilters = state.isManuallyAllowed(uuid, name);
         String normalized = name.toLowerCase(java.util.Locale.ROOT);
         return (!state.isWhitelistOnly() || PlayerDirectoryCompat.isAllowed(server, uuid, name))
-                && (!state.isBotFilterEnabled() || !normalized.startsWith("bot_"))
-                && (!state.isCustomPlayerFilterEnabled() || !normalized.startsWith("unknown_"))
+                && (bypassPrefixFilters || !state.isBotFilterEnabled() || !normalized.startsWith("bot_"))
+                && (bypassPrefixFilters || !state.isCustomPlayerFilterEnabled() || !normalized.startsWith("unknown_"))
                 && (!state.isOnlineOnly() || server.getPlayerList().getPlayer(uuid) != null);
     }
 

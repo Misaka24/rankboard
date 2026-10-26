@@ -19,6 +19,7 @@ public final class HistorySnapshotStoreTest {
             checkMetricPresentation();
             checkMenuCoverage();
             checkMenuClickRouting();
+            checkPlayerFilters();
             checkObjectiveNames();
             checkCommandTree();
             HistorySnapshotStore store = new HistorySnapshotStore(root);
@@ -302,6 +303,30 @@ public final class HistorySnapshotStoreTest {
         check(values.get(RankBoardMod.Metric.VICTIM_CREEPER) == 5L, "Creeper victim metric mismatch");
         check("3.0 km".equals(RankBoardMod.format(RankBoardMod.Metric.TRAVEL_DISTANCE, 300_000L)),
                 "Travel formatting mismatch");
+    }
+
+    private static void checkPlayerFilters() {
+        LeaderboardState state = LeaderboardState.fromNbt(new net.minecraft.nbt.NbtCompound(), null);
+        UUID hidden = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        UUID allowed = UUID.fromString("11111111-2222-3333-4444-555555555555");
+        check(!state.isManuallyFiltered(hidden, "bot_fake"), "Manual filter list should start empty");
+        check(state.addFilteredPlayer("bot_fake", hidden), "Could not add a manually filtered player");
+        check(state.isManuallyFiltered(hidden, "bot_fake"), "Manual filter lookup by name/UUID failed");
+        check(state.isManuallyFiltered(null, "BOT_FAKE"), "Manual filter lookup should ignore case");
+        check(!state.addFilteredPlayer("BOT_FAKE", hidden), "Duplicate filter entry should not change state");
+        check(state.addAllowedPlayer("bot_real", allowed), "Could not add an allowed player");
+        check(state.isManuallyAllowed(allowed, "bot_real"), "Allowed lookup failed");
+        check(state.addFilteredPlayer("bot_real", allowed), "Moving an allowed player to hidden failed");
+        check(!state.isManuallyAllowed(allowed, "bot_real"), "Allowed entry should be removed when hidden");
+        net.minecraft.nbt.NbtCompound saved = state.writeNbt(new net.minecraft.nbt.NbtCompound(), null);
+        LeaderboardState copy = LeaderboardState.fromNbt(saved, null);
+        check(copy.isManuallyFiltered(hidden, "bot_fake"), "Filtered list was not persisted");
+        check(copy.isManuallyFiltered(allowed, "bot_real"), "Moved filter entry was not persisted");
+        check(copy.removePlayerFilter("bot_fake"), "Removing a filter entry failed");
+        check(!copy.isManuallyFiltered(hidden, "bot_fake"), "Removing a filter entry did not take effect");
+        check(copy.clearPlayerFilters() >= 1, "Clearing player filters failed");
+        check(copy.filteredPlayerEntries().isEmpty() && copy.allowedPlayerEntries().isEmpty(),
+                "Player filter lists are not empty after clear");
     }
 
     private static void checkRange(String period, LocalDate today, LocalDate from, LocalDate to) {

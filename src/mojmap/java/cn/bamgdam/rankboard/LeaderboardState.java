@@ -19,6 +19,8 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -43,6 +45,10 @@ public final class LeaderboardState extends SavedData {
     private boolean botFilterEnabled = true;
     private boolean customPlayerFilterEnabled = true;
     private boolean onlineOnly;
+    /** Manually hidden players, keyed by lower-case name. A null UUID means the name is not resolved yet. */
+    private final Map<String, UUID> filteredPlayers = new LinkedHashMap<>();
+    /** Players explicitly allowed to bypass the automatic bot_/unknown_ prefix filters. */
+    private final Map<String, UUID> allowedPlayers = new LinkedHashMap<>();
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
     private final Set<UUID> lookMenuDisabledPlayers = new HashSet<>();
@@ -110,6 +116,29 @@ public final class LeaderboardState extends SavedData {
                     legacy, target, exception);
         }
     }
+    private static void readPlayerFilters(CompoundTag nbt, String key, Map<String, UUID> target) {
+        for (Tag element : NbtCompat.getList(nbt, key, Tag.TAG_COMPOUND)) {
+            try {
+                CompoundTag entry = (CompoundTag) element;
+                String name = NbtCompat.getString(entry, "name");
+                if (name == null || name.isBlank()) continue;
+                UUID uuid = entry.contains("uuid") ? NbtCompat.getUuid(entry, "uuid") : null;
+                target.put(name.toLowerCase(Locale.ROOT), uuid);
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static ListTag writePlayerFilters(Map<String, UUID> entries) {
+        ListTag list = new ListTag();
+        entries.forEach((name, uuid) -> {
+            CompoundTag entry = new CompoundTag();
+            entry.putString("name", name);
+            if (uuid != null) NbtCompat.putUuid(entry, "uuid", uuid);
+            list.add(entry);
+        });
+        return list;
+    }
+
     static LeaderboardState fromNbt(CompoundTag nbt, HolderLookup.Provider lookup) {
         LeaderboardState state = new LeaderboardState();
         if (nbt.contains("whitelistOnly")) state.whitelistOnly = NbtCompat.getBoolean(nbt, "whitelistOnly");
@@ -118,6 +147,8 @@ public final class LeaderboardState extends SavedData {
         if (nbt.contains("botFilterEnabled")) state.botFilterEnabled = NbtCompat.getBoolean(nbt, "botFilterEnabled");
         if (nbt.contains("customPlayerFilterEnabled")) state.customPlayerFilterEnabled = NbtCompat.getBoolean(nbt, "customPlayerFilterEnabled");
         if (nbt.contains("onlineOnly")) state.onlineOnly = NbtCompat.getBoolean(nbt, "onlineOnly");
+        readPlayerFilters(nbt, "filteredPlayers", state.filteredPlayers);
+        readPlayerFilters(nbt, "allowedPlayers", state.allowedPlayers);
         for (Tag element : NbtCompat.getList(nbt, "disabledDisplayMetrics", Tag.TAG_STRING)) {
             try { state.disabledDisplayMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }
             catch (IllegalArgumentException ignored) { }
@@ -221,6 +252,8 @@ public final class LeaderboardState extends SavedData {
         nbt.putBoolean("botFilterEnabled", botFilterEnabled);
         nbt.putBoolean("customPlayerFilterEnabled", customPlayerFilterEnabled);
         nbt.putBoolean("onlineOnly", onlineOnly);
+        nbt.put("filteredPlayers", writePlayerFilters(filteredPlayers));
+        nbt.put("allowedPlayers", writePlayerFilters(allowedPlayers));
         ListTag disabledMetrics = new ListTag();
         disabledDisplayMetrics.forEach(metric -> disabledMetrics.add(StringTag.valueOf(metric.name())));
         nbt.put("disabledDisplayMetrics", disabledMetrics);
@@ -437,6 +470,69 @@ public final class LeaderboardState extends SavedData {
             onlineOnly = enabled;
             setDirty();
         }
+    }
+    public boolean isManuallyFiltered(UUID uuid, String name) {
+        return matchesFilter(filteredPlayers, uuid, name);
+    }
+    public boolean isManuallyAllowed(UUID uuid, String name) {
+        return matchesFilter(allowedPlayers, uuid, name);
+    }
+    /** Adds a player to the manual hidden list. Returns false when already hidden. */
+    public boolean addFilteredPlayer(String name, UUID uuid) {
+        String key = normalizeFilterName(name);
+        if (key.isEmpty()) throw new IllegalArgumentException("玩家名称不能为空");
+        allowedPlayers.remove(key);
+        if (filteredPlayers.containsKey(key)) return false;
+        filteredPlayers.put(key, uuid);
+        setDirty();
+        return true;
+    }
+    /** Allows a player to bypass the automatic bot_/unknown_ prefix filters. */
+    public boolean addAllowedPlayer(String name, UUID uuid) {
+        String key = normalizeFilterName(name);
+        if (key.isEmpty()) throw new IllegalArgumentException("玩家名称不能为空");
+        filteredPlayers.remove(key);
+        if (allowedPlayers.containsKey(key)) return false;
+        allowedPlayers.put(key, uuid);
+        setDirty();
+        return true;
+    }
+    /** Removes a player from both manual lists. Accepts a name or a UUID string. */
+    public boolean removePlayerFilter(String value) {
+        if (value == null) return false;
+        String key = normalizeFilterName(value);
+        boolean changed = filteredPlayers.remove(key) != null;
+        changed |= allowedPlayers.remove(key) != null;
+        try {
+            UUID uuid = UUID.fromString(value.trim());
+            changed |= filteredPlayers.values().removeIf(uuid::equals);
+            changed |= allowedPlayers.values().removeIf(uuid::equals);
+        } catch (IllegalArgumentException ignored) { }
+        if (changed) setDirty();
+        return changed;
+    }
+    public List<Map.Entry<String, UUID>> filteredPlayerEntries() {
+        return List.copyOf(filteredPlayers.entrySet());
+    }
+    public List<Map.Entry<String, UUID>> allowedPlayerEntries() {
+        return List.copyOf(allowedPlayers.entrySet());
+    }
+    public int clearPlayerFilters() {
+        int removed = filteredPlayers.size() + allowedPlayers.size();
+        if (removed > 0) {
+            filteredPlayers.clear();
+            allowedPlayers.clear();
+            setDirty();
+        }
+        return removed;
+    }
+    private static boolean matchesFilter(Map<String, UUID> entries, UUID uuid, String name) {
+        if (entries.isEmpty()) return false;
+        if (name != null && entries.containsKey(normalizeFilterName(name))) return true;
+        return uuid != null && entries.containsValue(uuid);
+    }
+    private static String normalizeFilterName(String name) {
+        return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
     }
     public boolean isMetricDisplayEnabled(RankBoardMod.Metric metric) {
         if (metric == RankBoardMod.Metric.BEDROCK_BROKEN && !RankBoardConfig.get().bedrockBreakLeaderboardEnabled) return false;
