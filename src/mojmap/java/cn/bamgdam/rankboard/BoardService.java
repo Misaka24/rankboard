@@ -461,6 +461,7 @@ final class BoardService {
         updates.add(new ClientboundSetScorePacket(
                 privateScoreHolder("total"), objective.getName(), totalValue,
                 Optional.of(Component.literal("总和")), scoreboardFormat(metric, total)));
+        LeaderboardState state = LeaderboardState.get(PlayerCompat.server(player));
         for (int i = 0; i < Math.min(14, visibleEntries.size()); i++) {
             RankBoardMod.Entry entry = visibleEntries.get(i);
             int value = scoreboardValue(metric, entry.value());
@@ -473,10 +474,12 @@ final class BoardService {
             String displayText = entryPlayer == null ? entry.name() : entryPlayer.getScoreboardName();
             Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUUID());
             Component displayComponent = Component.literal(displayText);
-            if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
+            if (state.isBotPlayer(entry.uuid(), displayText)) {
+                displayComponent = Component.literal("[BOT] ").withStyle(ChatFormatting.AQUA)
+                        .append(RankBoardColors.text(displayText, metric));
+            } else if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
                     && entryPlayer != null && entrySelection != null) {
-                LeaderboardState.BoardPreference entryPreference = LeaderboardState.get(PlayerCompat.server(player))
-                        .boardPreference(entryPlayer.getUUID());
+                LeaderboardState.BoardPreference entryPreference = state.boardPreference(entryPlayer.getUUID());
                 boolean entryCarousel = entryPreference != null && entryPreference.carousel();
                 displayComponent = RankBoardColors.text(displayText, entrySelection.metric, entryCarousel);
             }
@@ -635,7 +638,7 @@ final class BoardService {
         List<RankBoardMod.Entry> entries = RankBoardMod.entries(server, period, metric);
         Set<String> currentHolders = new HashSet<>();
         currentHolders.add("总和");
-        entries.forEach(entry -> currentHolders.add(entry.name()));
+        entries.forEach(entry -> currentHolders.add(sidebarHolderName(server, entry)));
         for (var row : List.copyOf(scoreboard.listPlayerScores(objective))) {
             if (!currentHolders.contains(row.owner())) scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(row.owner()), objective);
         }
@@ -644,11 +647,15 @@ final class BoardService {
         updateScore(scoreboard, objective, "总和", totalValue, scoreboardFormat(metric, total).orElse(null));
         for (RankBoardMod.Entry entry : entries) {
             int value = scoreboardValue(metric, entry.value());
-            updateScore(scoreboard, objective, entry.name(), value, scoreboardFormat(metric, entry.value()).orElse(null));
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry), value, scoreboardFormat(metric, entry.value()).orElse(null));
         }
         return objective;
     }
 
+    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry) {
+        return LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
+                ? "[BOT] " + entry.name() : entry.name();
+    }
     private static void updateScore(Scoreboard scoreboard, Objective objective, String name,
                                     int value, NumberFormat format) {
         ScoreHolder holder = ScoreHolder.forNameOnly(name);

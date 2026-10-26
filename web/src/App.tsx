@@ -788,7 +788,12 @@ export default function App() {
             <span>{text.onlineOnly}</span>
           </label>
           <label className={botsOnly ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-            <input type="checkbox" checked={botsOnly} onChange={(event) => setBotsOnly(event.target.checked)} />
+            <input type="checkbox" checked={botsOnly} onChange={(event) => {
+              const checked = event.target.checked;
+              setBotsOnly(checked);
+              setIncludeBots(false);
+              if (!checked) setBotRate(false);
+            }} />
             <span>{text.botsOnly}</span>
           </label>
           {botsOnly && (
@@ -799,7 +804,11 @@ export default function App() {
           )}
           {!botsOnly && (
             <label className={includeBots ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-              <input type="checkbox" checked={includeBots} onChange={(event) => setIncludeBots(event.target.checked)} />
+              <input type="checkbox" checked={includeBots} onChange={(event) => {
+                const checked = event.target.checked;
+                setIncludeBots(checked);
+                if (checked) setBotsOnly(false);
+              }} />
               <span>{text.includeBots}</span>
             </label>
           )}

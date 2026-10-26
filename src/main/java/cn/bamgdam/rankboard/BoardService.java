@@ -471,6 +471,7 @@ final class BoardService {
         int totalValue = scoreboardValue(metric, total);
         updates.add(new ScoreboardScoreUpdateS2CPacket(
                 RankBoardLanguage.text(player, "scoreboard.total"), objective.getName(), totalValue, Optional.empty(), scoreboardFormat(metric, total)));
+        LeaderboardState state = LeaderboardState.get(PlayerCompat.server(player));
         for (int i = 0; i < Math.min(14, visibleEntries.size()); i++) {
             RankBoardMod.Entry entry = visibleEntries.get(i);
             int value = scoreboardValue(metric, entry.value());
@@ -480,10 +481,12 @@ final class BoardService {
             // name, never a historical cache value from before a rename.
             String scoreHolder = entryPlayer == null ? entry.name() : ProfileCompat.name(entryPlayer.getGameProfile());
             Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUuid());
-            if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
+            if (state.isBotPlayer(entry.uuid(), scoreHolder)) {
+                displayName = Optional.of(Text.literal("[BOT] ").formatted(Formatting.AQUA)
+                        .append(RankBoardColors.text(scoreHolder, metric)));
+            } else if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
                     && entryPlayer != null && entrySelection != null) {
-                LeaderboardState.BoardPreference entryPreference = LeaderboardState.get(PlayerCompat.server(player))
-                        .boardPreference(entryPlayer.getUuid());
+                LeaderboardState.BoardPreference entryPreference = state.boardPreference(entryPlayer.getUuid());
                 boolean entryCarousel = entryPreference != null && entryPreference.carousel();
                 displayName = Optional.of(RankBoardColors.text(scoreHolder, entrySelection.metric, entryCarousel));
             }
@@ -650,7 +653,7 @@ final class BoardService {
         String totalHolder = localePlayer == null ? "总和" : RankBoardLanguage.text(localePlayer, "scoreboard.total");
         Set<String> currentHolders = new HashSet<>();
         currentHolders.add(totalHolder);
-        entries.forEach(entry -> currentHolders.add(entry.name()));
+        entries.forEach(entry -> currentHolders.add(sidebarHolderName(server, entry)));
         for (ScoreHolder holder : List.copyOf(scoreboard.getKnownScoreHolders())) {
             if (!currentHolders.contains(holder.getNameForScoreboard()) && scoreboard.getScore(holder, objective) != null)
                 scoreboard.removeScore(holder, objective);
@@ -658,9 +661,14 @@ final class BoardService {
         updateScore(scoreboard, objective, totalHolder, totalValue, scoreboardFormat(metric, total).orElse(null));
         for (RankBoardMod.Entry entry : entries) {
             int value = scoreboardValue(metric, entry.value());
-            updateScore(scoreboard, objective, entry.name(), value, scoreboardFormat(metric, entry.value()).orElse(null));
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry), value, scoreboardFormat(metric, entry.value()).orElse(null));
         }
         return objective;
+    }
+
+    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry) {
+        return LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
+                ? "[BOT] " + entry.name() : entry.name();
     }
 
     private static int clamp(long value) { return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value)); }
