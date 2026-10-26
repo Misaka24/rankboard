@@ -468,7 +468,7 @@ final class BoardService {
                     Optional.of(Component.literal("总和")), scoreboardFormat(metric, total)));
             for (int i = 0; i < Math.min(14, humans.size()); i++) {
                 updates.add(sidebarRow(objective, humans.get(i), metric, state, onlinePlayers,
-                        scoreboardValue(metric, humans.get(i).value()), false));
+                        scoreboardValue(metric, humans.get(i).value()), i + 1, false));
             }
             sendSidebarUpdate(player, objective, updates);
             return;
@@ -480,33 +480,37 @@ final class BoardService {
                 Optional.of(Component.literal("总和")), displayFormat(metric, humanTotal)));
         int humanRows = Math.min(humans.size(), 9);
         for (int i = 0; i < humanRows; i++) {
-            updates.add(sidebarRow(objective, humans.get(i), metric, state, onlinePlayers, 999_999 - i, false));
+            updates.add(sidebarRow(objective, humans.get(i), metric, state, onlinePlayers, 999_999 - i, i + 1, false));
         }
+        updates.add(new ClientboundSetScorePacket(
+                privateScoreHolder("bot_separator"), objective.getName(), 600_000,
+                Optional.of(Component.literal("──────── BOT ────────").withStyle(ChatFormatting.DARK_GRAY)),
+                Optional.of(new FixedFormat(Component.literal("")))));
         updates.add(new ClientboundSetScorePacket(
                 privateScoreHolder("bot_total"), objective.getName(), 500_000,
                 Optional.of(Component.literal("BOT 总和")), displayFormat(metric, botTotal)));
-        int botRows = Math.min(bots.size(), Math.max(0, 14 - 2 - humanRows));
+        int botRows = Math.min(bots.size(), Math.max(0, 14 - 3 - humanRows));
         for (int i = 0; i < botRows; i++) {
-            updates.add(sidebarRow(objective, bots.get(i), metric, state, onlinePlayers, 499_999 - i, true));
+            updates.add(sidebarRow(objective, bots.get(i), metric, state, onlinePlayers, 499_999 - i, i + 1, true));
         }
         sendSidebarUpdate(player, objective, updates);
     }
 
     private static ClientboundSetScorePacket sidebarRow(Objective objective, RankBoardMod.Entry entry,
             RankBoardMod.Metric metric, LeaderboardState state, Map<UUID, ServerPlayer> onlinePlayers,
-            int score, boolean bot) {
+            int score, int rank, boolean bot) {
         ServerPlayer entryPlayer = onlinePlayers.get(entry.uuid());
         String displayText = entryPlayer == null ? entry.name() : entryPlayer.getScoreboardName();
         Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUUID());
-        Component displayComponent = Component.literal(displayText);
-        if (bot) {
-            displayComponent = Component.literal("[BOT] ").withStyle(ChatFormatting.AQUA)
-                    .append(RankBoardColors.text(displayText, metric));
-        } else if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
-                && entryPlayer != null && entrySelection != null) {
+        Component prefix = Component.literal(rank + (bot ? " [BOT] " : " ")).withStyle(ChatFormatting.GRAY);
+        Component displayComponent;
+        if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
+                && entryPlayer != null && entrySelection != null && !bot) {
             LeaderboardState.BoardPreference entryPreference = state.boardPreference(entryPlayer.getUUID());
             boolean entryCarousel = entryPreference != null && entryPreference.carousel();
-            displayComponent = RankBoardColors.text(displayText, entrySelection.metric, entryCarousel);
+            displayComponent = prefix.copy().append(RankBoardColors.text(displayText, entrySelection.metric, entryCarousel));
+        } else {
+            displayComponent = prefix.copy().append(RankBoardColors.text(displayText, metric));
         }
         return new ClientboundSetScorePacket(privateScoreHolder(entry.uuid()), objective.getName(), score,
                 Optional.of(displayComponent), displayFormat(metric, entry.value()));
@@ -666,8 +670,16 @@ final class BoardService {
         boolean split = !bots.isEmpty();
         Set<String> currentHolders = new HashSet<>();
         currentHolders.add("总和");
-        if (split) currentHolders.add("BOT 总和");
-        entries.forEach(entry -> currentHolders.add(sidebarHolderName(server, entry)));
+        if (split) {
+            currentHolders.add("──────── BOT ────────");
+            currentHolders.add("BOT 总和");
+        }
+        if (split) {
+            for (int i = 0; i < humans.size(); i++) currentHolders.add(sidebarHolderName(server, humans.get(i), i + 1));
+            for (int i = 0; i < bots.size(); i++) currentHolders.add(sidebarHolderName(server, bots.get(i), i + 1));
+        } else {
+            for (int i = 0; i < entries.size(); i++) currentHolders.add(sidebarHolderName(server, entries.get(i), i + 1));
+        }
         for (var row : List.copyOf(scoreboard.listPlayerScores(objective))) {
             if (!currentHolders.contains(row.owner())) scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(row.owner()), objective);
         }
@@ -675,8 +687,9 @@ final class BoardService {
             long total = RankBoardMod.total(entries);
             updateScore(scoreboard, objective, "总和", scoreboardValue(metric, total),
                     scoreboardFormat(metric, total).orElse(null));
-            for (RankBoardMod.Entry entry : entries) {
-                updateScore(scoreboard, objective, sidebarHolderName(server, entry),
+            for (int i = 0; i < entries.size(); i++) {
+                RankBoardMod.Entry entry = entries.get(i);
+                updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1),
                         scoreboardValue(metric, entry.value()), scoreboardFormat(metric, entry.value()).orElse(null));
             }
             return objective;
@@ -686,21 +699,23 @@ final class BoardService {
         updateScore(scoreboard, objective, "总和", 1_000_000, displayFormat(metric, humanTotal).orElse(null));
         for (int i = 0; i < humans.size(); i++) {
             RankBoardMod.Entry entry = humans.get(i);
-            updateScore(scoreboard, objective, sidebarHolderName(server, entry), 999_999 - i,
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1), 999_999 - i,
                     displayFormat(metric, entry.value()).orElse(null));
         }
+        updateScore(scoreboard, objective, "──────── BOT ────────", 600_000,
+                new FixedFormat(Component.literal("")));
         updateScore(scoreboard, objective, "BOT 总和", 500_000, displayFormat(metric, botTotal).orElse(null));
         for (int i = 0; i < bots.size(); i++) {
             RankBoardMod.Entry entry = bots.get(i);
-            updateScore(scoreboard, objective, sidebarHolderName(server, entry), 499_999 - i,
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1), 499_999 - i,
                     displayFormat(metric, entry.value()).orElse(null));
         }
         return objective;
     }
 
-    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry) {
-        return LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
-                ? "[BOT] " + entry.name() : entry.name();
+    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry, int rank) {
+        return rank + (LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
+                ? " [BOT] " : " ") + entry.name();
     }
     private static void updateScore(Scoreboard scoreboard, Objective objective, String name,
                                     int value, NumberFormat format) {

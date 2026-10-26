@@ -479,7 +479,7 @@ final class BoardService {
                     scoreboardValue(metric, total), Optional.empty(), scoreboardFormat(metric, total)));
             for (int i = 0; i < Math.min(14, humans.size()); i++) {
                 updates.add(sidebarEntryRow(player, objective, humans.get(i), metric, state, onlinePlayers,
-                        scoreboardValue(metric, humans.get(i).value()), false));
+                        scoreboardValue(metric, humans.get(i).value()), i + 1, false));
             }
             sendSidebarUpdate(player, objective, updates);
             return;
@@ -492,38 +492,42 @@ final class BoardService {
         int humanRows = Math.min(humans.size(), 9);
         for (int i = 0; i < humanRows; i++) {
             updates.add(sidebarEntryRow(player, objective, humans.get(i), metric, state, onlinePlayers,
-                    999_999 - i, false));
+                    999_999 - i, i + 1, false));
         }
+        updates.add(new ScoreboardScoreUpdateS2CPacket(
+                "──────── BOT ────────", objective.getName(), 600_000,
+                Optional.of(Text.literal("──────── BOT ────────").formatted(Formatting.DARK_GRAY)),
+                Optional.of(new FixedNumberFormat(Text.literal("")))));
         updates.add(new ScoreboardScoreUpdateS2CPacket(
                 RankBoardLanguage.text(player, "scoreboard.bot_total"), objective.getName(),
                 500_000, Optional.of(Text.literal(RankBoardLanguage.text(player, "scoreboard.bot_total"))
                         .formatted(Formatting.AQUA)), displayFormat(metric, botTotal)));
-        int botRows = Math.min(bots.size(), Math.max(0, 14 - 2 - humanRows));
+        int botRows = Math.min(bots.size(), Math.max(0, 14 - 3 - humanRows));
         for (int i = 0; i < botRows; i++) {
             updates.add(sidebarEntryRow(player, objective, bots.get(i), metric, state, onlinePlayers,
-                    499_999 - i, true));
+                    499_999 - i, i + 1, true));
         }
         sendSidebarUpdate(player, objective, updates);
     }
 
     private static ScoreboardScoreUpdateS2CPacket sidebarEntryRow(ServerPlayerEntity player,
             ScoreboardObjective objective, RankBoardMod.Entry entry, RankBoardMod.Metric metric,
-            LeaderboardState state, Map<UUID, ServerPlayerEntity> onlinePlayers, int score, boolean bot) {
+            LeaderboardState state, Map<UUID, ServerPlayerEntity> onlinePlayers, int score, int rank, boolean bot) {
         ServerPlayerEntity entryPlayer = onlinePlayers.get(entry.uuid());
         String scoreHolder = entryPlayer == null ? entry.name() : ProfileCompat.name(entryPlayer.getGameProfile());
-        Optional<Text> displayName = Optional.empty();
         Selection entrySelection = entryPlayer == null ? null : SELECTIONS.get(entryPlayer.getUuid());
-        if (bot) {
-            displayName = Optional.of(Text.literal("[BOT] ").formatted(Formatting.AQUA)
-                    .append(RankBoardColors.text(scoreHolder, metric)));
-        } else if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
-                && entryPlayer != null && entrySelection != null) {
+        Text prefix = Text.literal(rank + (bot ? " [BOT] " : " ")).formatted(Formatting.GRAY);
+        Text display;
+        if (RankBoardConfig.get().nameColorMode != RankBoardConfig.NameColorMode.DISABLED
+                && entryPlayer != null && entrySelection != null && !bot) {
             LeaderboardState.BoardPreference entryPreference = state.boardPreference(entryPlayer.getUuid());
             boolean entryCarousel = entryPreference != null && entryPreference.carousel();
-            displayName = Optional.of(RankBoardColors.text(scoreHolder, entrySelection.metric, entryCarousel));
+            display = prefix.copy().append(RankBoardColors.text(scoreHolder, entrySelection.metric, entryCarousel));
+        } else {
+            display = prefix.copy().append(RankBoardColors.text(scoreHolder, metric));
         }
-        return new ScoreboardScoreUpdateS2CPacket(scoreHolder, objective.getName(), score, displayName,
-                displayFormat(metric, entry.value()));
+        return new ScoreboardScoreUpdateS2CPacket(scoreHolder, objective.getName(), score,
+                Optional.of(display), displayFormat(metric, entry.value()));
     }
 
     private static void sendSidebarUpdate(ServerPlayerEntity player, ScoreboardObjective objective,
@@ -687,10 +691,19 @@ final class BoardService {
         String totalHolder = localePlayer == null ? "总和" : RankBoardLanguage.text(localePlayer, "scoreboard.total");
         String botTotalHolder = localePlayer == null ? "BOT 总和"
                 : RankBoardLanguage.text(localePlayer, "scoreboard.bot_total");
+        String separatorHolder = "──────── BOT ────────";
         Set<String> currentHolders = new HashSet<>();
         currentHolders.add(totalHolder);
-        if (split) currentHolders.add(botTotalHolder);
-        entries.forEach(entry -> currentHolders.add(sidebarHolderName(server, entry)));
+        if (split) {
+            currentHolders.add(separatorHolder);
+            currentHolders.add(botTotalHolder);
+        }
+        if (split) {
+            for (int i = 0; i < humans.size(); i++) currentHolders.add(sidebarHolderName(server, humans.get(i), i + 1));
+            for (int i = 0; i < bots.size(); i++) currentHolders.add(sidebarHolderName(server, bots.get(i), i + 1));
+        } else {
+            for (int i = 0; i < entries.size(); i++) currentHolders.add(sidebarHolderName(server, entries.get(i), i + 1));
+        }
         for (ScoreHolder holder : List.copyOf(scoreboard.getKnownScoreHolders())) {
             if (!currentHolders.contains(holder.getNameForScoreboard()) && scoreboard.getScore(holder, objective) != null)
                 scoreboard.removeScore(holder, objective);
@@ -699,8 +712,9 @@ final class BoardService {
             long total = RankBoardMod.total(entries);
             updateScore(scoreboard, objective, totalHolder, scoreboardValue(metric, total),
                     scoreboardFormat(metric, total).orElse(null));
-            for (RankBoardMod.Entry entry : entries) {
-                updateScore(scoreboard, objective, sidebarHolderName(server, entry),
+            for (int i = 0; i < entries.size(); i++) {
+                RankBoardMod.Entry entry = entries.get(i);
+                updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1),
                         scoreboardValue(metric, entry.value()), scoreboardFormat(metric, entry.value()).orElse(null));
             }
             return objective;
@@ -710,21 +724,23 @@ final class BoardService {
         updateScore(scoreboard, objective, totalHolder, 1_000_000, displayFormat(metric, humanTotal).orElse(null));
         for (int i = 0; i < humans.size(); i++) {
             RankBoardMod.Entry entry = humans.get(i);
-            updateScore(scoreboard, objective, sidebarHolderName(server, entry), 999_999 - i,
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1), 999_999 - i,
                     displayFormat(metric, entry.value()).orElse(null));
         }
+        updateScore(scoreboard, objective, separatorHolder, 600_000,
+                new FixedNumberFormat(Text.literal("")));
         updateScore(scoreboard, objective, botTotalHolder, 500_000, displayFormat(metric, botTotal).orElse(null));
         for (int i = 0; i < bots.size(); i++) {
             RankBoardMod.Entry entry = bots.get(i);
-            updateScore(scoreboard, objective, sidebarHolderName(server, entry), 499_999 - i,
+            updateScore(scoreboard, objective, sidebarHolderName(server, entry, i + 1), 499_999 - i,
                     displayFormat(metric, entry.value()).orElse(null));
         }
         return objective;
     }
 
-    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry) {
-        return LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
-                ? "[BOT] " + entry.name() : entry.name();
+    private static String sidebarHolderName(MinecraftServer server, RankBoardMod.Entry entry, int rank) {
+        return rank + (LeaderboardState.get(server).isBotPlayer(entry.uuid(), entry.name())
+                ? " [BOT] " : " ") + entry.name();
     }
 
     private static int clamp(long value) { return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value)); }
