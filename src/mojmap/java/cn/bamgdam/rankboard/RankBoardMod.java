@@ -1484,8 +1484,8 @@ public final class RankBoardMod implements ModInitializer {
     static String metricCategory(Metric metric) {
         if (metric.isFun()) return "fun";
         return switch (metric) {
-            case PLAY_TIME, AFK_TIME, MINED, PLACED, KILLS, DEATHS, TRAVEL_DISTANCE, ORES_MINED, TRADES -> "core";
-            case PVP_KILLS, DAMAGE_TAKEN, DAMAGE_DEALT, SHIELD_BLOCKED, TOTEM_USED, TARGET_HITS -> "combat";
+            case PLAY_TIME, AFK_TIME, MINED, PLACED, KILLS, PVP_KILLS, DAMAGE_TAKEN, DAMAGE_DEALT, DEATHS, TRAVEL_DISTANCE, ORES_MINED, TRADES -> "core";
+            case SHIELD_BLOCKED, TOTEM_USED, TARGET_HITS -> "combat";
             case CRAFTED, REDSTONE_PLACED, TOOLS_BROKEN, BEDROCK_BROKEN -> "build";
             case FOOD, FISHING, ANIMALS_BRED, SLEPT, ENCHANTED -> "life";
             case ELYTRA_DISTANCE, JUMPS, PICKED_UP, DROPPED, MUSIC_PLAYED -> "explore";
@@ -3044,6 +3044,9 @@ public final class RankBoardMod implements ModInitializer {
             if (!bots.isEmpty()) {
                 source.sendSuccess(() -> Component.literal("──────── BOT 机器人 ────────")
                         .withStyle(ChatFormatting.DARK_GRAY), false);
+                long botTotal = total(bots);
+                source.sendSuccess(() -> Component.literal("BOT 总和 ").withStyle(ChatFormatting.GRAY)
+                        .append(RankBoardColors.text(format(metric, botTotal), metric)), false);
                 int botShown = 0;
                 for (Entry entry : bots) {
                     if (botShown >= limit) break;

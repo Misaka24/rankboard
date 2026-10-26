@@ -78,7 +78,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "中文", languageLabel: "Language", currentOnline: "当前在线", lastOnlineUnknown: "最后在线：未知", lastOnline: "最后在线",
     total: "总和", query: "查询", all: "总榜", day: "最近一日", week: "最近一周", month: "最近一月", quarter: "最近一季度", year: "最近一年", custom: "自定义日期",
     compact: "紧凑视图", tile: "平铺视图", detail: "详细视图", normal: "普通视图", layoutMode: "布局", switchServer: "服务器切换", current: "当前", switch: "切换", offline: "离线",
-    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", includeBots: "包含机器人", common: "常用", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
+    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", includeBots: "包含机器人", common: "常用", filters: "筛选", playerScope: "玩家范围", playersOnly: "仅真人", withBots: "真人 + 机器人", botsOnlyLabel: "仅机器人", onlineShort: "仅在线", travelDetail: "探索", oresDetail: "资源", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
     searchPlayer: "搜索玩家", enterPlayerName: "输入玩家名称", export: "导出表格", exportTitle: "导出当前筛选结果为 CSV 表格", copyIdentity: "点击复制玩家名称和 UUID", copied: "已复制玩家名称和 UUID",
     startDate: "开始日期", endDate: "结束日期", earliest: "最早可查", backgroundCheck: "后台校验", loading: "正在读取服务器排行榜...",
     noPlayers: "当前筛选下没有可显示的玩家。", partial: "部分统计", incompleteRange: "统计范围缺少完整边界",
@@ -93,7 +93,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "English", languageLabel: "Language", currentOnline: "Online now", lastOnlineUnknown: "Last online: unknown", lastOnline: "Last online",
     total: "Total", query: "Query", all: "All time", day: "Last day", week: "Last week", month: "Last month", quarter: "Last quarter", year: "Last year", custom: "Custom dates",
     compact: "Compact view", tile: "Tile view", detail: "Detailed view", normal: "Normal view", layoutMode: "Layout", switchServer: "Server switcher", current: "Current", switch: "Switch", offline: "Offline",
-    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", includeBots: "Include bots", common: "Common", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
+    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", includeBots: "Include bots", common: "Common", filters: "Filters", playerScope: "Players", playersOnly: "Players", withBots: "Players + bots", botsOnlyLabel: "Bots only", onlineShort: "Online only", travelDetail: "Exploration", oresDetail: "Resources", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
     searchPlayer: "Search players", enterPlayerName: "Enter a player name", export: "Export table", exportTitle: "Export the filtered result as a CSV table", copyIdentity: "Click to copy player name and UUID", copied: "Player name and UUID copied",
     startDate: "Start date", endDate: "End date", earliest: "Earliest available", backgroundCheck: "Background verification", loading: "Loading server leaderboard...",
     noPlayers: "No players are available for the current filters.", partial: "Partial statistics", incompleteRange: "The selected range has incomplete boundaries",
@@ -112,7 +112,7 @@ const METRIC_TEXT: Record<string, { zh: string; en: string }> = {
   pvp: { zh: "PvP榜", en: "PvP" }, deaths: { zh: "死亡榜", en: "Deaths" }, trades: { zh: "交易榜", en: "Trades" },
   afk: { zh: "摸鱼榜", en: "AFK time" }, elytra: { zh: "鞘翅飞行榜", en: "Flight" }, fishing: { zh: "钓鱼榜", en: "Fishing" }, damage: { zh: "受伤榜", en: "Damage taken" },
   dealt: { zh: "输出榜", en: "Damage dealt" }, dropped: { zh: "丢垃圾榜", en: "Dropped items" }, picked: { zh: "拾荒榜", en: "Picked items" },
-  crafted: { zh: "合成榜", en: "Crafted items" }, redstone: { zh: "红石大蛇榜", en: "Redstone builder" }
+  crafted: { zh: "合成榜", en: "Crafted items" }, redstone: { zh: "红石大蛇榜", en: "Redstone builder" }, travel: { zh: "旅行家榜", en: "Traveler" }, ores: { zh: "矿业大亨榜", en: "Mining tycoon" }
 };
 
 const BOT_TYPE_TEXT: Record<string, { zh: string; en: string }> = {
@@ -314,6 +314,8 @@ const defaultMetrics: Metric[] = [
   { id: "picked", label: "拾荒榜", detail: "物品" },
   { id: "crafted", label: "合成榜", detail: "制造" },
   { id: "redstone", label: "红石大蛇榜", detail: "红石" },
+  { id: "travel", label: "旅行家榜", detail: "探索" },
+  { id: "ores", label: "矿业大亨榜", detail: "资源" },
   { id: "afk", label: "摸鱼榜", detail: "摸鱼" },
   { id: "bedrock", label: "破基岩榜", detail: "基岩" }
 ];
@@ -335,8 +337,16 @@ function metricLabel(item: Metric, language: Language) {
   return isBuiltInLabel ? translated[language] : item.label;
 }
 
+function metricCategoryLabel(category: string | undefined, language: Language) {
+  if (!category) return "";
+  if (category === "core") return language === "zh" ? "常用" : "Common";
+  const section = METRIC_SECTIONS.find((item) => item.id === category);
+  return section ? (language === "zh" ? section.zh : section.en) : "";
+}
+
 function metricDetail(item: Metric, language: Language) {
-  return UI_TEXT[language][`${item.id}Detail`] ?? item.detail;
+  const detail = UI_TEXT[language][`${item.id}Detail`] ?? item.detail;
+  return detail || metricCategoryLabel(item.category, language);
 }
 
 function languageFromCode(value: string | undefined): Language | null {
@@ -675,6 +685,12 @@ export default function App() {
     if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
   };
 
+  const botMode: "humans" | "include" | "only" = botsOnly ? "only" : includeBots ? "include" : "humans";
+  const selectBotMode = (mode: "humans" | "include" | "only") => {
+    setBotsOnly(mode === "only");
+    setIncludeBots(mode === "include");
+    if (mode !== "only") setBotRate(false);
+  };
   const metricButton = (item: Metric) => (
     <button key={item.id} className={item.id === metric ? "selected" : ""} onClick={() => selectMetric(item.id)}>
       <span>{metricLabel(item, language)}</span>
@@ -783,35 +799,6 @@ export default function App() {
             <span className={ranking?.cacheReady ? "signal online" : "signal"} />
             {text.historySync}
           </div>
-          <label className={onlineOnly ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-            <input type="checkbox" checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />
-            <span>{text.onlineOnly}</span>
-          </label>
-          <label className={botsOnly ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-            <input type="checkbox" checked={botsOnly} onChange={(event) => {
-              const checked = event.target.checked;
-              setBotsOnly(checked);
-              setIncludeBots(false);
-              if (!checked) setBotRate(false);
-            }} />
-            <span>{text.botsOnly}</span>
-          </label>
-          {botsOnly && (
-            <label className={botRate ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-              <input type="checkbox" checked={botRate} onChange={(event) => setBotRate(event.target.checked)} />
-              <span>{text.botRate}</span>
-            </label>
-          )}
-          {!botsOnly && (
-            <label className={includeBots ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
-              <input type="checkbox" checked={includeBots} onChange={(event) => {
-                const checked = event.target.checked;
-                setIncludeBots(checked);
-                if (checked) setBotsOnly(false);
-              }} />
-              <span>{text.includeBots}</span>
-            </label>
-          )}
           <a className="top-repo-link" href="https://github.com/Misaka24/rankboard" target="_blank" rel="noreferrer" title={text.sourceCode}>
             <Github aria-hidden="true" />
             <span>Misaka24/rankboard</span>
@@ -847,6 +834,26 @@ export default function App() {
 
         <section className="content-area">
           {tileMode && <section className="tile-controls glass">{controls}</section>}
+          <section className="ranking-filters glass" aria-label={text.filters}>
+            <div className="filter-scope">
+              <span className="filter-label">{text.playerScope}</span>
+              <div className="filter-segment" role="group" aria-label={text.playerScope}>
+                <button type="button" className={botMode === "humans" ? "active" : ""} onClick={() => selectBotMode("humans")}>{text.playersOnly}</button>
+                <button type="button" className={botMode === "include" ? "active" : ""} onClick={() => selectBotMode("include")}>{text.withBots}</button>
+                <button type="button" className={botMode === "only" ? "active" : ""} onClick={() => selectBotMode("only")}>{text.botsOnlyLabel}</button>
+              </div>
+            </div>
+            <label className={onlineOnly ? "filter-chip active" : "filter-chip"}>
+              <input type="checkbox" checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />
+              <span>{text.onlineShort}</span>
+            </label>
+            {botsOnly && (
+              <label className={botRate ? "filter-chip active" : "filter-chip"}>
+                <input type="checkbox" checked={botRate} onChange={(event) => setBotRate(event.target.checked)} />
+                <span>{text.botRate}</span>
+              </label>
+            )}
+          </section>
           <div className="toolbar glass">
             <label className="search-field">
               <span>{text.searchPlayer}</span>

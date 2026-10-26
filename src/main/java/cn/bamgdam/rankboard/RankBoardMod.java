@@ -1436,8 +1436,8 @@ public final class RankBoardMod implements ModInitializer {
     static String metricCategory(Metric metric) {
         if (metric.isFun()) return "fun";
         return switch (metric) {
-            case PLAY_TIME, AFK_TIME, MINED, PLACED, KILLS, DEATHS, TRAVEL_DISTANCE, ORES_MINED, TRADES -> "core";
-            case PVP_KILLS, DAMAGE_TAKEN, DAMAGE_DEALT, SHIELD_BLOCKED, TOTEM_USED, TARGET_HITS -> "combat";
+            case PLAY_TIME, AFK_TIME, MINED, PLACED, KILLS, PVP_KILLS, DAMAGE_TAKEN, DAMAGE_DEALT, DEATHS, TRAVEL_DISTANCE, ORES_MINED, TRADES -> "core";
+            case SHIELD_BLOCKED, TOTEM_USED, TARGET_HITS -> "combat";
             case CRAFTED, REDSTONE_PLACED, TOOLS_BROKEN, BEDROCK_BROKEN -> "build";
             case FOOD, FISHING, ANIMALS_BRED, SLEPT, ENCHANTED -> "life";
             case ELYTRA_DISTANCE, JUMPS, PICKED_UP, DROPPED, MUSIC_PLAYED -> "explore";
@@ -2974,13 +2974,19 @@ public final class RankBoardMod implements ModInitializer {
                 source.sendFeedback(() -> Text.literal("没有可用于排行的玩家统计。 ").formatted(Formatting.GRAY), false);
                 return 0;
             }
-            long total = total(entries);
-            source.sendFeedback(() -> Text.literal("总和 ").formatted(Formatting.GRAY)
-                    .append(RankBoardColors.text(format(metric, total), metric)), false);
             java.util.List<Entry> humans = new java.util.ArrayList<>();
             java.util.List<Entry> bots = new java.util.ArrayList<>();
             for (Entry entry : entries) {
                 if (state.isBotPlayer(entry.uuid(), entry.name())) bots.add(entry); else humans.add(entry);
+            }
+            if (bots.isEmpty()) {
+                long total = total(entries);
+                source.sendFeedback(() -> Text.literal("总和 ").formatted(Formatting.GRAY)
+                        .append(RankBoardColors.text(format(metric, total), metric)), false);
+            } else {
+                long humanTotal = total(humans);
+                source.sendFeedback(() -> Text.literal("总和 ").formatted(Formatting.GRAY)
+                        .append(RankBoardColors.text(format(metric, humanTotal), metric)), false);
             }
             int rank = 0;
             for (Entry entry : humans) {
@@ -2995,6 +3001,9 @@ public final class RankBoardMod implements ModInitializer {
             if (!bots.isEmpty()) {
                 source.sendFeedback(() -> Text.literal("──────── BOT 机器人 ────────")
                         .formatted(Formatting.DARK_GRAY), false);
+                long botTotal = total(bots);
+                source.sendFeedback(() -> Text.literal("BOT 总和 ").formatted(Formatting.GRAY)
+                        .append(RankBoardColors.text(format(metric, botTotal), metric)), false);
                 int botShown = 0;
                 for (Entry entry : bots) {
                     if (botShown >= limit) break;

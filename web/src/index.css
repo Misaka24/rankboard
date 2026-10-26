@@ -141,6 +141,17 @@ button { cursor: pointer; }
 .tile-controls .online-toggle { grid-column: 2; padding-top: 0; border-top: 0; }
 .tile-controls .metric-list { display: flex; flex-wrap: nowrap; gap: 6px; max-height: none; overflow-x: auto; overflow-y: hidden; padding-bottom: 3px; scrollbar-width: thin; }
 .tile-controls .metric-list button { flex: 0 0 auto; min-height: 34px; }
+.ranking-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; }
+.filter-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.filter-label { color: var(--theme-muted); font-size: 12px; font-weight: 700; }
+.filter-segment { display: inline-flex; overflow: hidden; border: 1px solid color-mix(in srgb, var(--theme-border) 64%, transparent); border-radius: 6px; }
+.filter-segment button { padding: 7px 11px; color: var(--theme-text); border: 0; border-right: 1px solid color-mix(in srgb, var(--theme-border) 58%, transparent); background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
+.filter-segment button:last-child { border-right: 0; }
+.filter-segment button:hover { background: color-mix(in srgb, var(--theme-primary) 14%, transparent); }
+.filter-segment button.active { color: #fff; background: var(--theme-primary); }
+.filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; color: var(--theme-text); border: 1px solid color-mix(in srgb, var(--theme-border) 64%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--theme-surface) 72%, transparent); font-size: 12px; font-weight: 700; cursor: pointer; }
+.filter-chip.active { color: #fff; border-color: var(--theme-primary); background: var(--theme-primary); }
+.filter-chip input { margin: 0; accent-color: var(--theme-primary); }
 .toolbar { display: flex; align-items: end; gap: 14px; padding: 12px 14px; border-radius: 8px; }
 .date-range { display:flex; align-items:end; gap:12px; margin-top:12px; padding:12px 14px; border-radius:8px; color:#5575a2; font-size:12px; }
 .date-range label { display:grid; gap:5px; }
@@ -202,6 +213,8 @@ button { cursor: pointer; }
 .tile-table-wrap { margin-top: 4px; overflow: auto; border-radius: 8px; }
 .tile-table { width: 100%; min-width: 1500px; border-collapse: collapse; color: var(--theme-text); font-size: 12px; }
 .tile-table th, .tile-table td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--theme-border) 42%, transparent); text-align: left; vertical-align: middle; }
+.tile-table th:nth-child(n+4), .tile-table td:nth-child(n+4) { text-align: right; font-variant-numeric: tabular-nums; }
+.tile-table th:nth-child(n+4) button { width: 100%; text-align: right; }
 .tile-table th:first-child, .tile-table td:first-child { padding-right: 6px; }
 .tile-table th:nth-child(2), .tile-table td:nth-child(2) { padding-left: 6px; padding-right: 6px; }
 .tile-table th:nth-child(3), .tile-table td:nth-child(3) { padding-left: 7px; padding-right: 7px; }
