@@ -205,7 +205,7 @@ jobs:
           RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
         run: gh release upload "$RELEASE_TAG" release/*.jar --repo "$GITHUB_REPOSITORY" --clobber
       - name: Publish NeoForge to modrinth
-        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'modrinth') }}
+        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'modrinth') && secrets.MODRINTH_TOKEN != '' }}
         uses: Kira-NT/mc-publish@v3
         with:
           files: release/*.jar
@@ -221,7 +221,7 @@ jobs:
           retry-attempts: 3
           retry-delay: 15000
       - name: Publish NeoForge to curseforge
-        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'curseforge') }}
+        if: ${{ (needs.inspect.outputs.versions == 'all' || contains(format(',{0},', needs.inspect.outputs.versions), format(',{0},', matrix.target))) && (needs.inspect.outputs.destinations == 'all' || needs.inspect.outputs.destinations == 'curseforge') && secrets.CURSEFORGE_TOKEN != '' }}
         uses: Kira-NT/mc-publish@v3
         with:
           files: release/*.jar
