@@ -493,11 +493,12 @@ final class WebDashboard {
             RankBoardMod.Metric metric = metric(query.getOrDefault("metric", "playtime"));
             boolean onlineOnly = Boolean.parseBoolean(query.getOrDefault("online", "false"));
             boolean compact = Boolean.parseBoolean(query.getOrDefault("compact", "false"));
+            boolean botsOnly = Boolean.parseBoolean(query.getOrDefault("bots", "false"));
             CompletableFuture<String> result = new CompletableFuture<>();
             MinecraftServer server = minecraft;
             if (server == null) throw new IllegalStateException("服务器尚未启动");
             server.execute(() -> {
-                try { result.complete(buildRanking(server, period, from, to, metric, onlineOnly, compact)); }
+                try { result.complete(buildRanking(server, period, from, to, metric, onlineOnly, compact, botsOnly)); }
                 catch (Exception exception) { result.completeExceptionally(exception); }
             });
             String body = result.get(15, TimeUnit.SECONDS);
@@ -512,7 +513,8 @@ final class WebDashboard {
     }
 
     private static String buildRanking(MinecraftServer server, String period, LocalDate from, LocalDate to,
-                                       RankBoardMod.Metric metric, boolean requestOnlineOnly, boolean compact) {
+                                       RankBoardMod.Metric metric, boolean requestOnlineOnly,
+                                       boolean compact, boolean botsOnly) {
         LeaderboardState state = LeaderboardState.get(server);
         if (!state.isMetricDisplayEnabled(metric)) {
             throw new IllegalArgumentException(metric.label() + " 已被 OP 禁止显示");
@@ -528,8 +530,13 @@ final class WebDashboard {
                 : new ArrayList<>();
         if (period.equals("all")) {
             StatReader.readAll(server, compact ? null : metric).forEach(snapshot -> {
-                if (isIncluded(server, state, snapshot.uuid(), snapshot.name(), effectiveOnlineOnly)) {
-                    entries.add(new WebEntry(snapshot.uuid(), snapshot.name(), snapshot.value(metric)));
+                String name = snapshot.name();
+                boolean included = botsOnly
+                        ? isBotVisible(server, state, snapshot.uuid(), name, effectiveOnlineOnly)
+                        : isIncluded(server, state, snapshot.uuid(), name, effectiveOnlineOnly);
+                if (included) {
+                    entries.add(new WebEntry(snapshot.uuid(), name, snapshot.value(metric),
+                            state.isBotPlayer(snapshot.uuid(), name)));
                 }
             });
             actualStart = "原版统计起始";
@@ -546,14 +553,19 @@ final class WebDashboard {
             StatReader.readAll(server, metric).forEach(snapshot -> names.put(snapshot.uuid(), snapshot.name()));
             range.values().forEach((uuid, value) -> {
                 String name = names.getOrDefault(uuid, "unknown_" + uuid.toString().substring(0, 8));
-                if (isIncluded(server, state, uuid, name, effectiveOnlineOnly)) entries.add(new WebEntry(uuid, name, value));
+                boolean included = botsOnly
+                        ? isBotVisible(server, state, uuid, name, effectiveOnlineOnly)
+                        : isIncluded(server, state, uuid, name, effectiveOnlineOnly);
+                if (included) {
+                    entries.add(new WebEntry(uuid, name, value, state.isBotPlayer(uuid, name)));
+                }
             });
             actualStart = range.actualStart().toString();
             actualEnd = range.actualEnd().toString();
         }
         entries.sort(Comparator.comparingLong(WebEntry::value).reversed().thenComparing(WebEntry::name));
         Map<UUID, Map<RankBoardMod.Metric, Long>> compactValues = compact
-                ? compactValues(server, state, period, from, to, effectiveOnlineOnly, entries) : Map.of();
+                ? compactValues(server, state, period, from, to, effectiveOnlineOnly, botsOnly, entries) : Map.of();
         long total = entries.stream().map(entry -> new RankBoardMod.Entry(entry.uuid, entry.name, entry.value)).collect(
                 java.util.stream.Collectors.collectingAndThen(java.util.stream.Collectors.toList(), RankBoardMod::total));
 
@@ -563,6 +575,7 @@ final class WebDashboard {
         root.addProperty("cacheProcessed", StatReader.processed());
         root.addProperty("cacheTotal", StatReader.totalFiles());
         root.addProperty("onlineOnly", effectiveOnlineOnly);
+        root.addProperty("botsOnly", botsOnly);
         root.addProperty("period", period);
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
@@ -579,6 +592,7 @@ final class WebDashboard {
             player.addProperty("rank", i + 1); player.addProperty("uuid", entry.uuid.toString());
             player.addProperty("name", entry.name); player.addProperty("value", entry.value);
             player.addProperty("formatted", formatWeb(metric, entry.value));
+            player.addProperty("bot", entry.bot);
             if (compact) {
                 JsonObject values = new JsonObject();
                 Map<RankBoardMod.Metric, Long> playerValues = compactValues.getOrDefault(entry.uuid, Map.of());
@@ -600,14 +614,17 @@ final class WebDashboard {
     /** Builds the values displayed by the compact view in one server-thread API request. */
     private static Map<UUID, Map<RankBoardMod.Metric, Long>> compactValues(MinecraftServer server,
             LeaderboardState state, String period, LocalDate from, LocalDate to, boolean onlineOnly,
-            List<WebEntry> entries) {
+            boolean botsOnly, List<WebEntry> entries) {
         Map<UUID, Map<RankBoardMod.Metric, Long>> result = new HashMap<>();
         java.util.Set<UUID> displayed = entries.stream().map(WebEntry::uuid)
                 .collect(java.util.stream.Collectors.toSet());
         if (period.equals("all")) {
             StatReader.readAll(server).forEach(snapshot -> {
-                if (!displayed.contains(snapshot.uuid())
-                        || !isIncluded(server, state, snapshot.uuid(), snapshot.name(), onlineOnly)) return;
+                if (!displayed.contains(snapshot.uuid())) return;
+                boolean included = botsOnly
+                        ? isBotVisible(server, state, snapshot.uuid(), snapshot.name(), onlineOnly)
+                        : isIncluded(server, state, snapshot.uuid(), snapshot.name(), onlineOnly);
+                if (!included) return;
                 Map<RankBoardMod.Metric, Long> values = new java.util.EnumMap<>(RankBoardMod.Metric.class);
                 for (RankBoardMod.Metric item : RankBoardMod.Metric.values()) values.put(item, snapshot.value(item));
                 result.put(snapshot.uuid(), values);
@@ -628,6 +645,12 @@ final class WebDashboard {
     private static boolean isIncluded(MinecraftServer server, LeaderboardState state, UUID uuid, String name,
                                       boolean onlineOnly) {
         return RankBoardMod.isIncluded(server, state, uuid, name)
+                && (!onlineOnly || server.getPlayerList().getPlayer(uuid) != null);
+    }
+
+    private static boolean isBotVisible(MinecraftServer server, LeaderboardState state, UUID uuid, String name,
+                                        boolean onlineOnly) {
+        return RankBoardMod.isBotIncluded(server, state, uuid, name)
                 && (!onlineOnly || server.getPlayerList().getPlayer(uuid) != null);
     }
 
@@ -1058,7 +1081,7 @@ final class WebDashboard {
         private static final BurstPenalty NONE = new BurstPenalty(0, false, 0);
     }
 
-    private record WebEntry(UUID uuid, String name, long value) { }
+    private record WebEntry(UUID uuid, String name, long value, boolean bot) { }
 
     private static String page(String name) {
         return PAGE.replace("{{SERVER_NAME}}", escapeHtml(name));

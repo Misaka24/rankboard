@@ -2,7 +2,7 @@
 
 RankBoard 是一个面向 Minecraft 服务端的排行榜模组，同时提供 Fabric 与 NeoForge 版本。它直接读取原版玩家统计，提供聊天栏排行榜、个人侧边栏、全服侧边栏、自动轮播、榜单缓存对比和网页排行榜。玩家无需安装客户端模组，也不需要重新开始存档。
 
-当前版本：`2.1.2`
+当前版本：`2.2.0`
 
 - 项目仓库：[Misaka24/rankboard](https://github.com/Misaka24/rankboard)
 - 上游仓库：[halfkite/rankboard](https://github.com/halfkite/rankboard)
@@ -31,18 +31,18 @@ RankBoard 是服务端模组。正常使用聊天菜单、原版侧边栏和网�
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.1.2+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
+| `rankboard-2.2.0+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
 
 也可以按版本家族分别构建单加载器 JAR（见“从源码构建”）：
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.1.2+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.1.2+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
-| `rankboard-2.1.2+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
-| `rankboard-2.1.2+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
-| `rankboard-2.1.2+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.1.2+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
+| `rankboard-2.2.0+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.2.0+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
+| `rankboard-2.2.0+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
+| `rankboard-2.2.0+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
+| `rankboard-2.2.0+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.2.0+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
 
 Fabric 还需要与 Minecraft 版本匹配的 Fabric API；NeoForge 不需要额外 API 模组。请勿同时安装多个 RankBoard JAR，也不要在同一服务器同时安装 Fabric 与 NeoForge 两个版本。
 
@@ -57,7 +57,7 @@ Fabric：
 NeoForge：
 
 1. 安装对应 Minecraft 版本的 NeoForge。
-2. 将 `rankboard-2.1.2+neoforge+mc*.jar` 放入服务端 `mods/`。
+2. 将 `rankboard-2.2.0+neoforge+mc*.jar` 放入服务端 `mods/`。
 
 启动服务器，首次运行会生成 `config/rankboard/`。按需修改后重启，或由 OP 执行 `/leaderboard config reload`。输入 `/leaderboard` 打开可点击菜单。
 
@@ -236,6 +236,9 @@ OP 可控制全服入口：
 /leaderboard playerfilter
 /leaderboard playerfilter add|allow|remove <玩家名|UUID>
 /leaderboard playerfilter list|clear|status
+/leaderboard botgroup
+/leaderboard botgroup add|remove|list|clear|status <玩家名|UUID>
+/leaderboard bots <周期> <榜单> [数量]
 /leaderboard modwhitelist add|remove <name|UUID>
 /leaderboard modwhitelist list|reload
 /leaderboard recipients <fake-only|false|whitelist|blacklist|status>
@@ -280,8 +283,9 @@ http://服务器地址:8765/
 
 - 浅色玻璃风格界面，支持榜单分类、二级分类、搜索和响应式布局。
 - 分类浏览、榜单搜索、在线玩家筛选。
-- 总计、滚动快捷周期和自定义日期。
-- 实际统计边界、完整性提示和扫描进度。
+- 机器人分组开关与 `BOT` 徽标。
+- 总计、滚动快捷周期和自定义日期；缺失零点边界时显示实际范围与提示。
+- 顶栏 GitHub 仓库入口（`Misaka24/rankboard`）。
 - 头像、UUID、在线状态和最后在线时间。
 - 服务器图标自动取色或自定义主题。
 - 电脑与手机响应式布局。
@@ -301,7 +305,10 @@ GET /api/site
 GET /api/rankings?metric=playtime&period=all
 GET /api/rankings?metric=kills&period=week
 GET /api/rankings?metric=playtime&from=2026-07-01&to=2026-07-21
+GET /api/rankings?metric=playtime&period=all&bots=true
 ```
+
+`bots=true` 只返回机器人分组（手动分组 + `bot_` 前缀），不受白名单限制；普通请求会隐藏机器人分组。响应中的每位玩家带 `bot` 标记，并返回 `actualStart`、`actualEnd`、`warnings` 等实际范围信息。
 
 网页接口按 IP 渐进限流。超限返回 HTTP `429` 与 `Retry-After`；OP 可执行 `/leaderboard ratelimit clear`。公网部署建议在前方使用 Caddy、Nginx 等反向代理提供 HTTPS。
 
@@ -373,7 +380,7 @@ config/rankboard/
 ]
 ```
 
-启用后，扫描、缓存、游戏内与网页排行榜只接受名单玩家。若服务器白名单筛选也开启，则取交集。
+启用后，扫描、缓存、游戏内与网页排行榜只接受名单玩家。若服务器白名单筛选也开启，则取交集。机器人分组中的玩家（手动分组与 `bot_` 前缀）不受白名单限制，仍会被扫描并显示在机器人榜中。
 
 ### 手动玩家过滤
 
@@ -393,6 +400,34 @@ config/rankboard/
 ```
 
 玩家名支持在线或离线玩家；也接受 UUID。修改后立即刷新榜单。自动 `bot_`/`unknown_` 过滤仍由 `/leaderboard botfilter` 与 `/leaderboard customfilter` 控制，手动名单优先。
+
+### 机器人分组
+
+除了 `bot_` 前缀自动识别，OP 还可以把任意玩家（例如 Carpet 假人 Steve、Alex）手动移入机器人分组：
+
+```text
+/leaderboard botgroup                 打开可点击面板
+/leaderboard botgroup add <玩家>      移入机器人分组
+/leaderboard botgroup remove <玩家>   移出机器人分组
+/leaderboard botgroup list|clear|status
+/leaderboard bots <周期> <榜单> [数量]  查看机器人分组榜单
+```
+
+- 分组内玩家会从普通聊天榜、侧边栏和网页默认列表中隐藏，避免假人挤占真人排名。
+- 机器人榜单独显示手动分组与 `bot_` 前缀玩家，行尾标记 `[BOT]`；网页顶栏的“机器人分组”开关提供同样视图和 `BOT` 徽标。
+- **机器人榜不受服务器白名单或 RankBoard 独立白名单限制**：未加入白名单的假人也能被扫描、统计和显示。
+- 机器人分组成员随排行榜数据持久化，支持离线玩家名与 UUID。
+
+### 历史边界与日期范围
+
+历史快照通常只在服务器零点运行时建立。选择今天或缺失零点的日期时，RankBoard 不再直接报错，而是：
+
+- 使用范围内最近可用快照，并在网页/命令结果显示“实际范围”和警告；
+- 缺少次日零点边界时回退到最近的后续快照；
+- 结束日期为今天时使用实时统计；
+- 开始日期只有部分快照时按当日首次可信快照计算，并明确标注不完整。
+
+因此即使当天刚启动服务器、尚无完整零点快照，也可以查询当日、本周等范围；数据会随服务器继续运行逐步完整。
 
 ## 数据与快照位置
 

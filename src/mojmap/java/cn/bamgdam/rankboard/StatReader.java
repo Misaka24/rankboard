@@ -105,7 +105,8 @@ final class StatReader {
         persistentCacheLoaded = loadPersistentCache(server);
         // Persisted values are preview-only until every source file is verified.
         int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
-        warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond));
+        Set<UUID> botUuids = LeaderboardState.get(server).botPlayerUuids();
+        warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond, botUuids));
     }
 
     static void stopWarmup() {
@@ -230,18 +231,22 @@ final class StatReader {
     static List<StatSnapshot> readAll(MinecraftServer server) { return readAll(server, null); }
 
     static List<StatSnapshot> readAll(MinecraftServer server, RankBoardMod.Metric onlyMetric) {
+        LeaderboardState state = LeaderboardState.get(server);
         Map<UUID, StatSnapshot> snapshots = new HashMap<>(CACHE);
         if (RankBoardConfig.get().modWhitelistEnabled) {
+            // The bot group is exempt from the whitelist so operators can rank bots
+            // without adding every fake player to the whitelist file.
             snapshots.entrySet().removeIf(entry -> !RankBoardWhitelist.matches(server,
-                    entry.getKey(), entry.getValue().name()));
+                    entry.getKey(), entry.getValue().name())
+                    && !state.isBotPlayer(entry.getKey(), entry.getValue().name()));
         }
         // Live handlers are already in memory and are always newer than files on disk.
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (RankBoardConfig.get().modWhitelistEnabled
-                    && !RankBoardWhitelist.matches(server, player.getUUID(), player.getName().getString())) continue;
+                    && !RankBoardWhitelist.matches(server, player.getUUID(), player.getName().getString())
+                    && !state.isBotPlayer(player.getUUID(), player.getName().getString())) continue;
             snapshots.put(player.getUUID(), fromPlayer(player, onlyMetric));
         }
-        LeaderboardState state = LeaderboardState.get(server);
         List<StatSnapshot> results = new ArrayList<>(snapshots.size());
         for (StatSnapshot snapshot : snapshots.values()) {
             results.add(onlyMetric == null ? state.applyCustomMetrics(snapshot)
@@ -250,7 +255,7 @@ final class StatReader {
         return results;
     }
 
-    private static void warmup(MinecraftServer server, long generation, int filesPerSecond) {
+    private static void warmup(MinecraftServer server, long generation, int filesPerSecond, Set<UUID> botUuids) {
         ExecutorService scanPool = null;
         try {
             Map<UUID, String> names = readKnownNames(server);
@@ -263,7 +268,10 @@ final class StatReader {
             files = stream.filter(path -> path.getFileName().toString().endsWith(".json"))
                     .filter(path -> uuidFromPathOrNull(path) != null)
                     .filter(path -> !RankBoardConfig.get().modWhitelistEnabled
-                            || modWhitelist.contains(uuidFromPath(path))).toList();
+                            || modWhitelist.contains(uuidFromPath(path))
+                            || botUuids.contains(uuidFromPath(path))
+                            || names.getOrDefault(uuidFromPath(path), "").toLowerCase(java.util.Locale.ROOT)
+                                    .startsWith("bot_")).toList();
             }
             files = new ArrayList<>(files);
             files.sort(Comparator.comparing((Path path) -> !whitelist.contains(uuidFromPath(path))).thenComparing(Path::toString));

@@ -49,6 +49,8 @@ public final class LeaderboardState extends SavedData {
     private final Map<String, UUID> filteredPlayers = new LinkedHashMap<>();
     /** Players explicitly allowed to bypass the automatic bot_/unknown_ prefix filters. */
     private final Map<String, UUID> allowedPlayers = new LinkedHashMap<>();
+    /** Players an operator explicitly classified as bots (shown only in the bot group). */
+    private final Map<String, UUID> botPlayers = new LinkedHashMap<>();
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
     private final Set<UUID> lookMenuDisabledPlayers = new HashSet<>();
@@ -149,6 +151,7 @@ public final class LeaderboardState extends SavedData {
         if (nbt.contains("onlineOnly")) state.onlineOnly = NbtCompat.getBoolean(nbt, "onlineOnly");
         readPlayerFilters(nbt, "filteredPlayers", state.filteredPlayers);
         readPlayerFilters(nbt, "allowedPlayers", state.allowedPlayers);
+        readPlayerFilters(nbt, "botPlayers", state.botPlayers);
         for (Tag element : NbtCompat.getList(nbt, "disabledDisplayMetrics", Tag.TAG_STRING)) {
             try { state.disabledDisplayMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }
             catch (IllegalArgumentException ignored) { }
@@ -254,6 +257,7 @@ public final class LeaderboardState extends SavedData {
         nbt.putBoolean("onlineOnly", onlineOnly);
         nbt.put("filteredPlayers", writePlayerFilters(filteredPlayers));
         nbt.put("allowedPlayers", writePlayerFilters(allowedPlayers));
+        nbt.put("botPlayers", writePlayerFilters(botPlayers));
         ListTag disabledMetrics = new ListTag();
         disabledDisplayMetrics.forEach(metric -> disabledMetrics.add(StringTag.valueOf(metric.name())));
         nbt.put("disabledDisplayMetrics", disabledMetrics);
@@ -361,7 +365,11 @@ public final class LeaderboardState extends SavedData {
                 boolean activatedMetric = false;
                 for (StatSnapshot snapshot : snapshots) {
                     Map<RankBoardMod.Metric, Long> playerValues = values.get(snapshot.uuid());
-                    if (playerValues == null) continue;
+                    if (playerValues == null) {
+                        values.put(snapshot.uuid(), new EnumMap<>(snapshot.values()));
+                        activatedMetric = true;
+                        continue;
+                    }
                     for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
                         if (!playerValues.containsKey(metric)) {
                             playerValues.put(metric, snapshot.value(metric));
@@ -534,6 +542,51 @@ public final class LeaderboardState extends SavedData {
     private static String normalizeFilterName(String name) {
         return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
     }
+    /** True when the operator explicitly classified this player as a bot. */
+    public boolean isManualBot(UUID uuid, String name) {
+        return matchesFilter(botPlayers, uuid, name);
+    }
+    /** True for manually classified bots and for the automatic bot_ name prefix. */
+    public boolean isBotPlayer(UUID uuid, String name) {
+        return isManualBot(uuid, name) || (name != null && normalizeFilterName(name).startsWith("bot_"));
+    }
+    /** Adds a player to the manual bot group. Returns false when already classified. */
+    public boolean addBotPlayer(String name, UUID uuid) {
+        String key = normalizeFilterName(name);
+        if (key.isEmpty()) throw new IllegalArgumentException("玩家名称不能为空");
+        allowedPlayers.remove(key);
+        filteredPlayers.remove(key);
+        if (botPlayers.containsKey(key)) return false;
+        botPlayers.put(key, uuid);
+        setDirty();
+        return true;
+    }
+    /** Removes a player from the manual bot group. Accepts a name or a UUID string. */
+    public boolean removeBotPlayer(String value) {
+        if (value == null) return false;
+        String key = normalizeFilterName(value);
+        boolean changed = botPlayers.remove(key) != null;
+        try {
+            UUID uuid = UUID.fromString(value.trim());
+            changed |= botPlayers.values().removeIf(uuid::equals);
+        } catch (IllegalArgumentException ignored) { }
+        if (changed) setDirty();
+        return changed;
+    }
+    public List<Map.Entry<String, UUID>> botPlayerEntries() {
+        return List.copyOf(botPlayers.entrySet());
+    }
+    public Set<UUID> botPlayerUuids() {
+        return Set.copyOf(new HashSet<>(botPlayers.values()));
+    }
+    public int clearBotPlayers() {
+        int removed = botPlayers.size();
+        if (removed > 0) {
+            botPlayers.clear();
+            setDirty();
+        }
+        return removed;
+    }
     public boolean isMetricDisplayEnabled(RankBoardMod.Metric metric) {
         if (metric == RankBoardMod.Metric.BEDROCK_BROKEN && !RankBoardConfig.get().bedrockBreakLeaderboardEnabled) return false;
         return !disabledDisplayMetrics.contains(metric);
@@ -692,9 +745,14 @@ public final class LeaderboardState extends SavedData {
     }
 
     public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
-        return range(server, from, to, metric, false);
+        return range(server, from, to, metric, true);
     }
 
+    /**
+     * Computes a range delta from the best available snapshots. Missing or partial
+     * midnight boundaries are reported as warnings and replaced by the nearest
+     * usable snapshot instead of failing the whole query.
+     */
     public RangeData range(MinecraftServer server, LocalDate from, LocalDate to,
                            RankBoardMod.Metric metric, boolean allowPartialStart) {
         if (!StatReader.isReady()) throw new IllegalStateException("历史统计仍在权威扫描（" + StatReader.progress() + "）");
@@ -702,48 +760,53 @@ public final class LeaderboardState extends SavedData {
         LocalDate today = LocalDate.now();
         if (to.isAfter(today)) throw new IllegalArgumentException("结束日期不能晚于今天：" + today);
 
-        Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> startEntry;
-        if (allowPartialStart) {
-            startEntry = firstSnapshotWithMetric(from, to, metric);
-            if (startEntry == null) {
-                throw new IllegalArgumentException("所选范围内还没有可用的 " + metric.label()
-                        + " 快照；最早快照为 " + earliestSnapshotDate(metric));
-            }
-        } else {
-            HistorySnapshotStore.Snapshot exactSnapshot = historySnapshot(from);
-            Map<UUID, Map<RankBoardMod.Metric, Long>> exact = exactSnapshot == null ? null : exactSnapshot.players();
-            if (exact == null) {
-                throw new IllegalArgumentException("开始日期没有真实边界快照；最早快照为 " + earliestSnapshotDate(metric));
-            }
-            if (!snapshotHasMetric(exact, metric)) {
-                throw new IllegalArgumentException("开始日期 " + from + " 尚未记录 " + metric.label()
-                        + "；最早快照为 " + earliestSnapshotDate(metric));
-            }
-            if (exactSnapshot.partial()) {
-                throw new IllegalArgumentException("开始日期 " + from + " 不是零点建立的完整快照");
-            }
-            startEntry = new java.util.AbstractMap.SimpleImmutableEntry<>(from, exact);
+        // Make sure today's snapshot exists before evaluating ranges.
+        rollPeriods(server);
+
+        List<String> warnings = new java.util.ArrayList<>();
+        Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> startEntry =
+                firstSnapshotWithMetric(from, to, metric);
+        if (startEntry == null && to.isBefore(today)) {
+            startEntry = firstSnapshotWithMetric(from, today, metric);
         }
+        if (startEntry == null) {
+            throw new IllegalArgumentException("所选范围内还没有可用的 " + metric.label()
+                    + " 快照；最早快照为 " + earliestSnapshotDate(metric));
+        }
+
         LocalDate actualStart = startEntry.getKey();
         Map<UUID, Map<RankBoardMod.Metric, Long>> start = startEntry.getValue();
-        List<String> warnings = new java.util.ArrayList<>();
-        if (!actualStart.equals(from) || isPartialSnapshot(actualStart)) {
-            warnings.add("请求周期缺少完整零点起点，实际从 " + actualStart + " 当日首次可信快照开始");
+        if (!actualStart.equals(from)) {
+            warnings.add("开始日期缺少完整零点快照，实际从 " + actualStart + " 的首个可用快照开始");
+        } else if (isPartialSnapshot(actualStart)) {
+            warnings.add("开始日期不是零点建立的完整快照，按当日首次可信快照计算");
         }
 
         Map<UUID, Long> endValues = new HashMap<>();
+        LocalDate actualEnd = to;
         if (!to.isBefore(today)) {
             StatReader.readAll(server, metric).forEach(snapshot -> endValues.put(snapshot.uuid(), snapshot.value(metric)));
         } else {
-            LocalDate requiredEnd = to.plusDays(1);
-            HistorySnapshotStore.Snapshot endSnapshot = historySnapshot(requiredEnd);
-            Map<UUID, Map<RankBoardMod.Metric, Long>> end = endSnapshot == null ? null : endSnapshot.players();
-            if (end == null) throw new IllegalArgumentException("结束日期缺少次日零点快照：" + requiredEnd);
-            if (!snapshotHasMetric(end, metric)) {
-                throw new IllegalArgumentException("结束边界 " + requiredEnd + " 尚未记录 " + metric.label());
+            LocalDate boundary = to.plusDays(1);
+            HistorySnapshotStore.Snapshot endSnapshot = historySnapshot(boundary);
+            Map<UUID, Map<RankBoardMod.Metric, Long>> end =
+                    endSnapshot == null ? null : endSnapshot.players();
+            if (end == null || !snapshotHasMetric(end, metric)) {
+                Map.Entry<LocalDate, Map<UUID, Map<RankBoardMod.Metric, Long>>> fallback =
+                        firstSnapshotWithMetric(boundary, today, metric);
+                if (fallback == null) {
+                    throw new IllegalArgumentException("结束日期缺少可用边界快照："
+                            + to + "；最早快照为 " + earliestSnapshotDate(metric));
+                }
+                boundary = fallback.getKey();
+                end = fallback.getValue();
+                actualEnd = boundary.minusDays(1);
+                warnings.add("结束日期缺少次日零点快照，实际统计到 " + actualEnd);
+            } else if (endSnapshot.partial()) {
+                warnings.add("结束边界不是完整零点快照，结果可能不完整");
             }
-            if (endSnapshot.partial()) throw new IllegalArgumentException("结束边界 " + requiredEnd + " 不是完整零点快照");
-            end.forEach((uuid, values) -> {
+            Map<UUID, Map<RankBoardMod.Metric, Long>> endValuesMap = end;
+            endValuesMap.forEach((uuid, values) -> {
                 Long value = values.get(metric);
                 if (value != null) endValues.put(uuid, value);
             });
@@ -764,7 +827,7 @@ public final class LeaderboardState extends SavedData {
         if (missingStart > 0) warnings.add(missingStart + " 名玩家缺少开始边界，已排除");
         if (missingEnd > 0) warnings.add(missingEnd + " 名玩家缺少结束边界，已排除");
         if (reset > 0) warnings.add(reset + " 名玩家累计统计发生回退，已排除");
-        return new RangeData(actualStart, to, result, warnings.isEmpty(), List.copyOf(warnings));
+        return new RangeData(actualStart, actualEnd, result, warnings.isEmpty(), List.copyOf(warnings));
     }
 
     public String earliestSnapshotDate() {

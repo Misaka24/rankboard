@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, ExternalLink, Github, LayoutPanelTop, PackageOpen, Rows3, Server, Table2 } from "lucide-react";
+import { Download, Github, LayoutPanelTop, Rows3, Server, Table2 } from "lucide-react";
 import BlurText from "@/components/BlurText/BlurText";
 import { serverSwitchUrl } from "@/serverSwitchUrl";
 
@@ -17,6 +17,7 @@ type Player = {
   formatted: string;
   lastOnline: number;
   online: boolean;
+  bot?: boolean;
   metrics?: Record<string, string>;
 };
 
@@ -30,6 +31,7 @@ type RankingResponse = {
   cacheProcessed?: number;
   cacheTotal?: number;
   onlineOnly?: boolean;
+  botsOnly?: boolean;
   from?: string;
   to?: string;
   actualStart?: string;
@@ -72,7 +74,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "中文", languageLabel: "Language", currentOnline: "当前在线", lastOnlineUnknown: "最后在线：未知", lastOnline: "最后在线",
     total: "总和", query: "查询", all: "总榜", day: "最近一日", week: "最近一周", month: "最近一月", quarter: "最近一季度", year: "最近一年", custom: "自定义日期",
     compact: "紧凑视图", tile: "平铺视图", detail: "详细视图", normal: "普通视图", layoutMode: "布局", switchServer: "服务器切换", current: "当前", switch: "切换", offline: "离线",
-    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", metricCategory: "榜单分类", downloadMod: "下载模组", sourceCode: "查看源码",
+    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", actualRange: "实际范围", metricCategory: "榜单分类", downloadMod: "下载模组", sourceCode: "查看源码",
     searchPlayer: "搜索玩家", enterPlayerName: "输入玩家名称", export: "导出表格", exportTitle: "导出当前筛选结果为 CSV 表格", copyIdentity: "点击复制玩家名称和 UUID", copied: "已复制玩家名称和 UUID",
     startDate: "开始日期", endDate: "结束日期", earliest: "最早可查", backgroundCheck: "后台校验", loading: "正在读取服务器排行榜...",
     noPlayers: "当前筛选下没有可显示的玩家。", partial: "部分统计", incompleteRange: "统计范围缺少完整边界",
@@ -87,7 +89,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "English", languageLabel: "Language", currentOnline: "Online now", lastOnlineUnknown: "Last online: unknown", lastOnline: "Last online",
     total: "Total", query: "Query", all: "All time", day: "Last day", week: "Last week", month: "Last month", quarter: "Last quarter", year: "Last year", custom: "Custom dates",
     compact: "Compact view", tile: "Tile view", detail: "Detailed view", normal: "Normal view", layoutMode: "Layout", switchServer: "Server switcher", current: "Current", switch: "Switch", offline: "Offline",
-    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", metricCategory: "Leaderboards", downloadMod: "Download mod", sourceCode: "View source",
+    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", actualRange: "actual range", metricCategory: "Leaderboards", downloadMod: "Download mod", sourceCode: "View source",
     searchPlayer: "Search players", enterPlayerName: "Enter a player name", export: "Export table", exportTitle: "Export the filtered result as a CSV table", copyIdentity: "Click to copy player name and UUID", copied: "Player name and UUID copied",
     startDate: "Start date", endDate: "End date", earliest: "Earliest available", backgroundCheck: "Background verification", loading: "Loading server leaderboard...",
     noPlayers: "No players are available for the current filters.", partial: "Partial statistics", incompleteRange: "The selected range has incomplete boundaries",
@@ -353,6 +355,7 @@ export default function App() {
   const [metric, setMetric] = useState("playtime");
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
+  const [botsOnly, setBotsOnly] = useState(false);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
@@ -393,7 +396,7 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), compact: String(compactMode || tileMode) });
+        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), bots: String(botsOnly), compact: String(compactMode || tileMode) });
         if (period === "custom") {
           params.set("from", from);
           params.set("to", to);
@@ -426,7 +429,7 @@ export default function App() {
       window.clearTimeout(timer);
       window.clearInterval(interval);
     };
-  }, [period, metric, onlineOnly, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
+  }, [period, metric, onlineOnly, botsOnly, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
 
   useEffect(() => {
     localStorage.setItem("rankboard-layout-mode", layoutMode);
@@ -652,26 +655,6 @@ export default function App() {
           ))}
         </div>
       </section>}
-
-      <nav className="mod-links" aria-label={text.websiteAria}>
-        <div className="mod-links-title">{text.modTitle}</div>
-        <a href="https://modrinth.com/project/rankboard" target="_blank" rel="noreferrer">
-          <PackageOpen aria-hidden="true" />
-          <span>
-            <small>{text.downloadMod}</small>
-            Modrinth
-          </span>
-          <ExternalLink className="external-icon" aria-hidden="true" />
-        </a>
-        <a href="https://github.com/halfkite/rankboard" target="_blank" rel="noreferrer">
-          <Github aria-hidden="true" />
-          <span>
-            <small>{text.sourceCode}</small>
-            halfkite/rankboard
-          </span>
-          <ExternalLink className="external-icon" aria-hidden="true" />
-        </a>
-      </nav>
     </>
   );
 
@@ -733,6 +716,14 @@ export default function App() {
             <input type="checkbox" checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />
             <span>{text.onlineOnly}</span>
           </label>
+          <label className={botsOnly ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
+            <input type="checkbox" checked={botsOnly} onChange={(event) => setBotsOnly(event.target.checked)} />
+            <span>{text.botsOnly}</span>
+          </label>
+          <a className="top-repo-link" href="https://github.com/Misaka24/rankboard" target="_blank" rel="noreferrer" title={text.sourceCode}>
+            <Github aria-hidden="true" />
+            <span>Misaka24/rankboard</span>
+          </a>
           <button
             className="language-toggle"
             type="button"
@@ -790,7 +781,11 @@ export default function App() {
 
           <div className="title-row">
             <div>
-              <p className="eyebrow">{period === "custom" && ranking ? `${ranking.from} – ${ranking.to}` : periodLabel(period, language)}</p>
+              <p className="eyebrow">
+                {ranking && period !== "all" && ranking.actualStart && ranking.actualEnd
+                  ? `${ranking.actualStart} – ${ranking.actualEnd}${ranking.actualStart !== ranking.from || ranking.actualEnd !== ranking.to ? ` (${text.actualRange})` : ""}`
+                  : periodLabel(period, language)}
+              </p>
               <h1>{metricLabel(activeMetric, language)}</h1>
             </div>
             {ranking?.cacheChecking && (
@@ -800,9 +795,9 @@ export default function App() {
 
           {loading && <div className="notice glass">{text.loading}</div>}
           {error && <div className="notice error glass">{error}</div>}
-          {!error && ranking?.complete === false && (
-            <div className="notice error glass">
-              {text.partial}: {ranking.warnings?.join(language === "zh" ? "；" : "; ") || text.incompleteRange}
+          {!error && ranking?.warnings && ranking.warnings.length > 0 && (
+            <div className={ranking.complete === false ? "notice error glass" : "notice glass"}>
+              {text.partial}: {ranking.warnings.join(language === "zh" ? "；" : "; ")}
             </div>
           )}
 
@@ -841,7 +836,7 @@ export default function App() {
                     <tr key={player.uuid}>
                       <td className="tile-rank">{String(player.rank).padStart(2, "0")}</td>
                       <td>
-                        <div className="tile-player"><PlayerAvatar player={player} language={language} onCopy={() => copyIdentity(player)} copyTitle={identityTitle(player)} /><span title={identityTitle(player)}>{player.name}</span></div>
+                        <div className="tile-player"><PlayerAvatar player={player} language={language} onCopy={() => copyIdentity(player)} copyTitle={identityTitle(player)} /><span title={identityTitle(player)}>{player.name}</span>{player.bot && <span className="bot-badge">{text.botBadge}</span>}</div>
                       </td>
                       <td><LastOnline player={player} language={language} /></td>
                       {metrics.map((item) => {
@@ -873,6 +868,7 @@ export default function App() {
                   <div className="player-info">
                     <div className="player-heading">
                       <h2 title={identityTitle(player)}>{player.name}</h2>
+                      {player.bot && <span className="bot-badge">{text.botBadge}</span>}
                       <LastOnline player={player} language={language} />
                     </div>
                   </div>
@@ -898,6 +894,7 @@ export default function App() {
                 <div className="player-info">
                   <div className="player-heading">
                     <h2 title={identityTitle(player)}>{player.name}</h2>
+                    {player.bot && <span className="bot-badge">{text.botBadge}</span>}
                     <LastOnline player={player} language={language} />
                   </div>
                   <p><span>{metricDetail(activeMetric, language)}</span></p>

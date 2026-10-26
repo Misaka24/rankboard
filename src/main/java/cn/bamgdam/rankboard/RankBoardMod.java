@@ -362,6 +362,43 @@ public final class RankBoardMod implements ModInitializer {
                 .then(CommandManager.literal("list").executes(context -> listPlayerFilters(context.getSource())))
                 .then(CommandManager.literal("clear").executes(context -> clearPlayerFilters(context.getSource())))
                 .then(CommandManager.literal("status").executes(context -> playerFilterStatus(context.getSource()))));
+        root.then(CommandManager.literal("botgroup").requires(source -> CommandPermissionCompat.has(source, 2))
+                .executes(context -> botGroupMenu(context.getSource()))
+                .then(CommandManager.literal("add")
+                        .then(CommandManager.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> CommandSource.suggestMatching(
+                                        playerFilterCandidates(context.getSource().getServer()), builder))
+                                .executes(context -> addBotGroupPlayer(context.getSource(),
+                                        StringArgumentType.getString(context, "player")))))
+                .then(CommandManager.literal("remove")
+                        .then(CommandManager.argument("player", StringArgumentType.word())
+                                .suggests((context, builder) -> CommandSource.suggestMatching(
+                                        playerFilterCandidates(context.getSource().getServer()), builder))
+                                .executes(context -> removeBotGroupPlayer(context.getSource(),
+                                        StringArgumentType.getString(context, "player")))))
+                .then(CommandManager.literal("list").executes(context -> listBotGroup(context.getSource())))
+                .then(CommandManager.literal("clear").executes(context -> clearBotGroup(context.getSource())))
+                .then(CommandManager.literal("status").executes(context -> botGroupStatus(context.getSource()))));
+        root.then(CommandManager.literal("bots").requires(source -> CommandPermissionCompat.has(source, 2))
+                .executes(context -> {
+                    context.getSource().sendFeedback(() -> Text.literal(
+                            "用法：/leaderboard bots <周期> <榜单> [数量]").formatted(Formatting.GRAY), false);
+                    return 1;
+                })
+                .then(CommandManager.argument("period", StringArgumentType.word())
+                        .suggests((context, builder) -> CommandSource.suggestMatching(
+                                java.util.Arrays.stream(Period.values()).map(period -> period.command).toList(), builder))
+                        .then(CommandManager.argument("metric", StringArgumentType.word())
+                                .suggests((context, builder) -> CommandSource.suggestMatching(
+                                        java.util.Arrays.stream(Metric.values()).map(metric -> metric.command).toList(), builder))
+                                .executes(context -> showBots(context.getSource(),
+                                        periodByCommand(StringArgumentType.getString(context, "period")),
+                                        metricByCommand(StringArgumentType.getString(context, "metric")), 10))
+                                .then(CommandManager.argument("limit", IntegerArgumentType.integer(1, 50))
+                                        .executes(context -> showBots(context.getSource(),
+                                                periodByCommand(StringArgumentType.getString(context, "period")),
+                                                metricByCommand(StringArgumentType.getString(context, "metric")),
+                                                IntegerArgumentType.getInteger(context, "limit")))))));
         root.then(CommandManager.literal("recipients").requires(source -> CommandPermissionCompat.has(source, 2))
                 .executes(context -> recipientFilterStatus(context.getSource()))
                 .then(CommandManager.literal("status").executes(context -> recipientFilterStatus(context.getSource())))
@@ -695,6 +732,8 @@ public final class RankBoardMod implements ModInitializer {
                 helpCommand(source, "/leaderboard onlinefilter <true|false|status>", "/leaderboard onlinefilter ", "只显示在线玩家；立即生效");
                 helpCommand(source, "/leaderboard playerfilter add|allow|remove <玩家>", "/leaderboard playerfilter ", "手动隐藏玩家，或允许 bot_/unknown_ 玩家显示");
                 helpCommand(source, "/leaderboard playerfilter", "/leaderboard playerfilter", "打开玩家过滤面板");
+                helpCommand(source, "/leaderboard botgroup add|remove <玩家>", "/leaderboard botgroup ", "把玩家移入/移出机器人分组");
+                helpCommand(source, "/leaderboard bots <周期> <榜单> [数量]", "/leaderboard bots ", "查看机器人分组榜单（不受白名单限制）");
                 helpCommand(source, "/leaderboard lookup <uuid|whitelist>", "/leaderboard lookup ", "查询 Mojang 玩家名或批量补全白名单名称");
             }
             case "admin-scoreboard" -> {
@@ -1014,7 +1053,9 @@ public final class RankBoardMod implements ModInitializer {
                     .copy().append(Text.literal(" "))
                     .append(clickable("[清除全服侧边栏]", Formatting.RED, "/leaderboard scoreboard clear", "立即关闭全服共享侧边栏"))
                     .append(Text.literal(" "))
-                    .append(clickable("[玩家过滤]", Formatting.AQUA, "/leaderboard playerfilter", "手动隐藏或允许显示玩家"));
+                    .append(clickable("[玩家过滤]", Formatting.AQUA, "/leaderboard playerfilter", "手动隐藏或允许显示玩家"))
+                    .append(Text.literal(" "))
+                    .append(clickable("[机器人分组]", Formatting.LIGHT_PURPLE, "/leaderboard botgroup", "把玩家移入机器人分组"));
             source.sendFeedback(() -> adminRow, false);
         }
 
@@ -2487,6 +2528,175 @@ public final class RankBoardMod implements ModInitializer {
         return java.util.List.copyOf(names);
     }
 
+    private int addBotGroupPlayer(ServerCommandSource source, String player) {
+        String name = player == null ? "" : player.trim();
+        if (name.isEmpty()) {
+            source.sendError(Text.literal("玩家名称不能为空。"));
+            return 0;
+        }
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        java.util.UUID uuid = resolvePlayerUuid(source.getServer(), name);
+        boolean changed = state.addBotPlayer(name, uuid);
+        if (changed) {
+            BoardService.refreshAll(source.getServer());
+            WebDashboard.invalidateRankings();
+        }
+        source.sendFeedback(() -> Text.literal(changed
+                ? "已移入机器人分组：" + name + "（普通榜单隐藏，可在“机器人榜”查看）"
+                : "该玩家已在机器人分组：" + name), true);
+        return changed ? 1 : 0;
+    }
+
+    private int removeBotGroupPlayer(ServerCommandSource source, String player) {
+        String name = player == null ? "" : player.trim();
+        boolean changed = LeaderboardState.get(source.getServer()).removeBotPlayer(name);
+        if (changed) {
+            BoardService.refreshAll(source.getServer());
+            WebDashboard.invalidateRankings();
+        }
+        if (changed) {
+            source.sendFeedback(() -> Text.literal("已从机器人分组移除：" + name), true);
+            return 1;
+        }
+        source.sendError(Text.literal("机器人分组中没有：" + name));
+        return 0;
+    }
+
+    private int listBotGroup(ServerCommandSource source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> bots = state.botPlayerEntries();
+        source.sendFeedback(() -> Text.literal("机器人分组（" + bots.size() + "）："
+                + (bots.isEmpty() ? "空" : joinPlayerFilterEntries(bots))).formatted(Formatting.AQUA), false);
+        source.sendFeedback(() -> Text.literal("另会自动识别 bot_ 前缀玩家；使用 /leaderboard bots <周期> <榜单> 查看机器人榜。")
+                .formatted(Formatting.GRAY), false);
+        return bots.size();
+    }
+
+    private int clearBotGroup(ServerCommandSource source) {
+        int removed = LeaderboardState.get(source.getServer()).clearBotPlayers();
+        if (removed > 0) {
+            BoardService.refreshAll(source.getServer());
+            WebDashboard.invalidateRankings();
+        }
+        source.sendFeedback(() -> Text.literal(removed > 0
+                ? "已清空机器人分组（" + removed + " 项）。" : "机器人分组已经是空的。"), true);
+        return removed > 0 ? 1 : 0;
+    }
+
+    private int botGroupStatus(ServerCommandSource source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        int manual = state.botPlayerEntries().size();
+        int auto = 0;
+        for (ServerPlayerEntity player : source.getServer().getPlayerManager().getPlayerList()) {
+            if (!state.isManualBot(player.getUuid(), ProfileCompat.name(player.getGameProfile()))
+                    && player.getGameProfile() != null
+                    && ProfileCompat.name(player.getGameProfile()).toLowerCase(java.util.Locale.ROOT).startsWith("bot_")) {
+                auto++;
+            }
+        }
+        final int autoCount = auto;
+        source.sendFeedback(() -> Text.literal("机器人分组：手动 " + manual + " 人，在线 bot_ 前缀 " + autoCount
+                + " 人；机器人榜不受白名单限制。"), false);
+        return manual + autoCount;
+    }
+
+    private int botGroupMenu(ServerCommandSource source) {
+        LeaderboardState state = LeaderboardState.get(source.getServer());
+        beginMenu(source, "机器人分组");
+        java.util.List<java.util.Map.Entry<String, java.util.UUID>> bots = state.botPlayerEntries();
+        source.sendFeedback(() -> Text.literal("手动机器人 " + bots.size()
+                + " 人；普通榜单会隐藏机器人与 bot_ 前缀玩家，机器人榜会显示它们。")
+                .formatted(Formatting.GRAY), false);
+
+        Text botRow = Text.literal("分组名单：").formatted(Formatting.AQUA);
+        if (bots.isEmpty()) {
+            botRow = botRow.copy().append(Text.literal("（空）").formatted(Formatting.GRAY));
+        } else {
+            for (java.util.Map.Entry<String, java.util.UUID> entry : bots) {
+                botRow = botRow.copy().append(clickable("[" + entry.getKey() + "]", Formatting.AQUA,
+                        "/leaderboard botgroup remove " + entry.getKey(), "移出机器人分组"))
+                        .append(Text.literal(" "));
+            }
+        }
+        Text finalBotRow = botRow;
+        source.sendFeedback(() -> finalBotRow, false);
+
+        Text onlineRow = Text.literal("在线玩家：").formatted(Formatting.GOLD);
+        int shown = 0;
+        for (ServerPlayerEntity player : source.getServer().getPlayerManager().getPlayerList()) {
+            if (shown >= 12) break;
+            String name = ProfileCompat.name(player.getGameProfile());
+            if (state.isManualBot(player.getUuid(), name)) continue;
+            onlineRow = onlineRow.copy().append(clickable("[" + name + "]", Formatting.YELLOW,
+                    "/leaderboard botgroup add " + name, "把 " + name + " 移入机器人分组")).append(Text.literal(" "));
+            shown++;
+        }
+        if (shown == 0) onlineRow = onlineRow.copy().append(Text.literal("（无可添加）").formatted(Formatting.GRAY));
+        Text finalOnlineRow = onlineRow;
+        source.sendFeedback(() -> finalOnlineRow, false);
+
+        Text actions = clickable("[机器人总榜]", Formatting.GOLD, "/leaderboard bots all playtime", "查看机器人分组的总榜")
+                .copy().append(Text.literal(" "))
+                .append(clickable("[清空分组]", Formatting.RED, "/leaderboard botgroup clear", "清空手动机器人分组"))
+                .append(Text.literal(" "))
+                .append(clickable("[返回功能菜单]", Formatting.GRAY, "/leaderboard menu home", "返回功能菜单"));
+        Text finalActions = actions;
+        source.sendFeedback(() -> finalActions, false);
+        source.sendFeedback(() -> Text.literal("添加离线玩家：/leaderboard botgroup add <玩家名>；"
+                + "机器人榜：/leaderboard bots <周期> <榜单> [数量]。").formatted(Formatting.DARK_GRAY), false);
+        return 1;
+    }
+
+    private int showBots(ServerCommandSource source, Period period, Metric metric, int limit) {
+        try {
+            if (!StatReader.isReady() && period != Period.ALL) {
+                source.sendError(Text.literal("历史统计仍在权威扫描（" + StatReader.progress()
+                        + "），机器人周期榜暂不可用。"));
+                return 0;
+            }
+            List<Entry> entries = botEntries(source.getServer(), period, metric);
+            source.sendFeedback(() -> Text.literal("=== 机器人 · " + period.label + " " + metric.label() + " ===")
+                    .formatted(Formatting.AQUA), false);
+            if (entries.isEmpty()) {
+                source.sendFeedback(() -> Text.literal("机器人分组还没有可显示的玩家。"
+                        + "使用 /leaderboard botgroup add <玩家> 添加。").formatted(Formatting.GRAY), false);
+                return 0;
+            }
+            long total = total(entries);
+            source.sendFeedback(() -> Text.literal("总和 ").formatted(Formatting.GRAY)
+                    .append(RankBoardColors.text(format(metric, total), metric)), false);
+            for (int i = 0; i < Math.min(limit, entries.size()); i++) {
+                Entry entry = entries.get(i);
+                int rank = i + 1;
+                source.sendFeedback(() -> Text.literal(rank + " ").formatted(Formatting.YELLOW)
+                        .append(RankBoardColors.text(entry.name(), metric))
+                        .append(Text.literal(" [BOT]  ").formatted(Formatting.AQUA))
+                        .append(RankBoardColors.text(format(metric, entry.value()), metric)), false);
+            }
+            return entries.size();
+        } catch (RuntimeException exception) {
+            LOGGER.error("Failed to execute bot leaderboard command: period={}, metric={}",
+                    period.command, metric.command, exception);
+            source.sendError(Text.literal("机器人榜读取失败：" + exception.getClass().getSimpleName()
+                    + (exception.getMessage() == null ? "" : " - " + exception.getMessage())));
+            return 0;
+        }
+    }
+
+    private static Period periodByCommand(String value) {
+        for (Period period : Period.values()) {
+            if (period.command.equalsIgnoreCase(value) || period.shortCommand.equalsIgnoreCase(value)) return period;
+        }
+        throw new IllegalArgumentException("未知周期：" + value);
+    }
+
+    private static Metric metricByCommand(String value) {
+        for (Metric metric : Metric.values()) {
+            if (metric.command.equalsIgnoreCase(value)) return metric;
+        }
+        throw new IllegalArgumentException("未知榜单：" + value);
+    }
+
     private int setBotFilter(ServerCommandSource source, boolean enabled) {
         LeaderboardState.get(source.getServer()).setBotFilterEnabled(enabled);
         BoardService.refreshAll(source.getServer());
@@ -2737,12 +2947,24 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+        return entries(server, period, metric, false);
+    }
+
+    /** Bot-only view used by the bot group. Bots bypass the whitelist and prefix filters. */
+    static List<Entry> botEntries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+        return entries(server, period, metric, true);
+    }
+
+    private static List<Entry> entries(net.minecraft.server.MinecraftServer server, Period period,
+                                       Metric metric, boolean botsOnly) {
         try (var reads = LeaderboardReadScope.open(server)) {
-            return LeaderboardReadScope.entries(server, period, metric, () -> readEntries(server, period, metric));
+            return LeaderboardReadScope.entries(server, period, metric,
+                    () -> readEntries(server, period, metric, botsOnly));
         }
     }
 
-    private static List<Entry> readEntries(net.minecraft.server.MinecraftServer server, Period period, Metric metric) {
+    private static List<Entry> readEntries(net.minecraft.server.MinecraftServer server, Period period,
+                                           Metric metric, boolean botsOnly) {
         if (!StatReader.isReady() && period != Period.ALL) {
             throw new IllegalStateException("统计文件尚未完成权威扫描（" + StatReader.progress() + "）");
         }
@@ -2750,7 +2972,9 @@ public final class RankBoardMod implements ModInitializer {
         if (!state.isMetricDisplayEnabled(metric)) return List.of();
         state.rollPeriods(server);
         return StatReader.readAll(server, metric).stream()
-                .filter(snapshot -> isIncluded(server, state, snapshot.uuid(), snapshot.name()))
+                .filter(snapshot -> botsOnly
+                        ? isBotIncluded(server, state, snapshot.uuid(), snapshot.name())
+                        : isIncluded(server, state, snapshot.uuid(), snapshot.name()))
                 .flatMap(snapshot -> {
                     java.util.OptionalLong delta = state.periodDelta(
                             period, snapshot.uuid(), metric, snapshot.value(metric));
@@ -2765,12 +2989,21 @@ public final class RankBoardMod implements ModInitializer {
     static boolean isIncluded(net.minecraft.server.MinecraftServer server, LeaderboardState state,
                               java.util.UUID uuid, String name) {
         if (state.isManuallyFiltered(uuid, name)) return false;
+        if (state.isManualBot(uuid, name)) return false;
         boolean bypassPrefixFilters = state.isManuallyAllowed(uuid, name);
         String normalized = name.toLowerCase(java.util.Locale.ROOT);
-        return (!state.isWhitelistOnly() || PlayerDirectoryCompat.isAllowed(server, uuid, name))
+        return (!state.isWhitelistOnly() || state.isBotPlayer(uuid, name) || PlayerDirectoryCompat.isAllowed(server, uuid, name))
                 && (bypassPrefixFilters || !state.isBotFilterEnabled() || !normalized.startsWith("bot_"))
                 && (bypassPrefixFilters || !state.isCustomPlayerFilterEnabled() || !normalized.startsWith("unknown_"))
                 && (!state.isOnlineOnly() || server.getPlayerManager().getPlayer(uuid) != null);
+    }
+
+    /** Bot group inclusion: whitelist and bot prefix filters do not apply here. */
+    static boolean isBotIncluded(net.minecraft.server.MinecraftServer server, LeaderboardState state,
+                                 java.util.UUID uuid, String name) {
+        if (state.isManuallyFiltered(uuid, name)) return false;
+        if (!state.isBotPlayer(uuid, name)) return false;
+        return !state.isOnlineOnly() || server.getPlayerManager().getPlayer(uuid) != null;
     }
 
     static String format(Metric metric, long value) {
