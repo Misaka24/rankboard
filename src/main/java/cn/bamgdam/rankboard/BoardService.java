@@ -762,18 +762,18 @@ final class BoardService {
         if (formatChanged) score.setNumberFormat(format);
     }
     private static Optional<NumberFormat> displayFormat(RankBoardMod.Metric metric, long value) {
-        return Optional.of(scoreboardFormat(metric, value)
-                .orElse(new FixedNumberFormat(Text.literal(Long.toString(value)).formatted(Formatting.RED))));
+        return scoreboardFormat(metric, value);
     }
     private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long value) {
+        String formatted;
         if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {
-            return Optional.of(new FixedNumberFormat(Text.literal(scoreboardValue(metric, value) + "h").formatted(Formatting.RED)));
+            formatted = scoreboardValue(metric, value) + "h";
+        } else if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
+            formatted = String.format(java.util.Locale.ROOT, "%.1f km", value / 100000.0);
+        } else {
+            formatted = Long.toString(value);
         }
-        if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
-            return Optional.of(new FixedNumberFormat(Text.literal(String.format(java.util.Locale.ROOT,
-                    "%.1f km", value / 100000.0)).formatted(Formatting.RED)));
-        }
-        return Optional.empty();
+        return Optional.of(new FixedNumberFormat(RankBoardColors.text(formatted, metric)));
     }
     private static String describe(RuntimeException exception) {
         return exception.getClass().getSimpleName()

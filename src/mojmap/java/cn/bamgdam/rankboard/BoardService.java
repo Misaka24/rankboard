@@ -736,19 +736,18 @@ final class BoardService {
         return clamp(metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME ? value / 72_000L : value);
     }
     private static Optional<NumberFormat> displayFormat(RankBoardMod.Metric metric, long rawValue) {
-        return Optional.of(scoreboardFormat(metric, rawValue)
-                .orElse(new FixedFormat(Component.literal(Long.toString(rawValue)).withStyle(ChatFormatting.RED))));
+        return scoreboardFormat(metric, rawValue);
     }
     private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long rawValue) {
+        String formatted;
         if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {
-            return Optional.of(new FixedFormat(Component.literal(scoreboardValue(metric, rawValue) + "h")
-                    .withStyle(ChatFormatting.RED)));
+            formatted = scoreboardValue(metric, rawValue) + "h";
+        } else if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
+            formatted = RankBoardMod.format(metric, rawValue);
+        } else {
+            formatted = Long.toString(rawValue);
         }
-        if (metric == RankBoardMod.Metric.ELYTRA_DISTANCE) {
-            return Optional.of(new FixedFormat(Component.literal(RankBoardMod.format(metric, rawValue))
-                    .withStyle(ChatFormatting.RED)));
-        }
-        return Optional.empty();
+        return Optional.of(new FixedFormat(RankBoardColors.text(formatted, metric)));
     }
     private static String describe(RuntimeException exception) {
         return exception.getClass().getSimpleName()
