@@ -7,6 +7,7 @@ type Metric = {
   id: string;
   label: string;
   detail: string;
+  category?: string;
 };
 
 type Player = {
@@ -77,7 +78,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "中文", languageLabel: "Language", currentOnline: "当前在线", lastOnlineUnknown: "最后在线：未知", lastOnline: "最后在线",
     total: "总和", query: "查询", all: "总榜", day: "最近一日", week: "最近一周", month: "最近一月", quarter: "最近一季度", year: "最近一年", custom: "自定义日期",
     compact: "紧凑视图", tile: "平铺视图", detail: "详细视图", normal: "普通视图", layoutMode: "布局", switchServer: "服务器切换", current: "当前", switch: "切换", offline: "离线",
-    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", includeBots: "包含机器人", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
+    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", includeBots: "包含机器人", common: "常用", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
     searchPlayer: "搜索玩家", enterPlayerName: "输入玩家名称", export: "导出表格", exportTitle: "导出当前筛选结果为 CSV 表格", copyIdentity: "点击复制玩家名称和 UUID", copied: "已复制玩家名称和 UUID",
     startDate: "开始日期", endDate: "结束日期", earliest: "最早可查", backgroundCheck: "后台校验", loading: "正在读取服务器排行榜...",
     noPlayers: "当前筛选下没有可显示的玩家。", partial: "部分统计", incompleteRange: "统计范围缺少完整边界",
@@ -92,7 +93,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "English", languageLabel: "Language", currentOnline: "Online now", lastOnlineUnknown: "Last online: unknown", lastOnline: "Last online",
     total: "Total", query: "Query", all: "All time", day: "Last day", week: "Last week", month: "Last month", quarter: "Last quarter", year: "Last year", custom: "Custom dates",
     compact: "Compact view", tile: "Tile view", detail: "Detailed view", normal: "Normal view", layoutMode: "Layout", switchServer: "Server switcher", current: "Current", switch: "Switch", offline: "Offline",
-    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", includeBots: "Include bots", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
+    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", includeBots: "Include bots", common: "Common", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
     searchPlayer: "Search players", enterPlayerName: "Enter a player name", export: "Export table", exportTitle: "Export the filtered result as a CSV table", copyIdentity: "Click to copy player name and UUID", copied: "Player name and UUID copied",
     startDate: "Start date", endDate: "End date", earliest: "Earliest available", backgroundCheck: "Background verification", loading: "Loading server leaderboard...",
     noPlayers: "No players are available for the current filters.", partial: "Partial statistics", incompleteRange: "The selected range has incomplete boundaries",
@@ -126,6 +127,15 @@ const BOT_TYPE_TEXT: Record<string, { zh: string; en: string }> = {
 function botTypeLabel(type: string | undefined, language: Language) {
   return type ? BOT_TYPE_TEXT[type]?.[language] ?? type : "";
 }
+
+const METRIC_SECTIONS = [
+  { id: "combat", zh: "战斗", en: "Combat" },
+  { id: "build", zh: "建造", en: "Build" },
+  { id: "life", zh: "生存", en: "Life" },
+  { id: "explore", zh: "探索", en: "Explore" },
+  { id: "fun", zh: "生物受害", en: "Mob victims" },
+  { id: "other", zh: "其他", en: "Other" }
+];
 
 const defaultTheme: SiteTheme = {
   followIcon: true,
@@ -374,6 +384,7 @@ export default function App() {
   const [botsOnly, setBotsOnly] = useState(false);
   const [botRate, setBotRate] = useState(false);
   const [includeBots, setIncludeBots] = useState(false);
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
@@ -389,6 +400,8 @@ export default function App() {
   const [sites, setSites] = useState<SiteLink[]>([]);
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
   const [layoutMode, setLayoutMode] = useState<"normal" | "compact" | "tile">(() => {
+    const requested = new URLSearchParams(window.location.search).get("layout");
+    if (requested === "normal" || requested === "compact" || requested === "tile") return requested;
     const saved = localStorage.getItem("rankboard-layout-mode");
     if (saved === "normal" || saved === "compact" || saved === "tile") return saved;
     if (localStorage.getItem("rankboard-compact-mode") === "true") return "compact";
@@ -456,6 +469,11 @@ export default function App() {
   }, [layoutMode, compactMode]);
 
   useEffect(() => {
+    const active = metrics.find((item) => item.id === metric);
+    if (active?.category && active.category !== "core") setOpenCategory(active.category);
+  }, [metric, metrics]);
+
+  useEffect(() => {
     applyTheme(siteTheme, iconColor);
   }, [siteTheme, iconColor]);
 
@@ -464,7 +482,7 @@ export default function App() {
       .then((response) => response.ok ? response.json() as Promise<{
         name?: string;
         rankingRefreshIntervalSeconds?: number;
-        metrics?: Array<{ id: string; label: string }>;
+        metrics?: Array<{ id: string; label: string; category?: string }>;
         themeFollowIcon?: boolean;
         themeBase?: string;
         iconVersion?: string;
@@ -477,7 +495,7 @@ export default function App() {
         if (site?.metrics) {
           const details = new Map(defaultMetrics.map((item) => [item.id, item.detail]));
           const available = site.metrics.map((item) => ({
-            id: item.id, label: item.label, detail: details.get(item.id) ?? ""
+            id: item.id, label: item.label, category: item.category, detail: details.get(item.id) ?? ""
           }));
           setMetrics(available);
           setMetric((current) => available.some((item) => item.id === current)
@@ -558,6 +576,14 @@ export default function App() {
   const activeMetric = metrics.find((item) => item.id === metric) ?? metrics[0] ?? {
     id: "none", label: text.noMetric, detail: ""
   };
+  const coreMetrics = useMemo(() => metrics.filter((item) => !item.category || item.category === "core"), [metrics]);
+  const visibleMetrics = useMemo(() => {
+    const grouped = openCategory ? metrics.filter((item) => item.category === openCategory) : [];
+    const active = metrics.find((item) => item.id === metric);
+    const extra = active && active.category && active.category !== "core"
+      && !grouped.some((item) => item.id === active.id) ? [active] : [];
+    return [...coreMetrics, ...grouped, ...extra];
+  }, [coreMetrics, metrics, openCategory, metric]);
   const visiblePlayers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return ranking?.players ?? [];
@@ -566,7 +592,7 @@ export default function App() {
 
   const exportTable = () => {
     if (!ranking || visiblePlayers.length === 0) return;
-    const metricColumns = compactMode || tileMode ? metrics : [activeMetric];
+    const metricColumns = compactMode || tileMode ? visibleMetrics : [activeMetric];
     const headers = [text.rank, text.playerName, text.uuid, text.lastOnline, ...metricColumns.map((item) => metricLabel(item, language))];
     const rows = visiblePlayers.map((player) => [
       player.rank,
@@ -631,7 +657,7 @@ export default function App() {
       return difference || left.name.localeCompare(right.name);
     });
     return sorted.map((player, index) => ({ ...player, rank: index + 1 }));
-  }, [visiblePlayers, tileMode, tileSortMetric, metric, metrics, activeMetric]);
+  }, [visiblePlayers, tileMode, tileSortMetric, metric, visibleMetrics, activeMetric]);
 
   useLayoutEffect(() => {
     if (!tileMode) return;
@@ -642,12 +668,19 @@ export default function App() {
     const observer = new ResizeObserver(updateScrollWidth);
     observer.observe(scrollWrap);
     return () => observer.disconnect();
-  }, [tileMode, tilePlayers.length, metrics.length, language]);
+  }, [tileMode, tilePlayers.length, visibleMetrics.length, language]);
 
   const syncTileTableScroll = (source: HTMLDivElement) => {
     const target = source === tileTableTopScrollRef.current ? tileTableWrapRef.current : tileTableTopScrollRef.current;
     if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
   };
+
+  const metricButton = (item: Metric) => (
+    <button key={item.id} className={item.id === metric ? "selected" : ""} onClick={() => selectMetric(item.id)}>
+      <span>{metricLabel(item, language)}</span>
+      <small>{metricDetail(item, language)}</small>
+    </button>
+  );
 
   const controls = (
     <>
@@ -662,17 +695,36 @@ export default function App() {
         </div>
       </section>
 
-      {!tileMode && <section>
+      <section>
         <p className="section-label">{text.metricCategory}</p>
-        <div className="metric-list">
-          {metrics.map((item) => (
-            <button key={item.id} className={item.id === metric ? "selected" : ""} onClick={() => selectMetric(item.id)}>
-              <span>{metricLabel(item, language)}</span>
-              {!tileMode && <small>{metricDetail(item, language)}</small>}
-            </button>
-          ))}
+        <div className="metric-browser">
+          <div className="metric-category-tabs">
+            {METRIC_SECTIONS.map((section) => {
+              const count = metrics.filter((item) => item.category === section.id).length;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={openCategory === section.id ? "metric-category-tab active" : "metric-category-tab"}
+                  aria-expanded={openCategory === section.id}
+                  onClick={() => setOpenCategory(openCategory === section.id ? null : section.id)}
+                >
+                  {language === "zh" ? section.zh : section.en}
+                  <small>{count}</small>
+                </button>
+              );
+            })}
+          </div>
+          {openCategory && (
+            <div className="metric-list metric-group-panel">
+              {metrics.filter((item) => item.category === openCategory).map(metricButton)}
+            </div>
+          )}
+          <p className="metric-group-label">{text.common}</p>
+          <div className="metric-list">{coreMetrics.map(metricButton)}</div>
         </div>
-      </section>}
+      </section>
     </>
   );
 
@@ -853,7 +905,7 @@ export default function App() {
                     <th>{text.rank}</th>
                     <th>{text.playerName}</th>
                     <th>{text.lastOnline}</th>
-                    {metrics.map((item) => (
+                    {visibleMetrics.map((item) => (
                       <th key={item.id} className={tileSortMetric === item.id ? "sort-active" : ""}>
                         <button type="button" onClick={() => selectMetric(item.id)} title={metricDetail(item, language)}>
                           {metricLabel(item, language)}
@@ -870,7 +922,7 @@ export default function App() {
                         <div className="tile-player"><PlayerAvatar player={player} language={language} onCopy={() => copyIdentity(player)} copyTitle={identityTitle(player)} /><span title={identityTitle(player)}>{player.name}</span>{player.bot && <span className="bot-badge">{text.botBadge}{player.botType ? `·${botTypeLabel(player.botType, language)}` : ""}</span>}</div>
                       </td>
                       <td><LastOnline player={player} language={language} /></td>
-                      {metrics.map((item) => {
+                      {visibleMetrics.map((item) => {
                         const display = player.metrics?.[item.id] ?? (item.id === metric ? player.formatted : "0");
                         const value = compactValue(display);
                         return (
@@ -905,7 +957,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="compact-metrics" aria-label={`${player.name}${text.allMetrics}`}>
-                  {metrics.map((item) => {
+                  {visibleMetrics.map((item) => {
                     const display = player.metrics?.[item.id] ?? (item.id === metric ? player.formatted : "0");
                     const value = compactValue(display);
                     return (

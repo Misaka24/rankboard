@@ -525,13 +525,10 @@ final class WebDashboard {
         boolean scanning = !StatReader.isReady();
         List<WebEntry> entries = new ArrayList<>();
         Map<UUID, BotProfile.Type> botTypes = new HashMap<>();
-        Map<UUID, StatSnapshot> snapshots = null;
-        if (botsOnly) {
-            snapshots = new HashMap<>();
-            for (StatSnapshot snapshot : StatReader.readAll(server)) {
-                snapshots.put(snapshot.uuid(), snapshot);
-                botTypes.put(snapshot.uuid(), RankBoardMod.botType(snapshot));
-            }
+        Map<UUID, StatSnapshot> snapshots = new HashMap<>();
+        for (StatSnapshot snapshot : StatReader.readAll(server)) {
+            snapshots.put(snapshot.uuid(), snapshot);
+            botTypes.put(snapshot.uuid(), RankBoardMod.botType(snapshot));
         }
         String actualStart;
         String actualEnd;
@@ -640,7 +637,11 @@ final class WebDashboard {
             player.addProperty("formatted", rate ? RankBoardMod.formatRate(entry.value) : formatWeb(metric, entry.value));
             player.addProperty("bot", entry.bot);
             BotProfile.Type type = botTypes.get(entry.uuid);
-            if (botsOnly && type != null) player.addProperty("botType", type.id);
+            if (type == null && entry.bot) {
+                StatSnapshot snapshot = snapshots.get(entry.uuid);
+                if (snapshot != null) type = RankBoardMod.botType(snapshot);
+            }
+            if (type != null) player.addProperty("botType", type.id);
             if (compact && !rate) {
                 JsonObject values = new JsonObject();
                 Map<RankBoardMod.Metric, Long> playerValues = compactValues.getOrDefault(entry.uuid, Map.of());
@@ -690,7 +691,8 @@ final class WebDashboard {
     }
 
     private static boolean isIncluded(MinecraftServer server, LeaderboardState state, UUID uuid, String name,
-                                      boolean onlineOnly) {
+                                      boolean onlineOnly, boolean includeBots) {
+        if (!includeBots && state.isManualBot(uuid, name)) return false;
         return RankBoardMod.isIncluded(server, state, uuid, name)
                 && (!onlineOnly || server.getPlayerList().getPlayer(uuid) != null);
     }
@@ -704,7 +706,7 @@ final class WebDashboard {
     private static boolean isRankedVisible(MinecraftServer server, LeaderboardState state, UUID uuid, String name,
                                            boolean onlineOnly, boolean botsOnly, boolean includeBots) {
         if (botsOnly) return isBotVisible(server, state, uuid, name, onlineOnly);
-        return isIncluded(server, state, uuid, name, onlineOnly)
+        return isIncluded(server, state, uuid, name, onlineOnly, includeBots)
                 || (includeBots && isBotVisible(server, state, uuid, name, onlineOnly));
     }
 
@@ -738,6 +740,7 @@ final class WebDashboard {
             JsonObject item = new JsonObject();
             item.addProperty("id", metric.command);
             item.addProperty("label", metric.label());
+            item.addProperty("category", RankBoardMod.metricCategory(metric));
             metrics.add(item);
         }
         root.add("metrics", metrics);

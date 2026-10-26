@@ -561,7 +561,13 @@ public final class LeaderboardState extends PersistentState {
         if (key.isEmpty()) throw new IllegalArgumentException("玩家名称不能为空");
         allowedPlayers.remove(key);
         filteredPlayers.remove(key);
-        if (botPlayers.containsKey(key)) return false;
+        UUID existing = botPlayers.get(key);
+        if (existing != null) {
+            if (uuid == null || existing.equals(uuid)) return false;
+            botPlayers.put(key, uuid);
+            markDirty();
+            return true;
+        }
         botPlayers.put(key, uuid);
         markDirty();
         return true;

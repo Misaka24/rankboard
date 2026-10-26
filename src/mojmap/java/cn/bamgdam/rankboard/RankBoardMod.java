@@ -1480,6 +1480,19 @@ public final class RankBoardMod implements ModInitializer {
         };
     }
 
+    /** Category used by the web sidebar; the game menu uses the same groups. */
+    static String metricCategory(Metric metric) {
+        if (metric.isFun()) return "fun";
+        return switch (metric) {
+            case PLAY_TIME, AFK_TIME, MINED, PLACED, KILLS, DEATHS, TRAVEL_DISTANCE, ORES_MINED, TRADES -> "core";
+            case PVP_KILLS, DAMAGE_TAKEN, DAMAGE_DEALT, SHIELD_BLOCKED, TOTEM_USED, TARGET_HITS -> "combat";
+            case CRAFTED, REDSTONE_PLACED, TOOLS_BROKEN, BEDROCK_BROKEN -> "build";
+            case FOOD, FISHING, ANIMALS_BRED, SLEPT, ENCHANTED -> "life";
+            case ELYTRA_DISTANCE, JUMPS, PICKED_UP, DROPPED, MUSIC_PLAYED -> "explore";
+            default -> "other";
+        };
+    }
+
     private static List<Metric> funOverviewMetrics() {
         return java.util.Arrays.stream(Metric.values())
                 .filter(metric -> metric.isFun() && metric.victimEntityId() == null).toList();
@@ -2577,6 +2590,12 @@ public final class RankBoardMod implements ModInitializer {
     }
 
     private static java.util.UUID resolvePlayerUuid(net.minecraft.server.MinecraftServer server, String name) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.getScoreboardName().equalsIgnoreCase(name)) return player.getUUID();
+        }
+        for (java.util.Map.Entry<java.util.UUID, String> entry : StatReader.knownNamesForComparison(server).entrySet()) {
+            if (entry.getValue().equalsIgnoreCase(name)) return entry.getKey();
+        }
         for (StatSnapshot snapshot : StatReader.readAll(server)) {
             if (snapshot.name().equalsIgnoreCase(name)) return snapshot.uuid();
         }
@@ -2620,8 +2639,11 @@ public final class RankBoardMod implements ModInitializer {
             BoardService.refreshAll(source.getServer());
             WebDashboard.invalidateRankings();
         }
+        boolean hasStats = StatReader.readAll(source.getServer()).stream().anyMatch(snapshot ->
+                (uuid != null && snapshot.uuid().equals(uuid)) || snapshot.name().equalsIgnoreCase(name));
         source.sendSuccess(() -> Component.literal(changed
-                ? "已移入机器人分组：" + name + "（普通榜单隐藏，可在“机器人榜”查看）"
+                ? "已移入机器人分组：" + name + (uuid == null ? "（未找到 UUID，仅按名称匹配）" : "")
+                + (hasStats ? "" : "（当前没有统计数据，请确认机器人已生成 stats 或执行 cache reload）")
                 : "该玩家已在机器人分组：" + name), true);
         return changed ? 1 : 0;
     }

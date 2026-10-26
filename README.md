@@ -2,7 +2,7 @@
 
 RankBoard 是一个面向 Minecraft 服务端的排行榜模组，同时提供 Fabric 与 NeoForge 版本。它直接读取原版玩家统计，提供聊天栏排行榜、个人侧边栏、全服侧边栏、自动轮播、榜单缓存对比和网页排行榜。玩家无需安装客户端模组，也不需要重新开始存档。
 
-当前版本：`2.3.1`
+当前版本：`2.3.2`
 
 - 项目仓库：[Misaka24/rankboard](https://github.com/Misaka24/rankboard)
 - 上游仓库：[halfkite/rankboard](https://github.com/halfkite/rankboard)
@@ -31,18 +31,18 @@ RankBoard 是服务端模组。正常使用聊天菜单、原版侧边栏和网�
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.3.1+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
+| `rankboard-2.3.2+mc1.21-26.3+<时间戳>.jar` | Fabric 与 NeoForge | 1.21–1.21.11、26.1–26.3 | 1.21 系 Java 21+；26.x 系 Java 25+ |
 
 也可以按版本家族分别构建单加载器 JAR（见“从源码构建”）：
 
 | 文件 | 加载器 | Minecraft | Java |
 | --- | --- | --- | --- |
-| `rankboard-2.3.1+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.3.1+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
-| `rankboard-2.3.1+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
-| `rankboard-2.3.1+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
-| `rankboard-2.3.1+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
-| `rankboard-2.3.1+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
+| `rankboard-2.3.2+fabric+mc1.21.x.jar` | Fabric | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.3.2+fabric+mc26.1.x.jar` | Fabric | 26.1.x | Java 25+ |
+| `rankboard-2.3.2+fabric+mc26.2.x.jar` | Fabric | 26.2.x | Java 25+ |
+| `rankboard-2.3.2+fabric+mc26.3.x.jar` | Fabric | 26.3.x | Java 25+ |
+| `rankboard-2.3.2+neoforge+mc1.21.x.jar` | NeoForge | 1.21–1.21.11 | Java 21+ |
+| `rankboard-2.3.2+neoforge+mc26.x.jar` | NeoForge | 26.1–26.3 | Java 25+ |
 
 Fabric 还需要与 Minecraft 版本匹配的 Fabric API；NeoForge 不需要额外 API 模组。请勿同时安装多个 RankBoard JAR，也不要在同一服务器同时安装 Fabric 与 NeoForge 两个版本。
 
@@ -57,7 +57,7 @@ Fabric：
 NeoForge：
 
 1. 安装对应 Minecraft 版本的 NeoForge。
-2. 将 `rankboard-2.3.1+neoforge+mc*.jar` 放入服务端 `mods/`。
+2. 将 `rankboard-2.3.2+neoforge+mc*.jar` 放入服务端 `mods/`。
 
 启动服务器，首次运行会生成 `config/rankboard/`。按需修改后重启，或由 OP 执行 `/leaderboard config reload`。输入 `/leaderboard` 打开可点击菜单。
 
@@ -284,6 +284,7 @@ http://服务器地址:8765/
 - 浅色玻璃风格界面，支持榜单分类、二级分类、搜索和响应式布局。
 - 分类浏览、榜单搜索、在线玩家筛选。
 - 机器人分组开关、`BOT·类型` 徽标与“每小时”效率切换。
+- 榜单分类：默认只显示 9 个常用榜单，战斗/建造/生存/探索/生物受害等分类用标签收纳，点击展开；三种视图共用。
 - “包含机器人”开关：普通榜单可选择把机器人一起显示，并带 `BOT` 标记。
 - 总计、滚动快捷周期和自定义日期；缺失零点边界时显示实际范围与提示。
 - 顶栏 GitHub 仓库入口（`Misaka24/rankboard`）。
