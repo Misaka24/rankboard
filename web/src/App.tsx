@@ -34,6 +34,7 @@ type RankingResponse = {
   onlineOnly?: boolean;
   botsOnly?: boolean;
   rate?: boolean;
+  includeBots?: boolean;
   from?: string;
   to?: string;
   actualStart?: string;
@@ -76,7 +77,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "中文", languageLabel: "Language", currentOnline: "当前在线", lastOnlineUnknown: "最后在线：未知", lastOnline: "最后在线",
     total: "总和", query: "查询", all: "总榜", day: "最近一日", week: "最近一周", month: "最近一月", quarter: "最近一季度", year: "最近一年", custom: "自定义日期",
     compact: "紧凑视图", tile: "平铺视图", detail: "详细视图", normal: "普通视图", layoutMode: "布局", switchServer: "服务器切换", current: "当前", switch: "切换", offline: "离线",
-    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
+    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", includeBots: "包含机器人", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
     searchPlayer: "搜索玩家", enterPlayerName: "输入玩家名称", export: "导出表格", exportTitle: "导出当前筛选结果为 CSV 表格", copyIdentity: "点击复制玩家名称和 UUID", copied: "已复制玩家名称和 UUID",
     startDate: "开始日期", endDate: "结束日期", earliest: "最早可查", backgroundCheck: "后台校验", loading: "正在读取服务器排行榜...",
     noPlayers: "当前筛选下没有可显示的玩家。", partial: "部分统计", incompleteRange: "统计范围缺少完整边界",
@@ -91,7 +92,7 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "English", languageLabel: "Language", currentOnline: "Online now", lastOnlineUnknown: "Last online: unknown", lastOnline: "Last online",
     total: "Total", query: "Query", all: "All time", day: "Last day", week: "Last week", month: "Last month", quarter: "Last quarter", year: "Last year", custom: "Custom dates",
     compact: "Compact view", tile: "Tile view", detail: "Detailed view", normal: "Normal view", layoutMode: "Layout", switchServer: "Server switcher", current: "Current", switch: "Switch", offline: "Offline",
-    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
+    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", includeBots: "Include bots", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
     searchPlayer: "Search players", enterPlayerName: "Enter a player name", export: "Export table", exportTitle: "Export the filtered result as a CSV table", copyIdentity: "Click to copy player name and UUID", copied: "Player name and UUID copied",
     startDate: "Start date", endDate: "End date", earliest: "Earliest available", backgroundCheck: "Background verification", loading: "Loading server leaderboard...",
     noPlayers: "No players are available for the current filters.", partial: "Partial statistics", incompleteRange: "The selected range has incomplete boundaries",
@@ -372,6 +373,7 @@ export default function App() {
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [botsOnly, setBotsOnly] = useState(false);
   const [botRate, setBotRate] = useState(false);
+  const [includeBots, setIncludeBots] = useState(false);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
@@ -412,7 +414,7 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), bots: String(botsOnly), rate: String(botsOnly && botRate), compact: String(compactMode || tileMode) });
+        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), bots: String(botsOnly), rate: String(botsOnly && botRate), includeBots: String(includeBots), compact: String(compactMode || tileMode) });
         if (period === "custom") {
           params.set("from", from);
           params.set("to", to);
@@ -445,7 +447,7 @@ export default function App() {
       window.clearTimeout(timer);
       window.clearInterval(interval);
     };
-  }, [period, metric, onlineOnly, botsOnly, botRate, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
+  }, [period, metric, onlineOnly, botsOnly, botRate, includeBots, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
 
   useEffect(() => {
     localStorage.setItem("rankboard-layout-mode", layoutMode);
@@ -741,6 +743,12 @@ export default function App() {
             <label className={botRate ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
               <input type="checkbox" checked={botRate} onChange={(event) => setBotRate(event.target.checked)} />
               <span>{text.botRate}</span>
+            </label>
+          )}
+          {!botsOnly && (
+            <label className={includeBots ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
+              <input type="checkbox" checked={includeBots} onChange={(event) => setIncludeBots(event.target.checked)} />
+              <span>{text.includeBots}</span>
             </label>
           )}
           <a className="top-repo-link" href="https://github.com/Misaka24/rankboard" target="_blank" rel="noreferrer" title={text.sourceCode}>

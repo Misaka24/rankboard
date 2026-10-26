@@ -38,6 +38,7 @@ import java.util.stream.Stream;
 /** Rate-limited asynchronous cache for vanilla JSON statistic files. */
 final class StatReader {
     private static final Map<UUID, StatSnapshot> CACHE = new ConcurrentHashMap<>();
+    private static volatile long nameRefreshAt;
     private static final Map<UUID, Long> SOURCE_MODIFIED = new ConcurrentHashMap<>();
     private static final Set<String> FOOD_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Set<String> BLOCK_ITEMS = ConcurrentHashMap.newKeySet();
@@ -98,6 +99,7 @@ final class StatReader {
         if (generation != GENERATION.get()) return;
         ready = true;
         loadedFromPersistentCacheOnly = true;
+        refreshNames(server, true);
         TOTAL.set(CACHE.size());
         PROCESSED.set(CACHE.size());
         RankBoardMod.LOGGER.info("Loaded persistent history cache: {} player files; skipping startup stat scan", CACHE.size());
@@ -116,6 +118,7 @@ final class StatReader {
         SOURCE_MODIFIED.clear();
         prepareItemSets();
         persistentCacheLoaded = loadPersistentCache(server);
+        refreshNames(server, true);
         int filesPerSecond = RankBoardConfig.get().historyFilesPerSecond;
         Set<UUID> botUuids = LeaderboardState.get(server).botPlayerUuids();
         warmupTask = LOADER.submit(() -> warmup(server, generation, filesPerSecond, botUuids));
@@ -225,6 +228,28 @@ final class StatReader {
 
     static void updateName(UUID uuid, String name) {
         CACHE.computeIfPresent(uuid, (ignored, snapshot) -> new StatSnapshot(uuid, name, snapshot.values()));
+        WebDashboard.invalidateRankings();
+    }
+
+    static void saveCacheNow(MinecraftServer server) { savePersistentCache(server); }
+
+    /** Fills unknown_ names from the server user cache / whitelist / ops without rescanning stats. */
+    static void refreshNames(MinecraftServer server, boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - nameRefreshAt < 30_000L) return;
+        nameRefreshAt = now;
+        Map<UUID, String> names = readKnownNames(server);
+        boolean changed = false;
+        for (Map.Entry<UUID, StatSnapshot> entry : CACHE.entrySet()) {
+            String known = names.get(entry.getKey());
+            if (known == null || known.equals(entry.getValue().name())) continue;
+            CACHE.put(entry.getKey(), new StatSnapshot(entry.getKey(), known, entry.getValue().values()));
+            changed = true;
+        }
+        if (changed) {
+            savePersistentCache(server);
+            WebDashboard.invalidateRankings();
+        }
     }
 
     static boolean isReady() { return ready; }
@@ -242,6 +267,7 @@ final class StatReader {
     static List<StatSnapshot> readAll(MinecraftServer server) { return readAll(server, null); }
 
     static List<StatSnapshot> readAll(MinecraftServer server, RankBoardMod.Metric onlyMetric) {
+        refreshNames(server, false);
         LeaderboardState state = LeaderboardState.get(server);
         Map<UUID, StatSnapshot> snapshots = new HashMap<>(CACHE);
         if (RankBoardConfig.get().modWhitelistEnabled) {
@@ -533,6 +559,8 @@ final class StatReader {
     private static Map<UUID, String> readKnownNames(MinecraftServer server) {
         Map<UUID, String> names = readProfileNames(server.getRunDirectory().resolve("usercache.json"));
         names.putAll(readWhitelistNames(server));
+        names.putAll(readProfileNames(server.getRunDirectory().resolve("ops.json")));
+        names.putAll(readProfileNames(server.getRunDirectory().resolve("banned-players.json")));
         return names;
     }
 

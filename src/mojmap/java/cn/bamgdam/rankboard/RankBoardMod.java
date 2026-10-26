@@ -429,6 +429,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(Commands.literal("whitelist").executes(context -> setRecipientFilter(context.getSource(), "whitelist")))
                 .then(Commands.literal("blacklist").executes(context -> setRecipientFilter(context.getSource(), "blacklist"))));
         root.then(Commands.literal("lookup").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(Commands.literal("unknown").executes(context -> MojangNameLookup.lookupUnknown(context.getSource())))
                 .then(Commands.literal("whitelist").executes(context -> MojangNameLookup.lookupWhitelist(context.getSource())))
                 .then(Commands.argument("uuid", StringArgumentType.word())
                         .executes(context -> MojangNameLookup.lookupOne(context.getSource(),
@@ -2594,8 +2595,13 @@ public final class RankBoardMod implements ModInitializer {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             names.add(player.getScoreboardName());
         }
+        for (String name : StatReader.knownNamesForComparison(server).values()) {
+            if (names.size() >= 80) break;
+            names.add(name);
+        }
         for (StatSnapshot snapshot : StatReader.readAll(server)) {
             if (names.size() >= 80) break;
+            if (snapshot.name().startsWith("unknown_")) continue;
             names.add(snapshot.name());
         }
         return java.util.List.copyOf(names);
@@ -2998,15 +3004,35 @@ public final class RankBoardMod implements ModInitializer {
             long total = total(entries);
             source.sendSuccess(() -> Component.literal("总和 ").withStyle(ChatFormatting.GRAY)
                     .append(RankBoardColors.text(format(metric, total), metric)), false);
-            for (int i = 0; i < Math.min(limit, entries.size()); i++) {
-                Entry entry = entries.get(i);
-                int rank = i + 1;
-                boolean bot = state.isBotPlayer(entry.uuid(), entry.name());
-                source.sendSuccess(() -> Component.literal(rank + " ").withStyle(ChatFormatting.YELLOW)
+            java.util.List<Entry> humans = new java.util.ArrayList<>();
+            java.util.List<Entry> bots = new java.util.ArrayList<>();
+            for (Entry entry : entries) {
+                if (state.isBotPlayer(entry.uuid(), entry.name())) bots.add(entry); else humans.add(entry);
+            }
+            int rank = 0;
+            for (Entry entry : humans) {
+                if (rank >= limit) break;
+                rank++;
+                int shownRank = rank;
+                source.sendSuccess(() -> Component.literal(shownRank + " ").withStyle(ChatFormatting.YELLOW)
                         .append(RankBoardColors.text(entry.name(), metric))
-                        .append(Component.literal(bot ? " [BOT]" : "").withStyle(ChatFormatting.AQUA))
                         .append(Component.literal("  ").withStyle(ChatFormatting.GRAY))
                         .append(RankBoardColors.text(format(metric, entry.value()), metric)), false);
+            }
+            if (!bots.isEmpty()) {
+                source.sendSuccess(() -> Component.literal("──────── BOT 机器人 ────────")
+                        .withStyle(ChatFormatting.DARK_GRAY), false);
+                int botShown = 0;
+                for (Entry entry : bots) {
+                    if (botShown >= limit) break;
+                    botShown++;
+                    rank++;
+                    int shownRank = rank;
+                    source.sendSuccess(() -> Component.literal(shownRank + " ").withStyle(ChatFormatting.YELLOW)
+                            .append(RankBoardColors.text(entry.name(), metric))
+                            .append(Component.literal(" [BOT]  ").withStyle(ChatFormatting.AQUA))
+                            .append(RankBoardColors.text(format(metric, entry.value()), metric)), false);
+                }
             }
             return entries.size();
         } catch (RuntimeException exception) {

@@ -54,6 +54,40 @@ final class MojangNameLookup {
         return 1;
     }
 
+    static int lookupUnknown(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        List<StatSnapshot> unknown = StatReader.readAll(server).stream()
+                .filter(snapshot -> snapshot.name().startsWith("unknown_")).toList();
+        if (unknown.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("没有需要补全的 unknown_ 玩家名。").withStyle(ChatFormatting.GRAY), false);
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("正在向 Mojang 查询 " + unknown.size() + " 个未知 UUID ...")
+                .withStyle(ChatFormatting.GRAY), false);
+        List<CompletableFuture<Result>> futures = unknown.stream().map(snapshot -> query(snapshot.uuid())).toList();
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).thenRun(() -> {
+            List<Result> results = futures.stream().map(CompletableFuture::join).toList();
+            server.execute(() -> finishUnknownLookup(source, server, results));
+        });
+        return unknown.size();
+    }
+
+    private static void finishUnknownLookup(CommandSourceStack source, MinecraftServer server, List<Result> results) {
+        List<String> lines = new ArrayList<>();
+        int success = 0;
+        for (Result result : results) {
+            if (result.name == null) continue;
+            cache(server, result);
+            lines.add(result.uuid + " -> " + result.name);
+            success++;
+        }
+        PlayerDirectoryCompat.saveCache(server);
+        StatReader.saveCacheNow(server);
+        String message = "未知名称补全完成：成功 " + success + "/" + results.size()
+                + (lines.isEmpty() ? "（这些 UUID 没有 Mojang 档案，可能为假人）" : "\n" + String.join("\n", lines));
+        source.sendSuccess(() -> Component.literal(message).withStyle(ChatFormatting.GRAY), false);
+    }
+
     static int lookupWhitelist(CommandSourceStack source) {
         MinecraftServer server = source.getServer();
         Map<UUID, String> whitelist = StatReader.readWhitelistNames(server);

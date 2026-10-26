@@ -429,6 +429,7 @@ public final class RankBoardMod implements ModInitializer {
                 .then(CommandManager.literal("whitelist").executes(context -> setRecipientFilter(context.getSource(), "whitelist")))
                 .then(CommandManager.literal("blacklist").executes(context -> setRecipientFilter(context.getSource(), "blacklist"))));
         root.then(CommandManager.literal("lookup").requires(source -> CommandPermissionCompat.has(source, 2))
+                .then(CommandManager.literal("unknown").executes(context -> MojangNameLookup.lookupUnknown(context.getSource())))
                 .then(CommandManager.literal("whitelist").executes(context -> MojangNameLookup.lookupWhitelist(context.getSource())))
                 .then(CommandManager.argument("uuid", StringArgumentType.word())
                         .executes(context -> MojangNameLookup.lookupOne(context.getSource(),
@@ -2545,8 +2546,13 @@ public final class RankBoardMod implements ModInitializer {
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             names.add(ProfileCompat.name(player.getGameProfile()));
         }
+        for (String name : StatReader.knownNamesForComparison(server).values()) {
+            if (names.size() >= 80) break;
+            names.add(name);
+        }
         for (StatSnapshot snapshot : StatReader.readAll(server)) {
             if (names.size() >= 80) break;
+            if (snapshot.name().startsWith("unknown_")) continue;
             names.add(snapshot.name());
         }
         return java.util.List.copyOf(names);
@@ -2949,15 +2955,35 @@ public final class RankBoardMod implements ModInitializer {
             long total = total(entries);
             source.sendFeedback(() -> Text.literal("总和 ").formatted(Formatting.GRAY)
                     .append(RankBoardColors.text(format(metric, total), metric)), false);
-            for (int i = 0; i < Math.min(limit, entries.size()); i++) {
-                Entry entry = entries.get(i);
-                int rank = i + 1;
-                boolean bot = state.isBotPlayer(entry.uuid(), entry.name());
-                source.sendFeedback(() -> Text.literal(rank + " ").formatted(Formatting.YELLOW)
+            java.util.List<Entry> humans = new java.util.ArrayList<>();
+            java.util.List<Entry> bots = new java.util.ArrayList<>();
+            for (Entry entry : entries) {
+                if (state.isBotPlayer(entry.uuid(), entry.name())) bots.add(entry); else humans.add(entry);
+            }
+            int rank = 0;
+            for (Entry entry : humans) {
+                if (rank >= limit) break;
+                rank++;
+                int shownRank = rank;
+                source.sendFeedback(() -> Text.literal(shownRank + " ").formatted(Formatting.YELLOW)
                         .append(RankBoardColors.text(entry.name(), metric))
-                        .append(Text.literal(bot ? " [BOT]" : "").formatted(Formatting.AQUA))
                         .append(Text.literal("  ").formatted(Formatting.GRAY))
                         .append(RankBoardColors.text(format(metric, entry.value()), metric)), false);
+            }
+            if (!bots.isEmpty()) {
+                source.sendFeedback(() -> Text.literal("──────── BOT 机器人 ────────")
+                        .formatted(Formatting.DARK_GRAY), false);
+                int botShown = 0;
+                for (Entry entry : bots) {
+                    if (botShown >= limit) break;
+                    botShown++;
+                    rank++;
+                    int shownRank = rank;
+                    source.sendFeedback(() -> Text.literal(shownRank + " ").formatted(Formatting.YELLOW)
+                            .append(RankBoardColors.text(entry.name(), metric))
+                            .append(Text.literal(" [BOT]  ").formatted(Formatting.AQUA))
+                            .append(RankBoardColors.text(format(metric, entry.value()), metric)), false);
+                }
             }
             return entries.size();
         } catch (RuntimeException exception) {
