@@ -763,7 +763,7 @@ final class BoardService {
     }
     private static Optional<NumberFormat> displayFormat(RankBoardMod.Metric metric, long value) {
         return Optional.of(scoreboardFormat(metric, value)
-                .orElse(new FixedNumberFormat(Text.literal(Long.toString(value)))));
+                .orElse(new FixedNumberFormat(Text.literal(Long.toString(value)).formatted(Formatting.RED))));
     }
     private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long value) {
         if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {

@@ -737,7 +737,7 @@ final class BoardService {
     }
     private static Optional<NumberFormat> displayFormat(RankBoardMod.Metric metric, long rawValue) {
         return Optional.of(scoreboardFormat(metric, rawValue)
-                .orElse(new FixedFormat(Component.literal(Long.toString(rawValue)))));
+                .orElse(new FixedFormat(Component.literal(Long.toString(rawValue)).withStyle(ChatFormatting.RED))));
     }
     private static Optional<NumberFormat> scoreboardFormat(RankBoardMod.Metric metric, long rawValue) {
         if (metric == RankBoardMod.Metric.PLAY_TIME || metric == RankBoardMod.Metric.AFK_TIME) {
