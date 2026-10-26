@@ -588,7 +588,12 @@ final class StatReader {
     static StatSnapshot fromPlayer(ServerPlayer player, RankBoardMod.Metric onlyMetric) {
         Map<RankBoardMod.Metric, Long> values = new EnumMap<>(RankBoardMod.Metric.class);
         if (onlyMetric != null) {
-            values.put(onlyMetric, LeaderboardReadScope.read(player, onlyMetric));
+            try { values.put(onlyMetric, LeaderboardReadScope.read(player, onlyMetric)); }
+            catch (RuntimeException exception) {
+                RankBoardMod.LOGGER.warn("Failed to read live {} statistic for {}", onlyMetric.command,
+                        player.getName().getString(), exception);
+                values.put(onlyMetric, 0L);
+            }
         } else {
             for (RankBoardMod.Metric metric : RankBoardMod.Metric.values()) {
                 try { values.put(metric, LeaderboardReadScope.read(player, metric)); }

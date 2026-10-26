@@ -2982,7 +2982,15 @@ public final class RankBoardMod implements ModInitializer {
         }
     }
 
-    private static long custom(ServerPlayer player, net.minecraft.resources.Identifier stat) { return player.getStats().getValue(Stats.CUSTOM.get(stat)); }
+    private static long custom(ServerPlayer player, net.minecraft.resources.Identifier stat) {
+        try {
+            var type = Stats.CUSTOM.get(stat);
+            return type == null ? 0L : player.getStats().getValue(type);
+        } catch (RuntimeException ignored) {
+            // Vanilla only registers the custom statistics that exist in this game version.
+            return 0L;
+        }
+    }
     private static long foodUsed(ServerPlayer player) { return StatReader.foodCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
     private static long mined(ServerPlayer player) { return StatReader.counterBlocks().stream().mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
     private static long placed(ServerPlayer player) { return StatReader.blockCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
@@ -2991,7 +2999,17 @@ public final class RankBoardMod implements ModInitializer {
     private static long crafted(ServerPlayer player) { return StatReader.counterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_CRAFTED.get(item))).sum(); }
     private static long redstonePlaced(ServerPlayer player) { return StatReader.redstoneCounterItems().stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
     private static long toolsBroken(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().mapToLong(item -> player.getStats().getValue(Stats.ITEM_BROKEN.get(item))).sum(); }
-    private static long travelDistance(ServerPlayer player) { return MetricCatalog.TRAVEL_CUSTOM_STATS.stream().mapToLong(id -> custom(player, net.minecraft.resources.Identifier.parse(id))).sum(); }
+    private static long travelDistance(ServerPlayer player) {
+        long total = 0L;
+        for (String id : MetricCatalog.TRAVEL_CUSTOM_STATS) {
+            try {
+                total += custom(player, net.minecraft.resources.Identifier.parse(id));
+            } catch (RuntimeException ignored) {
+                // Statistic introduced by a newer Minecraft version; ignore it here.
+            }
+        }
+        return total;
+    }
     private static long oresMined(ServerPlayer player) { return BuiltInRegistries.BLOCK.stream().filter(block -> MetricCatalog.ORE_BLOCKS.contains(BuiltInRegistries.BLOCK.getKey(block).toString())).mapToLong(block -> player.getStats().getValue(Stats.BLOCK_MINED.get(block))).sum(); }
     private static long totemsUsed(ServerPlayer player) { return BuiltInRegistries.ITEM.stream().filter(item -> BuiltInRegistries.ITEM.getKey(item).toString().equals("minecraft:totem_of_undying")).mapToLong(item -> player.getStats().getValue(Stats.ITEM_USED.get(item))).sum(); }
     private static long killedByMobs(ServerPlayer player) { return BuiltInRegistries.ENTITY_TYPE.stream().filter(type -> !BuiltInRegistries.ENTITY_TYPE.getKey(type).toString().equals("minecraft:player")).mapToLong(type -> player.getStats().getValue(Stats.ENTITY_KILLED_BY.get(type))).sum(); }
