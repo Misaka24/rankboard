@@ -51,6 +51,8 @@ public final class LeaderboardState extends PersistentState {
     private final Map<String, UUID> allowedPlayers = new LinkedHashMap<>();
     /** Players an operator explicitly classified as bots (shown only in the bot group). */
     private final Map<String, UUID> botPlayers = new LinkedHashMap<>();
+    /** When true the bot group is also listed together with normal players. */
+    private boolean botGroupMixed;
     private final Set<RankBoardMod.Metric> disabledDisplayMetrics = new HashSet<>();
     private final Set<UUID> nameColorDisabledPlayers = new HashSet<>();
     private final Set<UUID> lookMenuDisabledPlayers = new HashSet<>();
@@ -152,6 +154,7 @@ public final class LeaderboardState extends PersistentState {
         readPlayerFilters(nbt, "filteredPlayers", state.filteredPlayers);
         readPlayerFilters(nbt, "allowedPlayers", state.allowedPlayers);
         readPlayerFilters(nbt, "botPlayers", state.botPlayers);
+        if (nbt.contains("botGroupMixed")) state.botGroupMixed = NbtCompat.getBoolean(nbt, "botGroupMixed");
         for (NbtElement element : NbtCompat.getList(nbt, "disabledDisplayMetrics", NbtElement.STRING_TYPE)) {
             try { state.disabledDisplayMetrics.add(RankBoardMod.Metric.valueOf(NbtCompat.asString(element))); }
             catch (IllegalArgumentException ignored) { }
@@ -258,6 +261,7 @@ public final class LeaderboardState extends PersistentState {
         nbt.put("filteredPlayers", writePlayerFilters(filteredPlayers));
         nbt.put("allowedPlayers", writePlayerFilters(allowedPlayers));
         nbt.put("botPlayers", writePlayerFilters(botPlayers));
+        nbt.putBoolean("botGroupMixed", botGroupMixed);
         NbtList disabledMetrics = new NbtList();
         disabledDisplayMetrics.forEach(metric -> disabledMetrics.add(NbtString.of(metric.name())));
         nbt.put("disabledDisplayMetrics", disabledMetrics);
@@ -588,6 +592,13 @@ public final class LeaderboardState extends PersistentState {
         }
         return removed;
     }
+    public boolean isBotGroupMixed() { return botGroupMixed; }
+    public void setBotGroupMixed(boolean mixed) {
+        if (botGroupMixed != mixed) {
+            botGroupMixed = mixed;
+            markDirty();
+        }
+    }
     public boolean isMetricDisplayEnabled(RankBoardMod.Metric metric) {
         if (metric == RankBoardMod.Metric.BEDROCK_BROKEN && !RankBoardConfig.get().bedrockBreakLeaderboardEnabled) return false;
         return !disabledDisplayMetrics.contains(metric);
@@ -744,17 +755,12 @@ public final class LeaderboardState extends PersistentState {
         }
     }
 
-    public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
-        return range(server, from, to, metric, true);
-    }
-
     /**
      * Computes a range delta from the best available snapshots. Missing or partial
      * midnight boundaries are reported as warnings and replaced by the nearest
      * usable snapshot instead of failing the whole query.
      */
-    public RangeData range(MinecraftServer server, LocalDate from, LocalDate to,
-                           RankBoardMod.Metric metric, boolean allowPartialStart) {
+    public RangeData range(MinecraftServer server, LocalDate from, LocalDate to, RankBoardMod.Metric metric) {
         if (!StatReader.isReady()) throw new IllegalStateException("历史统计仍在权威扫描（" + StatReader.progress() + "）");
         if (to.isBefore(from)) throw new IllegalArgumentException("结束日期不能早于开始日期");
         LocalDate today = LocalDate.now();

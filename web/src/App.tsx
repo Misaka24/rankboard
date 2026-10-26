@@ -18,6 +18,7 @@ type Player = {
   lastOnline: number;
   online: boolean;
   bot?: boolean;
+  botType?: string;
   metrics?: Record<string, string>;
 };
 
@@ -32,6 +33,7 @@ type RankingResponse = {
   cacheTotal?: number;
   onlineOnly?: boolean;
   botsOnly?: boolean;
+  rate?: boolean;
   from?: string;
   to?: string;
   actualStart?: string;
@@ -74,31 +76,31 @@ const UI_TEXT: Record<Language, Record<string, string>> = {
     language: "中文", languageLabel: "Language", currentOnline: "当前在线", lastOnlineUnknown: "最后在线：未知", lastOnline: "最后在线",
     total: "总和", query: "查询", all: "总榜", day: "最近一日", week: "最近一周", month: "最近一月", quarter: "最近一季度", year: "最近一年", custom: "自定义日期",
     compact: "紧凑视图", tile: "平铺视图", detail: "详细视图", normal: "普通视图", layoutMode: "布局", switchServer: "服务器切换", current: "当前", switch: "切换", offline: "离线",
-    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", actualRange: "实际范围", metricCategory: "榜单分类", downloadMod: "下载模组", sourceCode: "查看源码",
+    statisticsPeriod: "统计周期", onlineOnly: "仅显示当前在线玩家", botsOnly: "机器人分组", botBadge: "BOT", botRate: "每小时", actualRange: "实际范围", metricCategory: "榜单分类", sourceCode: "查看源码",
     searchPlayer: "搜索玩家", enterPlayerName: "输入玩家名称", export: "导出表格", exportTitle: "导出当前筛选结果为 CSV 表格", copyIdentity: "点击复制玩家名称和 UUID", copied: "已复制玩家名称和 UUID",
     startDate: "开始日期", endDate: "结束日期", earliest: "最早可查", backgroundCheck: "后台校验", loading: "正在读取服务器排行榜...",
     noPlayers: "当前筛选下没有可显示的玩家。", partial: "部分统计", incompleteRange: "统计范围缺少完整边界",
     historySync: "历史统计同步", onlyOnline: "仅在线玩家", rank: "排名", playerName: "玩家名称", uuid: "UUID", value: "数值",
-    serverIcon: "服务器图标", websiteAria: "RankBoard 模组链接", allMetrics: "的全部榜单数值", noMetric: "无可用榜单",
+    serverIcon: "服务器图标", allMetrics: "的全部榜单数值", noMetric: "无可用榜单",
     playtimeDetail: "活跃度", afkDetail: "摸鱼", breedingDetail: "繁殖", bedrockDetail: "基岩", foodDetail: "食物", jumpsDetail: "移动", minedDetail: "资源", placedDetail: "建造",
     killsDetail: "战斗", pvpDetail: "玩家对战", deathsDetail: "生存", tradesDetail: "经济", elytraDetail: "探索",
     fishingDetail: "休闲", damageDetail: "生存", dealtDetail: "战斗", droppedDetail: "物品", pickedDetail: "物品",
-    craftedDetail: "制造", redstoneDetail: "红石", modTitle: "RankBoard排行榜模组"
+    craftedDetail: "制造", redstoneDetail: "红石"
   },
   en: {
     language: "English", languageLabel: "Language", currentOnline: "Online now", lastOnlineUnknown: "Last online: unknown", lastOnline: "Last online",
     total: "Total", query: "Query", all: "All time", day: "Last day", week: "Last week", month: "Last month", quarter: "Last quarter", year: "Last year", custom: "Custom dates",
     compact: "Compact view", tile: "Tile view", detail: "Detailed view", normal: "Normal view", layoutMode: "Layout", switchServer: "Server switcher", current: "Current", switch: "Switch", offline: "Offline",
-    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", actualRange: "actual range", metricCategory: "Leaderboards", downloadMod: "Download mod", sourceCode: "View source",
+    statisticsPeriod: "Statistics period", onlineOnly: "Show online players only", botsOnly: "Bot group", botBadge: "BOT", botRate: "Per hour", actualRange: "actual range", metricCategory: "Leaderboards", sourceCode: "View source",
     searchPlayer: "Search players", enterPlayerName: "Enter a player name", export: "Export table", exportTitle: "Export the filtered result as a CSV table", copyIdentity: "Click to copy player name and UUID", copied: "Player name and UUID copied",
     startDate: "Start date", endDate: "End date", earliest: "Earliest available", backgroundCheck: "Background verification", loading: "Loading server leaderboard...",
     noPlayers: "No players are available for the current filters.", partial: "Partial statistics", incompleteRange: "The selected range has incomplete boundaries",
     historySync: "History synchronized", onlyOnline: "Online players only", rank: "Rank", playerName: "Player name", uuid: "UUID", value: "Value",
-    serverIcon: "Server icon", websiteAria: "RankBoard mod links", allMetrics: "'s leaderboard values", noMetric: "No available leaderboard",
+    serverIcon: "Server icon", allMetrics: "'s leaderboard values", noMetric: "No available leaderboard",
     playtimeDetail: "Activity", afkDetail: "AFK", breedingDetail: "Breeding", bedrockDetail: "Bedrock", foodDetail: "Food", jumpsDetail: "Movement", minedDetail: "Resources", placedDetail: "Building",
     killsDetail: "Combat", pvpDetail: "Player combat", deathsDetail: "Survival", tradesDetail: "Economy", elytraDetail: "Exploration",
     fishingDetail: "Leisure", damageDetail: "Survival", dealtDetail: "Combat", droppedDetail: "Items", pickedDetail: "Items",
-    craftedDetail: "Crafting", redstoneDetail: "Redstone", modTitle: "RankBoard Leaderboard Mod"
+    craftedDetail: "Crafting", redstoneDetail: "Redstone"
   }
 };
 
@@ -110,6 +112,19 @@ const METRIC_TEXT: Record<string, { zh: string; en: string }> = {
   dealt: { zh: "输出榜", en: "Damage dealt" }, dropped: { zh: "丢垃圾榜", en: "Dropped items" }, picked: { zh: "拾荒榜", en: "Picked items" },
   crafted: { zh: "合成榜", en: "Crafted items" }, redstone: { zh: "红石大蛇榜", en: "Redstone builder" }
 };
+
+const BOT_TYPE_TEXT: Record<string, { zh: string; en: string }> = {
+  combat: { zh: "攻击", en: "Combat" },
+  afk: { zh: "挂机", en: "AFK" },
+  click: { zh: "点击", en: "Clicker" },
+  farm: { zh: "农民", en: "Farmer" },
+  explore: { zh: "探索", en: "Explorer" },
+  mixed: { zh: "混合", en: "Mixed" }
+};
+
+function botTypeLabel(type: string | undefined, language: Language) {
+  return type ? BOT_TYPE_TEXT[type]?.[language] ?? type : "";
+}
 
 const defaultTheme: SiteTheme = {
   followIcon: true,
@@ -356,6 +371,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [botsOnly, setBotsOnly] = useState(false);
+  const [botRate, setBotRate] = useState(false);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [serverName, setServerName] = useState("Minecraft Server");
@@ -396,7 +412,7 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), bots: String(botsOnly), compact: String(compactMode || tileMode) });
+        const params = new URLSearchParams({ period, metric, online: String(onlineOnly), bots: String(botsOnly), rate: String(botsOnly && botRate), compact: String(compactMode || tileMode) });
         if (period === "custom") {
           params.set("from", from);
           params.set("to", to);
@@ -429,7 +445,7 @@ export default function App() {
       window.clearTimeout(timer);
       window.clearInterval(interval);
     };
-  }, [period, metric, onlineOnly, botsOnly, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
+  }, [period, metric, onlineOnly, botsOnly, botRate, from, to, layoutMode, compactMode, tileMode, rankingRefreshIntervalSeconds, language]);
 
   useEffect(() => {
     localStorage.setItem("rankboard-layout-mode", layoutMode);
@@ -658,6 +674,7 @@ export default function App() {
     </>
   );
 
+  const listOnly = Boolean(ranking?.rate);
   const viewOptions: Array<{ id: "tile" | "compact" | "normal"; label: string; Icon: typeof Table2 }> = [
     { id: "tile", label: text.detail, Icon: Table2 },
     { id: "compact", label: text.compact, Icon: Rows3 },
@@ -720,6 +737,12 @@ export default function App() {
             <input type="checkbox" checked={botsOnly} onChange={(event) => setBotsOnly(event.target.checked)} />
             <span>{text.botsOnly}</span>
           </label>
+          {botsOnly && (
+            <label className={botRate ? "online-toggle top-online-toggle selected" : "online-toggle top-online-toggle"}>
+              <input type="checkbox" checked={botRate} onChange={(event) => setBotRate(event.target.checked)} />
+              <span>{text.botRate}</span>
+            </label>
+          )}
           <a className="top-repo-link" href="https://github.com/Misaka24/rankboard" target="_blank" rel="noreferrer" title={text.sourceCode}>
             <Github aria-hidden="true" />
             <span>Misaka24/rankboard</span>
@@ -762,7 +785,7 @@ export default function App() {
             </label>
             <div className="total-block">
               <span>{text.total}</span>
-              <strong>{ranking?.formattedTotal ?? "--"}</strong>
+              <strong>{ranking?.rate ? "—" : ranking?.formattedTotal ?? "--"}</strong>
             </div>
             <button className="export-button" type="button" onClick={exportTable}
               disabled={!ranking || visiblePlayers.length === 0} title={text.exportTitle}>
@@ -786,7 +809,7 @@ export default function App() {
                   ? `${ranking.actualStart} – ${ranking.actualEnd}${ranking.actualStart !== ranking.from || ranking.actualEnd !== ranking.to ? ` (${text.actualRange})` : ""}`
                   : periodLabel(period, language)}
               </p>
-              <h1>{metricLabel(activeMetric, language)}</h1>
+              <h1>{metricLabel(activeMetric, language)}{ranking?.rate ? ` · ${text.botRate}` : ""}</h1>
             </div>
             {ranking?.cacheChecking && (
               <p className="sync-note">{text.backgroundCheck} {ranking.cacheProcessed}/{ranking.cacheTotal}</p>
@@ -801,7 +824,7 @@ export default function App() {
             </div>
           )}
 
-          {!loading && !error && visiblePlayers.length > 0 && tileMode && (
+          {!loading && !error && visiblePlayers.length > 0 && tileMode && !listOnly && (
             <>
               <div
                 className="tile-table-scrollbar"
@@ -836,7 +859,7 @@ export default function App() {
                     <tr key={player.uuid}>
                       <td className="tile-rank">{String(player.rank).padStart(2, "0")}</td>
                       <td>
-                        <div className="tile-player"><PlayerAvatar player={player} language={language} onCopy={() => copyIdentity(player)} copyTitle={identityTitle(player)} /><span title={identityTitle(player)}>{player.name}</span>{player.bot && <span className="bot-badge">{text.botBadge}</span>}</div>
+                        <div className="tile-player"><PlayerAvatar player={player} language={language} onCopy={() => copyIdentity(player)} copyTitle={identityTitle(player)} /><span title={identityTitle(player)}>{player.name}</span>{player.bot && <span className="bot-badge">{text.botBadge}{player.botType ? `·${botTypeLabel(player.botType, language)}` : ""}</span>}</div>
                       </td>
                       <td><LastOnline player={player} language={language} /></td>
                       {metrics.map((item) => {
@@ -856,11 +879,11 @@ export default function App() {
             </>
           )}
 
-          {!tileMode && <div className={compactMode ? "ranking-list compact-list" : "ranking-list"}>
+          {(!tileMode || listOnly) && <div className={compactMode && !listOnly ? "ranking-list compact-list" : "ranking-list"}>
             {!loading && !error && visiblePlayers.length === 0 && (
               <div className="notice glass">{text.noPlayers}</div>
             )}
-            {visiblePlayers.map((player) => compactMode ? (
+            {visiblePlayers.map((player) => compactMode && !listOnly ? (
               <article className="ranking-card compact-card glass" key={player.uuid}>
                 <div className="compact-player">
                   <span className="rank-number">{String(player.rank).padStart(2, "0")}</span>
@@ -868,7 +891,7 @@ export default function App() {
                   <div className="player-info">
                     <div className="player-heading">
                       <h2 title={identityTitle(player)}>{player.name}</h2>
-                      {player.bot && <span className="bot-badge">{text.botBadge}</span>}
+                      {player.bot && <span className="bot-badge">{text.botBadge}{player.botType ? `·${botTypeLabel(player.botType, language)}` : ""}</span>}
                       <LastOnline player={player} language={language} />
                     </div>
                   </div>
@@ -894,7 +917,7 @@ export default function App() {
                 <div className="player-info">
                   <div className="player-heading">
                     <h2 title={identityTitle(player)}>{player.name}</h2>
-                    {player.bot && <span className="bot-badge">{text.botBadge}</span>}
+                    {player.bot && <span className="bot-badge">{text.botBadge}{player.botType ? `·${botTypeLabel(player.botType, language)}` : ""}</span>}
                     <LastOnline player={player} language={language} />
                   </div>
                   <p><span>{metricDetail(activeMetric, language)}</span></p>
@@ -903,7 +926,7 @@ export default function App() {
               </article>
             ))}
           </div>}
-          {tileMode && !loading && !error && visiblePlayers.length === 0 && <div className="notice glass">{text.noPlayers}</div>}
+          {tileMode && !listOnly && !loading && !error && visiblePlayers.length === 0 && <div className="notice glass">{text.noPlayers}</div>}
         </section>
       </main>
     </div>

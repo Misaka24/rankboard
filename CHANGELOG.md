@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0
+
+- 机器人行为类型：按主要统计自动标记攻击型、挂机型、点击型、农民型、探索型或混合型，游戏内机器人榜/名单与网页徽标显示。
+- 机器人效率榜：`/leaderboard bots rate <周期> <榜单>` 按在线时长归一化，输出每小时击杀、放置、挖掘等；网页机器人视图增加“每小时”开关。
+- 机器人混合显示：`/leaderboard botgroup mixed <true|false>` 可让机器人同时进入普通聊天榜、侧边栏与网页，并保留 `[BOT]` 标记；默认关闭。
+- 网页机器人视图增加 `BOT·类型` 徽标、`rate=true` 接口与效率模式（自动切换为单列列表）。
+- 清理：移除 `botgroup status`（名单已含类型与数量）、无用的网页底部 CSS、`range` 多余参数与重复的机器人汇总行。
+
 ## 2.2.0
 
 - 新增机器人分组：`/leaderboard botgroup add|remove|list|clear|status` 可把任意玩家（如 Carpet 假人）移入机器人分组；普通榜单隐藏，`/leaderboard bots <周期> <榜单>` 单独显示并标记 `[BOT]`。

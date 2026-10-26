@@ -494,11 +494,12 @@ final class WebDashboard {
             boolean onlineOnly = Boolean.parseBoolean(query.getOrDefault("online", "false"));
             boolean compact = Boolean.parseBoolean(query.getOrDefault("compact", "false"));
             boolean botsOnly = Boolean.parseBoolean(query.getOrDefault("bots", "false"));
+            boolean rate = botsOnly && Boolean.parseBoolean(query.getOrDefault("rate", "false"));
             CompletableFuture<String> result = new CompletableFuture<>();
             MinecraftServer server = minecraft;
             if (server == null) throw new IllegalStateException("服务器尚未启动");
             server.execute(() -> {
-                try { result.complete(buildRanking(server, period, from, to, metric, onlineOnly, compact, botsOnly)); }
+                try { result.complete(buildRanking(server, period, from, to, metric, onlineOnly, compact, botsOnly, rate)); }
                 catch (Exception exception) { result.completeExceptionally(exception); }
             });
             String body = result.get(15, TimeUnit.SECONDS);
@@ -514,7 +515,7 @@ final class WebDashboard {
 
     private static String buildRanking(MinecraftServer server, String period, LocalDate from, LocalDate to,
                                        RankBoardMod.Metric metric, boolean requestOnlineOnly,
-                                       boolean compact, boolean botsOnly) {
+                                       boolean compact, boolean botsOnly, boolean rate) {
         LeaderboardState state = LeaderboardState.get(server);
         if (!state.isMetricDisplayEnabled(metric)) {
             throw new IllegalArgumentException(metric.label() + " 已被 OP 禁止显示");
@@ -522,13 +523,56 @@ final class WebDashboard {
         boolean effectiveOnlineOnly = requestOnlineOnly || state.isOnlineOnly();
         boolean scanning = !StatReader.isReady();
         List<WebEntry> entries = new ArrayList<>();
+        Map<UUID, BotProfile.Type> botTypes = new HashMap<>();
+        Map<UUID, StatSnapshot> snapshots = null;
+        if (botsOnly) {
+            snapshots = new HashMap<>();
+            for (StatSnapshot snapshot : StatReader.readAll(server)) {
+                snapshots.put(snapshot.uuid(), snapshot);
+                botTypes.put(snapshot.uuid(), RankBoardMod.botType(snapshot));
+            }
+        }
         String actualStart;
         String actualEnd;
         boolean complete = !scanning;
         List<String> warnings = scanning
                 ? new ArrayList<>(List.of("权威扫描进行中（" + StatReader.progress() + "），当前为缓存预览"))
                 : new ArrayList<>();
-        if (period.equals("all")) {
+        if (botsOnly && rate) {
+            if (scanning) {
+                throw new IllegalStateException("历史统计仍在权威扫描（" + StatReader.progress()
+                        + "），周期榜和日期范围榜暂不可用");
+            }
+            Map<UUID, Long> actions = new HashMap<>();
+            Map<UUID, Long> times = new HashMap<>();
+            if (period.equals("all")) {
+                for (StatSnapshot snapshot : snapshots.values()) {
+                    actions.put(snapshot.uuid(), snapshot.value(metric));
+                    times.put(snapshot.uuid(), snapshot.value(RankBoardMod.Metric.PLAY_TIME));
+                }
+                actualStart = "原版统计起始";
+                actualEnd = LocalDate.now().toString();
+            } else {
+                LeaderboardState.RangeData range = state.range(server, from, to, metric);
+                LeaderboardState.RangeData timeRange = state.range(server, from, to, RankBoardMod.Metric.PLAY_TIME);
+                complete = complete && range.complete() && timeRange.complete();
+                warnings.addAll(range.warnings());
+                actions.putAll(range.values());
+                times.putAll(timeRange.values());
+                actualStart = range.actualStart().toString();
+                actualEnd = range.actualEnd().toString();
+            }
+            for (Map.Entry<UUID, Long> action : actions.entrySet()) {
+                UUID uuid = action.getKey();
+                StatSnapshot snapshot = snapshots.get(uuid);
+                if (snapshot == null || !isBotVisible(server, state, uuid, snapshot.name(), effectiveOnlineOnly)) continue;
+                Long time = times.get(uuid);
+                if (time == null || time <= 0L) continue;
+                double hours = time / 72000.0;
+                long scaled = Math.round(action.getValue() / hours * 100.0);
+                entries.add(new WebEntry(uuid, snapshot.name(), scaled, true));
+            }
+        } else if (period.equals("all")) {
             StatReader.readAll(server, compact ? null : metric).forEach(snapshot -> {
                 String name = snapshot.name();
                 boolean included = botsOnly
@@ -546,7 +590,7 @@ final class WebDashboard {
                 throw new IllegalStateException("历史统计仍在权威扫描（" + StatReader.progress()
                         + "），周期榜和日期范围榜暂不可用");
             }
-            LeaderboardState.RangeData range = state.range(server, from, to, metric, true);
+            LeaderboardState.RangeData range = state.range(server, from, to, metric);
             complete = complete && range.complete();
             warnings.addAll(range.warnings());
             Map<UUID, String> names = new HashMap<>();
@@ -564,7 +608,7 @@ final class WebDashboard {
             actualEnd = range.actualEnd().toString();
         }
         entries.sort(Comparator.comparingLong(WebEntry::value).reversed().thenComparing(WebEntry::name));
-        Map<UUID, Map<RankBoardMod.Metric, Long>> compactValues = compact
+        Map<UUID, Map<RankBoardMod.Metric, Long>> compactValues = compact && !rate
                 ? compactValues(server, state, period, from, to, effectiveOnlineOnly, botsOnly, entries) : Map.of();
         long total = entries.stream().map(entry -> new RankBoardMod.Entry(entry.uuid, entry.name, entry.value)).collect(
                 java.util.stream.Collectors.collectingAndThen(java.util.stream.Collectors.toList(), RankBoardMod::total));
@@ -576,6 +620,7 @@ final class WebDashboard {
         root.addProperty("cacheTotal", StatReader.totalFiles());
         root.addProperty("onlineOnly", effectiveOnlineOnly);
         root.addProperty("botsOnly", botsOnly);
+        root.addProperty("rate", rate);
         root.addProperty("period", period);
         root.addProperty("from", from.toString()); root.addProperty("to", to.toString());
         root.addProperty("actualStart", actualStart); root.addProperty("actualEnd", actualEnd);
@@ -585,15 +630,18 @@ final class WebDashboard {
         warnings.forEach(warningArray::add);
         root.add("warnings", warningArray);
         root.addProperty("metric", metric.command); root.addProperty("label", metric.label());
-        root.addProperty("total", total); root.addProperty("formattedTotal", formatWeb(metric, total));
+        root.addProperty("total", total);
+        root.addProperty("formattedTotal", rate ? RankBoardMod.formatRate(total) : formatWeb(metric, total));
         JsonArray players = new JsonArray();
         for (int i = 0; i < entries.size(); i++) {
             WebEntry entry = entries.get(i); JsonObject player = new JsonObject();
             player.addProperty("rank", i + 1); player.addProperty("uuid", entry.uuid.toString());
             player.addProperty("name", entry.name); player.addProperty("value", entry.value);
-            player.addProperty("formatted", formatWeb(metric, entry.value));
+            player.addProperty("formatted", rate ? RankBoardMod.formatRate(entry.value) : formatWeb(metric, entry.value));
             player.addProperty("bot", entry.bot);
-            if (compact) {
+            BotProfile.Type type = botTypes.get(entry.uuid);
+            if (botsOnly && type != null) player.addProperty("botType", type.id);
+            if (compact && !rate) {
                 JsonObject values = new JsonObject();
                 Map<RankBoardMod.Metric, Long> playerValues = compactValues.getOrDefault(entry.uuid, Map.of());
                 for (RankBoardMod.Metric item : RankBoardMod.Metric.values()) {
